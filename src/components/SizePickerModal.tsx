@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { calculateImageSize, normalizeImageSize, parseRatio, type SizeTier } from '../lib/size'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
+import { useStore } from '../store'
+import { getActiveApiProfile } from '../lib/apiProfiles'
 import ViewportTooltip from './ViewportTooltip'
 
 const TIERS: SizeTier[] = ['1K', '2K', '4K']
-const SIZE_LIMIT_TEXT = '由于模型限制，最终输出会自动规整到合法尺寸：宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
+function getLimitText(isGemini: boolean) {
+  const maxEdge = isGemini ? 8192 : 3840
+  return `由于模型限制，最终输出会自动规整到合法尺寸：宽高均为 16 的倍数，最大边长 ${maxEdge}px，宽高比不超过 3:1，总像素限制为 655360-${isGemini ? '20000000' : '8294400'}。`
+}
 const RATIOS = [
   { label: '1:1', value: '1:1' },
   { label: '3:2', value: '3:2' },
@@ -31,11 +36,11 @@ function parseSize(size: string) {
   return { width: match[1], height: match[2] }
 }
 
-function findPresetForSize(size: string) {
-  const normalized = normalizeImageSize(size)
+function findPresetForSize(size: string, isGemini: boolean) {
+  const normalized = normalizeImageSize(size, isGemini)
   for (const tier of TIERS) {
     for (const ratio of RATIOS) {
-      if (calculateImageSize(tier, ratio.value) === normalized) {
+      if (calculateImageSize(tier, ratio.value, isGemini) === normalized) {
         return { tier, ratio: ratio.value }
       }
     }
@@ -46,7 +51,12 @@ function findPresetForSize(size: string) {
 export default function SizePickerModal({ currentSize, onSelect, onClose, allowAuto = true }: Props) {
   usePreventBackgroundScroll(true)
 
-  const currentPreset = findPresetForSize(currentSize)
+  const settings = useStore((s) => s.settings)
+  const activeProfile = getActiveApiProfile(settings)
+  const isGemini = activeProfile.model.includes('gemini')
+  const SIZE_LIMIT_TEXT = getLimitText(isGemini)
+
+  const currentPreset = findPresetForSize(currentSize, isGemini)
   const currentParsedSize = parseSize(currentSize)
   const [mode, setMode] = useState<Mode>(() => {
     if (!currentSize || currentSize === 'auto') return allowAuto ? 'auto' : 'ratio'
@@ -83,15 +93,15 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
     if (mode === 'auto') return 'auto'
     
     if (mode === 'ratio') {
-      const size = calculateImageSize(tier, activeRatio)
-      return size ? normalizeImageSize(size) : ''
+      const size = calculateImageSize(tier, activeRatio, isGemini)
+      return size ? normalizeImageSize(size, isGemini) : ''
     }
     
     if (mode === 'resolution') {
       const w = parseInt(customW, 10)
       const h = parseInt(customH, 10)
       if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
-        return normalizeImageSize(`${w}x${h}`)
+        return normalizeImageSize(`${w}x${h}`, isGemini)
       }
       return ''
     }
@@ -282,14 +292,16 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
                     </label>
                   </div>
                 </section>
-                <div className="rounded-xl border border-gray-200/80 bg-gray-50/80 p-3 text-xs text-gray-600 dark:border-white/[0.05] dark:bg-white/[0.02] dark:text-gray-400">
-                  <p className="flex items-start gap-1.5">
-                    <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span>{SIZE_LIMIT_TEXT}</span>
-                  </p>
-                </div>
+                {!isGemini && (
+                  <div className="rounded-xl border border-gray-200/80 bg-gray-50/80 p-3 text-xs text-gray-600 dark:border-white/[0.05] dark:bg-white/[0.02] dark:text-gray-400">
+                    <p className="flex items-start gap-1.5">
+                      <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span>{SIZE_LIMIT_TEXT}</span>
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -300,7 +312,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
               <span className="font-mono text-lg font-semibold text-gray-800 dark:text-gray-100">
                 {previewSize || '尺寸无效'}
               </span>
-              {isClamped && (
+              {!isGemini && isClamped && (
                 <div
                   className="relative flex items-center"
                   onMouseEnter={showHint}

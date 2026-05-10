@@ -17,6 +17,7 @@ import {
   normalizeBase64Image,
   pickActualParams,
 } from './imageApiShared'
+import { getGeminiParamsFromSize } from './size'
 
 const PROMPT_REWRITE_GUARD_PREFIX = 'Use the following text as the complete prompt. Do not rewrite it:'
 
@@ -106,6 +107,27 @@ function createResponsesImageTool(
   if (maskDataUrl) {
     tool.input_image_mask = {
       image_url: maskDataUrl,
+    }
+  }
+
+  if (isGemini) {
+    const geminiParams = getGeminiParamsFromSize(params.size)
+    if (geminiParams) {
+      const gp = {
+        aspect_ratio: geminiParams.aspect_ratio,
+        image_size: geminiParams.image_size,
+        aspectRatio: geminiParams.aspect_ratio,
+        imageSize: geminiParams.image_size,
+      }
+      Object.assign(tool, gp)
+      tool.imageConfig = {
+        aspectRatio: geminiParams.aspect_ratio,
+        imageSize: geminiParams.image_size
+      }
+      tool.image_config = {
+        aspect_ratio: geminiParams.aspect_ratio,
+        image_size: geminiParams.image_size
+      }
     }
   }
 
@@ -285,6 +307,97 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
   try {
     let response: Response
 
+    const isGemini = profile.model.startsWith('gemini-')
+
+    if (isGemini) {
+      const geminiPath = `v1beta/models/${profile.model}:generateContent`
+      
+      let base = profile.baseUrl.trim().replace(/\/+$/, '')
+      if (!base.startsWith('http')) {
+        base = `https://${base}`
+      }
+      base = base.replace(/\/v1$/, '')
+      
+      if (useApiProxy) {
+        base = proxyConfig?.prefix ?? '/api-proxy'
+      }
+      
+      const endpointUrl = `${base}/${geminiPath}`
+      const urlWithKey = appendQuery(endpointUrl, { key: profile.apiKey })
+
+      const parts: any[] = [{ text: prompt }]
+      for (const dataUrl of inputImageDataUrls) {
+         const [meta, b64] = dataUrl.split(',')
+         const mimeType = meta.match(/:(.*?);/)?.[1] || 'image/png'
+         parts.push({
+           inlineData: {
+             mimeType,
+             data: b64
+           }
+         })
+      }
+
+      const geminiParams = getGeminiParamsFromSize(params.size)
+      const body: any = {
+        contents: [{
+          role: "user",
+          parts
+        }],
+        generationConfig: {
+          responseModalities: ["IMAGE"],
+          ...(geminiParams && {
+            imageConfig: {
+              aspectRatio: geminiParams.aspect_ratio,
+              imageSize: geminiParams.image_size
+            }
+          })
+        }
+      }
+
+      response = await fetch(urlWithKey, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${profile.apiKey}`
+        },
+        cache: 'no-store',
+        body: JSON.stringify(body),
+        signal: controller.signal
+      })
+
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response))
+      }
+
+      const payload = await response.json()
+      const images: string[] = []
+      const candidates = payload.candidates || []
+      for (const candidate of candidates) {
+        const cParts = candidate.content?.parts || []
+        for (const part of cParts) {
+          if (part.inlineData && part.inlineData.data) {
+             const b64 = part.inlineData.data
+             const mimeType = part.inlineData.mimeType || 'image/png'
+             images.push(`data:${mimeType};base64,${b64}`)
+          }
+        }
+      }
+
+      if (!images.length) {
+         const err = new Error('Gemini 接口没有返回图片数据')
+         ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
+         throw err
+      }
+
+      const actualParams = mergeActualParams(pickActualParams(payload))
+      return {
+        images,
+        actualParams,
+        actualParamsList: images.map(() => actualParams),
+        revisedPrompts: images.map(() => undefined),
+      }
+    }
+
     if (isEdit) {
       const formData = new FormData()
       formData.append('model', profile.model)
@@ -292,6 +405,13 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       formData.append('size', params.size)
       formData.append('output_format', params.output_format)
       formData.append('moderation', params.moderation)
+
+      const isGemini = profile.model.toLowerCase().includes('gemini')
+      const geminiParams = isGemini ? getGeminiParamsFromSize(params.size) : null
+      if (geminiParams) {
+        formData.append('aspect_ratio', geminiParams.aspect_ratio!)
+        formData.append('image_size', geminiParams.image_size!)
+      }
 
       if (!profile.codexCli) {
         formData.append('quality', params.quality)
@@ -343,15 +463,45 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         signal: controller.signal,
       })
     } else {
+      const isGemini = profile.model.toLowerCase().includes('gemini')
+      const geminiParams = isGemini ? getGeminiParamsFromSize(params.size) : null
+
       const body: Record<string, unknown> = {
         model: profile.model,
         prompt,
-        size: params.size,
         output_format: params.output_format,
         moderation: params.moderation,
       }
 
-      if (!profile.codexCli) {
+      if (geminiParams) {
+        const gp = {
+          aspect_ratio: geminiParams.aspect_ratio,
+          image_size: geminiParams.image_size,
+          aspectRatio: geminiParams.aspect_ratio,
+          imageSize: geminiParams.image_size,
+        }
+        const imageConfig = {
+          aspectRatio: geminiParams.aspect_ratio,
+          imageSize: geminiParams.image_size
+        }
+        const image_config = {
+          aspect_ratio: geminiParams.aspect_ratio,
+          image_size: geminiParams.image_size
+        }
+
+        Object.assign(body, gp)
+        body.imageConfig = imageConfig
+        body.image_config = image_config
+        
+        // Wrap in common proxy envelopes
+        body.extra_body = { ...gp, imageConfig, image_config }
+        body.parameters = { ...gp, imageConfig, image_config }
+        body.provider_params = { ...gp, imageConfig, image_config }
+      } else {
+        body.size = params.size
+      }
+
+      if (!profile.codexCli && !isGemini) {
         body.quality = params.quality
       }
 
@@ -413,6 +563,11 @@ function isRecoverablePollingError(err: unknown): boolean {
   if (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError') return true
   const message = err instanceof Error ? err.message : String(err)
   return /abort|network|failed to fetch|fetch failed|load failed|timeout|连接|断开|中断/i.test(message)
+}
+
+function getLimitText(isGemini: boolean) {
+  const maxEdge = isGemini ? 8192 : 3840
+  return `由于模型限制，最终输出会自动规整到合法尺寸：宽高均为 16 的倍数，最大边长 ${maxEdge}px，宽高比不超过 3:1，总像素限制为 655360-${isGemini ? '20000000' : '8294400'}。`
 }
 
 function isRetryablePollingStatus(status: number): boolean {

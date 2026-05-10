@@ -16,10 +16,11 @@ export function normalizeParamsForSettings(
   options: { hasInputImages?: boolean } = {},
 ): TaskParams {
   const activeProfile = getActiveApiProfile(settings)
+  const isGemini = activeProfile.model.toLowerCase().includes('gemini')
   const outputImageLimit = getOutputImageLimitForSettings(settings)
   const nextParams: TaskParams = {
     ...params,
-    size: normalizeImageSize(params.size) || DEFAULT_PARAMS.size,
+    size: normalizeImageSize(params.size, isGemini) || DEFAULT_PARAMS.size,
     n: Math.min(outputImageLimit, Math.max(1, params.n || DEFAULT_PARAMS.n)),
   }
 

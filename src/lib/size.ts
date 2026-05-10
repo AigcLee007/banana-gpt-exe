@@ -20,7 +20,9 @@ function ceilToMultiple(value: number, multiple: number) {
   return Math.max(multiple, Math.ceil(value / multiple) * multiple)
 }
 
-function normalizeDimensions(width: number, height: number) {
+function normalizeDimensions(width: number, height: number, isGemini?: boolean) {
+  const maxEdge = isGemini ? 8192 : 3840
+  const maxPixels = isGemini ? 20000000 : 8294400 // Gemini allows up to ~17.5M in the table
   let normalizedWidth = roundToMultiple(width, SIZE_MULTIPLE)
   let normalizedHeight = roundToMultiple(height, SIZE_MULTIPLE)
 
@@ -35,9 +37,9 @@ function normalizeDimensions(width: number, height: number) {
   }
 
   for (let i = 0; i < 4; i++) {
-    const maxEdge = Math.max(normalizedWidth, normalizedHeight)
-    if (maxEdge > MAX_EDGE) {
-      scaleToFit(MAX_EDGE / maxEdge)
+    const currentMaxEdge = Math.max(normalizedWidth, normalizedHeight)
+    if (currentMaxEdge > maxEdge) {
+      scaleToFit(maxEdge / currentMaxEdge)
     }
 
     if (normalizedWidth / normalizedHeight > MAX_ASPECT_RATIO) {
@@ -47,8 +49,8 @@ function normalizeDimensions(width: number, height: number) {
     }
 
     const pixels = normalizedWidth * normalizedHeight
-    if (pixels > MAX_PIXELS) {
-      scaleToFit(Math.sqrt(MAX_PIXELS / pixels))
+    if (pixels > maxPixels) {
+      scaleToFit(Math.sqrt(maxPixels / pixels))
     } else if (pixels < MIN_PIXELS) {
       scaleToFill(Math.sqrt(MIN_PIXELS / pixels))
     }
@@ -57,12 +59,12 @@ function normalizeDimensions(width: number, height: number) {
   return { width: normalizedWidth, height: normalizedHeight }
 }
 
-export function normalizeImageSize(size: string) {
+export function normalizeImageSize(size: string, isGemini?: boolean) {
   const trimmed = size.trim()
   const match = trimmed.match(SIZE_PATTERN)
   if (!match) return trimmed
 
-  const { width, height } = normalizeDimensions(Number(match[1]), Number(match[2]))
+  const { width, height } = normalizeDimensions(Number(match[1]), Number(match[2]), isGemini)
   return `${width}x${height}`
 }
 
@@ -149,33 +151,59 @@ export function formatImageRatio(width: number, height: number) {
   return friendlyNearest && friendlyNearest.delta <= 0.04 ? `≈${friendlyNearest.label}` : simplified
 }
 
-export function calculateImageSize(tier: SizeTier, ratio: string) {
+const GEMINI_SIZE_TABLE: Record<string, Record<SizeTier, [number, number]>> = {
+  '1:1': { '1K': [1024, 1024], '2K': [2048, 2048], '4K': [4096, 4096] },
+  '9:16': { '1K': [768, 1376], '2K': [1536, 2752], '4K': [3072, 5504] },
+  '2:3': { '1K': [848, 1264], '2K': [1696, 2528], '4K': [3392, 5056] },
+  '3:2': { '1K': [1264, 848], '2K': [2528, 1696], '4K': [5056, 3392] },
+  '4:5': { '1K': [928, 1152], '2K': [1856, 2304], '4K': [3712, 4608] },
+  '5:4': { '1K': [1152, 928], '2K': [2304, 1856], '4K': [4608, 3712] },
+  '16:9': { '1K': [1376, 768], '2K': [2752, 1536], '4K': [5504, 3072] },
+  '21:9': { '1K': [1584, 672], '2K': [3168, 1344], '4K': [6336, 2688] },
+}
+
+export function getGeminiParamsFromSize(size: string): { aspect_ratio?: string, image_size?: string } | null {
+  for (const [ratio, tiers] of Object.entries(GEMINI_SIZE_TABLE)) {
+    for (const [tier, [w, h]] of Object.entries(tiers)) {
+      if (`${w}x${h}` === size) {
+        return { aspect_ratio: ratio, image_size: tier as SizeTier }
+      }
+    }
+  }
+  return null
+}
+
+export function calculateImageSize(tier: SizeTier, ratio: string, isGemini?: boolean) {
+  if (isGemini) {
+    const table = GEMINI_SIZE_TABLE[ratio]
+    if (table) {
+      const [w, h] = table[tier]
+      return `${w}x${h}`
+    }
+  }
+
   const parsed = parseRatio(ratio)
   if (!parsed) return null
 
   const { width: ratioWidth, height: ratioHeight } = parsed
-  if (ratioWidth === ratioHeight) {
-    const side = tier === '1K' ? 1024 : tier === '2K' ? 2048 : 3840
-    return normalizeImageSize(`${side}x${side}`)
+
+  if (isGemini) {
+    const areaBenchmark = tier === '1K' ? 1048576 : tier === '2K' ? 4194304 : 16777216
+    const r = ratioWidth / ratioHeight
+    const width = roundToMultiple(Math.sqrt(areaBenchmark * r), SIZE_MULTIPLE)
+    const height = roundToMultiple(width / r, SIZE_MULTIPLE)
+    return normalizeImageSize(`${width}x${height}`, true)
   }
 
-  if (tier === '1K') {
-    const shortSide = 1024
-    const width = ratioWidth > ratioHeight
-      ? roundToMultiple(shortSide * ratioWidth / ratioHeight, SIZE_MULTIPLE)
-      : shortSide
-    const height = ratioWidth > ratioHeight
-      ? shortSide
-      : roundToMultiple(shortSide * ratioHeight / ratioWidth, SIZE_MULTIPLE)
-    return `${width}x${height}`
+  const longBenchmark = tier === '1K' ? 1024 : tier === '2K' ? 2048 : 3840
+  let width, height
+  if (ratioWidth >= ratioHeight) {
+    width = longBenchmark
+    height = roundToMultiple(longBenchmark * ratioHeight / ratioWidth, SIZE_MULTIPLE)
+  } else {
+    height = longBenchmark
+    width = roundToMultiple(longBenchmark * ratioWidth / ratioHeight, SIZE_MULTIPLE)
   }
 
-  const longSide = tier === '2K' ? 2048 : 3840
-  const width = ratioWidth > ratioHeight
-    ? longSide
-    : roundToMultiple(longSide * ratioWidth / ratioHeight, SIZE_MULTIPLE)
-  const height = ratioWidth > ratioHeight
-    ? roundToMultiple(longSide * ratioHeight / ratioWidth, SIZE_MULTIPLE)
-    : longSide
-  return normalizeImageSize(`${width}x${height}`)
+  return normalizeImageSize(`${width}x${height}`, false)
 }

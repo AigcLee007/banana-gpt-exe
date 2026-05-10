@@ -42,6 +42,7 @@ export default function InputBar() {
   const params = useStore((s) => s.params)
   const setParams = useStore((s) => s.setParams)
   const settings = useStore((s) => s.settings)
+  const setSettings = useStore((s) => s.setSettings)
   const reusedTaskApiProfileId = useStore((s) => s.reusedTaskApiProfileId)
   const setShowSettings = useStore((s) => s.setShowSettings)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
@@ -221,7 +222,17 @@ export default function InputBar() {
   const hasSubmitApiConfig = Boolean(activeProfile.apiKey)
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig)
   const activeProvider = activeProfile.provider
+
+  const setModel = useCallback((model: string) => {
+    const nextProfiles = settings.profiles.map((profile) =>
+      profile.id === currentActiveProfile.id ? { ...profile, model } : profile
+    )
+    const nextSettings = normalizeSettings({ ...settings, profiles: nextProfiles })
+    setSettings(nextSettings)
+  }, [settings, currentActiveProfile.id, setSettings])
+
   const isFalProvider = activeProvider === 'fal'
+  const isGemini = activeProfile.model.toLowerCase().includes('gemini')
   const moderationDisabled = activeProfile.apiMode === 'responses' || isFalProvider
   const compressionDisabled = params.output_format === 'png' || isFalProvider
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
@@ -231,7 +242,7 @@ export default function InputBar() {
     : `OpenAI 最大请求数量为 ${outputImageLimit}`
   const displaySize = isFalTextToImage && params.size === 'auto'
     ? DEFAULT_FAL_IMAGE_SIZE
-    : normalizeImageSize(params.size) || DEFAULT_PARAMS.size
+    : normalizeImageSize(params.size, isGemini) || DEFAULT_PARAMS.size
   const qualityOptions = isFalProvider
     ? [
         { label: 'low', value: 'low' },
@@ -995,6 +1006,19 @@ export default function InputBar() {
 
   const renderParams = (cols: string) => (
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
+      <label className="relative flex flex-col gap-0.5 col-span-2">
+        <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
+        <Select
+          value={activeProfile.model}
+          onChange={(val) => setModel(val as string)}
+          options={[
+            { label: 'GPT-Image-2', value: 'gpt-image-2' },
+            { label: 'Nano Banana Pro', value: 'gemini-3-pro-image-preview' },
+            { label: 'Nano Banana 2', value: 'gemini-3.1-flash-image-preview' },
+          ]}
+          className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-700 focus:outline-none text-xs transition-all duration-200 shadow-sm"
+        />
+      </label>
       <label
         className="relative flex flex-col gap-0.5"
         onMouseEnter={showSizeHint}
@@ -1008,7 +1032,7 @@ export default function InputBar() {
         <button
           type="button"
           onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
-          className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] focus:outline-none text-xs text-left transition-all duration-200 shadow-sm font-mono"
+          className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-700 focus:outline-none text-xs text-left transition-all duration-200 shadow-sm font-mono"
           title="选择尺寸"
         >
           {displaySize}
@@ -1018,15 +1042,16 @@ export default function InputBar() {
           text={<>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>}
         />
       </label>
-      <label
-        className="relative flex flex-col gap-0.5"
-        onMouseEnter={showQualityHint}
-        onMouseLeave={hideQualityHint}
-        onTouchStart={startQualityHintTouch}
-        onTouchEnd={clearQualityHintTimer}
-        onTouchCancel={hideQualityHint}
-        onClick={showQualityHint}
-      >
+      {!isGemini && (
+        <label
+          className="relative flex flex-col gap-0.5"
+          onMouseEnter={showQualityHint}
+          onMouseLeave={hideQualityHint}
+          onTouchStart={startQualityHintTouch}
+          onTouchEnd={clearQualityHintTimer}
+          onTouchCancel={hideQualityHint}
+          onClick={showQualityHint}
+        >
         <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
         <Select
           value={settings.codexCli ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality}
@@ -1044,6 +1069,7 @@ export default function InputBar() {
           text={isFalProvider ? <>fal.ai 不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 质量参数</> : 'Codex CLI 不支持质量参数'}
         />
       </label>
+      )}
       <label className="flex flex-col gap-0.5">
         <span className="text-gray-400 dark:text-gray-500 ml-1">格式</span>
         <Select
@@ -1087,6 +1113,7 @@ export default function InputBar() {
           text={isFalProvider ? 'fal.ai 不支持压缩率参数' : '仅 JPEG 和 WebP 支持压缩率'}
         />
       </label>
+      {!isGemini && (
       <label
         className="relative flex flex-col gap-0.5"
         onMouseEnter={showModerationHint}
@@ -1116,6 +1143,7 @@ export default function InputBar() {
           text={isFalProvider ? 'fal.ai 不支持审核参数' : 'Responses API 不支持审核参数'}
         />
       </label>
+      )}
       <label className="relative flex flex-col gap-0.5">
         <span className="text-gray-400 dark:text-gray-500 ml-1">数量</span>
         <input
@@ -1298,14 +1326,14 @@ export default function InputBar() {
             onKeyDown={handleKeyDown}
             rows={1}
             placeholder="描述你想生成的图片..."
-            className="w-full px-4 py-3 rounded-2xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] text-sm focus:outline-none leading-relaxed resize-none shadow-sm transition-[border-color,box-shadow] duration-200"
+            className="w-full px-4 py-3 rounded-2xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm focus:outline-none focus:border-blue-400 dark:focus:border-blue-500/50 leading-relaxed resize-none shadow-sm transition-[border-color,box-shadow,background-color] duration-200"
           />
 
           {/* 参数 + 按钮 */}
           <div className="mt-3">
             {/* 桌面端布局 */}
             <div className="hidden sm:flex items-end justify-between gap-3">
-              {renderParams('grid-cols-6')}
+              {renderParams(isGemini ? 'grid-cols-6' : 'grid-cols-8')}
 
               <div className="flex gap-2 flex-shrink-0 mb-0.5">
                 <div

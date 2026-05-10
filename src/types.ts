@@ -84,6 +84,7 @@ export interface AppSettings {
   alwaysShowRetryButton: boolean
   profiles: ApiProfile[]
   activeProfileId: string
+  theme: 'light' | 'dark'
 }
 
 // ===== 任务参数 =====

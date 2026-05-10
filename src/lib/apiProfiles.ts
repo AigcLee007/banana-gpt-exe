@@ -14,7 +14,7 @@ import type {
 } from '../types'
 import { readRuntimeEnv } from './runtimeEnv'
 
-const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://api.openai.com/v1'
+const DEFAULT_BASE_URL = 'https://vip.aittco.com'
 const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true'
 export const DEFAULT_IMAGES_MODEL = 'gpt-image-2'
 export const DEFAULT_RESPONSES_MODEL = 'gpt-5.5'
@@ -320,7 +320,7 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
     return {
       ...profile,
       provider: customProvider.id,
-      baseUrl: savedDraft?.baseUrl ?? (shouldUseOpenAIDefaults ? DEFAULT_BASE_URL : profile.baseUrl || DEFAULT_BASE_URL),
+      baseUrl: savedDraft?.baseUrl ?? (shouldUseOpenAIDefaults ? DEFAULT_BASE_URL : DEFAULT_BASE_URL),
       model: savedDraft?.model ?? (shouldUseOpenAIDefaults ? DEFAULT_IMAGES_MODEL : profile.model || DEFAULT_IMAGES_MODEL),
       apiMode: savedDraft?.apiMode ?? 'images',
       codexCli: false,
@@ -386,7 +386,7 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
     id: typeof record.id === 'string' && record.id.trim() ? record.id : defaults.id,
     name: typeof record.name === 'string' && record.name.trim() ? record.name : defaults.name,
     provider,
-    baseUrl: provider === 'fal' ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL : rawBaseUrl,
+    baseUrl: provider === 'fal' ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL : DEFAULT_BASE_URL,
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : defaults.apiKey,
     model: typeof record.model === 'string' && record.model.trim() ? record.model : defaults.model,
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : defaults.timeout,
@@ -449,6 +449,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     alwaysShowRetryButton: typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
     profiles,
     activeProfileId,
+    theme: record.theme === 'dark' ? 'dark' : 'light',
   }
 }
 
@@ -534,7 +535,7 @@ export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): A
 
   return {
     ...profile,
-    baseUrl: typeof record.baseUrl === 'string' ? record.baseUrl : profile.baseUrl,
+    baseUrl: profile.provider === 'fal' ? (typeof record.baseUrl === 'string' ? record.baseUrl : profile.baseUrl) : DEFAULT_BASE_URL,
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : profile.apiKey,
     model: typeof record.model === 'string' && record.model.trim() ? record.model : profile.model,
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : profile.timeout,
@@ -722,4 +723,5 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   persistInputOnRestart: true,
   reuseTaskApiProfileTemporarily: false,
   alwaysShowRetryButton: false,
+  theme: 'dark',
 })
