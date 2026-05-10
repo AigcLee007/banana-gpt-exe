@@ -109,6 +109,8 @@ function createResponsesImageTool(
       image_url: maskDataUrl,
     }
   }
+  const isGemini = profile.model.toLowerCase().includes('gemini') || 
+    profile.baseUrl.toLowerCase().includes('generativelanguage.googleapis.com')
 
   if (isGemini) {
     const geminiParams = getGeminiParamsFromSize(params.size)

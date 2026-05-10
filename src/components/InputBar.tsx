@@ -1012,9 +1012,9 @@ export default function InputBar() {
           value={activeProfile.model}
           onChange={(val) => setModel(val as string)}
           options={[
-            { label: 'GPT-Image-2', value: 'gpt-image-2' },
             { label: 'Nano Banana Pro', value: 'gemini-3-pro-image-preview' },
             { label: 'Nano Banana 2', value: 'gemini-3.1-flash-image-preview' },
+            { label: 'GPT-Image-2', value: 'gpt-image-2' },
           ]}
           className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-700 focus:outline-none text-xs transition-all duration-200 shadow-sm"
         />

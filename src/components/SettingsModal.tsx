@@ -266,7 +266,9 @@ profiles 中不要包含 apiKey（用户导入后自行填写）。
 ## 统一任务接口示例
 {"customProviders":[{"id":"custom-example-task","name":"示例任务服务商","submit":{"path":"images/generations","method":"POST","contentType":"json","body":{"model":"$profile.model","prompt":"$prompt","n":"$params.n","size":"$params.size","resolution":"2k","quality":"$params.quality","image_urls":"$inputImages.dataUrls"},"taskIdPath":"data.0.task_id"},"poll":{"path":"tasks/{task_id}","method":"GET","query":{"language":"zh"},"intervalSeconds":5,"statusPath":"data.status","successValues":["completed"],"failureValues":["failed","cancelled"],"errorPath":"data.error.message","result":{"imageUrlPaths":["data.result.images.*.url.*"],"b64JsonPaths":[]}}}],"profiles":[{"name":"示例任务服务商","provider":"custom-example-task","baseUrl":"","model":"gpt-image-2","apiMode":"images"}]}`
 
-export default function SettingsModal() {
+type SettingsModalProps = { onClose?: () => void }
+
+export default function SettingsModal({ onClose }: SettingsModalProps) {
   const showSettings = useStore((s) => s.showSettings)
   const setShowSettings = useStore((s) => s.setShowSettings)
   const settings = useStore((s) => s.settings)
@@ -653,6 +655,7 @@ export default function SettingsModal() {
         : draft.profiles,
     }
     commitSettings(nextDraft)
+    onClose?.()
     setShowSettings(false)
   }
 
@@ -1282,6 +1285,28 @@ export default function SettingsModal() {
                     >
                       <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${activeProfile.responseFormatB64Json ? 'translate-x-[14px]' : 'translate-x-[2px]'}`} />
                     </button>
+                  </div>
+                  <div data-selectable-text className="text-xs text-gray-500 dark:text-gray-500">
+                    开启后 API 直接返回图片的 Base64 数据。用于解决浏览器跨域限制，或避免中转接口无法直接访问图片链接的问题。
+                  </div>
+                </div>
+
+                <div className="block">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="block text-sm text-gray-600 dark:text-gray-300">Codex CLI 兼容模式</span>
+                    <button
+                      type="button"
+                      onClick={() => updateActiveProfile({ codexCli: !activeProfile.codexCli }, true)}
+                      className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.codexCli ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                      role="switch"
+                      aria-checked={!!activeProfile.codexCli}
+                      aria-label="Codex CLI 兼容模式"
+                    >
+                      <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${activeProfile.codexCli ? 'translate-x-[14px]' : 'translate-x-[2px]'}`} />
+                    </button>
+                  </div>
+                  <div data-selectable-text className="text-xs text-gray-500 dark:text-gray-500">
+                    开启后应用 Codex CLI 实际支持的参数。支持查询参数覆盖：<code>codexCli=true</code>。
                   </div>
                 </div>
               </div>

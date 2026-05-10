@@ -60,8 +60,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
   const currentParsedSize = parseSize(currentSize)
   const [mode, setMode] = useState<Mode>(() => {
     if (!currentSize || currentSize === 'auto') return allowAuto ? 'auto' : 'ratio'
-    if (currentPreset) return 'ratio'
-    return 'resolution'
+    return 'ratio'
   })
 
   // Ratio mode state
@@ -192,12 +191,6 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
             >
               按比例
             </button>
-            <button
-              onClick={() => setMode('resolution')}
-              className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'resolution' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-            >
-              自定义宽高
-            </button>
           </div>
 
           <div className="min-h-[220px]">
@@ -230,78 +223,18 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
 
                 <section>
                   <div className="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">图像比例</div>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
                     {RATIOS.map((item) => (
-                      <button key={item.value} className={buttonClass(ratio === item.value)} onClick={() => setRatio(item.value)}>
+                      <button
+                        key={item.value}
+                        className={buttonClass(ratio === item.value)}
+                        onClick={() => setRatio(item.value)}
+                      >
                         {item.label}
                       </button>
                     ))}
-                    <button className={`${buttonClass(ratio === 'custom')} col-span-4`} onClick={() => setRatio('custom')}>
-                      自定义比例
-                    </button>
                   </div>
                 </section>
-
-                {ratio === 'custom' && (
-                  <label className="block animate-fade-in">
-                    <span className="mb-2 block text-xs font-medium text-gray-400 dark:text-gray-500">输入自定义比例</span>
-                    <input
-                      value={customRatio}
-                      onChange={(e) => setCustomRatio(e.target.value)}
-                      placeholder="例如 5:4 / 2.39:1"
-                      className={`w-full rounded-xl border px-3 py-2 text-sm outline-none transition ${
-                        customRatioValid
-                          ? 'border-gray-200/70 bg-white/60 text-gray-700 focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50'
-                          : 'border-red-300 bg-white/60 text-gray-700 focus:border-red-400 dark:border-red-500/40 dark:bg-white/[0.03] dark:text-gray-200'
-                      }`}
-                    />
-                  </label>
-                )}
-              </div>
-            )}
-
-            {mode === 'resolution' && (
-              <div className="space-y-5 animate-fade-in">
-                <section>
-                  <div className="mb-4 text-xs font-medium text-gray-400 dark:text-gray-500">输入具体像素值</div>
-                  <div className="flex items-center gap-4">
-                    <label className="flex-1">
-                      <span className="mb-1.5 block text-xs text-gray-500 dark:text-gray-400">宽度 (Width)</span>
-                      <input
-                        type="number"
-                        value={customW}
-                        onChange={(e) => setCustomW(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
-                        placeholder="例如 1024"
-                      />
-                    </label>
-                    <div className="mt-5 text-gray-300 dark:text-gray-600">
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </div>
-                    <label className="flex-1">
-                      <span className="mb-1.5 block text-xs text-gray-500 dark:text-gray-400">高度 (Height)</span>
-                      <input
-                        type="number"
-                        value={customH}
-                        onChange={(e) => setCustomH(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
-                        placeholder="例如 1024"
-                      />
-                    </label>
-                  </div>
-                </section>
-                {!isGemini && (
-                  <div className="rounded-xl border border-gray-200/80 bg-gray-50/80 p-3 text-xs text-gray-600 dark:border-white/[0.05] dark:bg-white/[0.02] dark:text-gray-400">
-                    <p className="flex items-start gap-1.5">
-                      <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span>{SIZE_LIMIT_TEXT}</span>
-                    </p>
-                  </div>
-                )}
               </div>
             )}
           </div>
