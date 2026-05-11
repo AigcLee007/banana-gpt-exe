@@ -52,7 +52,7 @@ async function createFalRequestInput(opts: CallApiOptions): Promise<Record<strin
     prompt: opts.prompt,
     image_size: isEdit && opts.params.size === 'auto' ? 'auto' : await mapFalImageSize(opts.params.size),
     quality: mapFalQuality(opts.params.quality),
-    num_images: Math.min(4, Math.max(1, opts.params.n || 1)),
+    num_images: 1,
     output_format: opts.params.output_format,
   }
 

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type {
   ApiProfile,
+  ApiProvider,
   AppSettings,
   TaskParams,
   InputImage,
@@ -1068,9 +1069,8 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     useStore.getState().setParams(normalizedParamPatch)
   }
 
-  const taskId = genId()
-  const task: TaskRecord = {
-    id: taskId,
+  const tasks = createSplitTasks({
+    count: normalizedParams.n,
     prompt: prompt.trim(),
     params: normalizedParams,
     apiProvider: activeProfile.provider,
@@ -1080,17 +1080,11 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     inputImageIds: orderedInputImages.map((i) => i.id),
     maskTargetImageId,
     maskImageId,
-    outputImages: [],
-    status: 'running',
-    error: null,
-    createdAt: Date.now(),
-    finishedAt: null,
-    elapsed: null,
-  }
+  })
 
   const latestTasks = useStore.getState().tasks
-  useStore.getState().setTasks([task, ...latestTasks])
-  await putTask(task)
+  useStore.getState().setTasks([...tasks, ...latestTasks])
+  await Promise.all(tasks.map((task) => putTask(task)))
 
   if (settings.clearInputAfterSubmit) {
     useStore.getState().setPrompt('')
@@ -1098,8 +1092,42 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   }
   useStore.getState().setReusedTaskApiProfile(null)
 
-  // 异步调用 API
-  executeTask(taskId)
+  // 异步并发调用 API。数量只决定本地任务条数，每个上游请求固定为 1 张。
+  for (const task of tasks) executeTask(task.id)
+}
+
+function createSplitTasks(input: {
+  count: number
+  prompt: string
+  params: TaskParams
+  apiProvider: ApiProvider
+  apiProfileId: string
+  apiProfileName: string
+  apiModel: string
+  inputImageIds: string[]
+  maskTargetImageId: string | null
+  maskImageId: string | null
+}): TaskRecord[] {
+  const count = Math.max(1, Math.floor(input.count || 1))
+  const taskParams = { ...input.params, n: 1 }
+  return Array.from({ length: count }, (_, index) => ({
+    id: genId(),
+    prompt: input.prompt,
+    params: taskParams,
+    apiProvider: input.apiProvider,
+    apiProfileId: input.apiProfileId,
+    apiProfileName: input.apiProfileName,
+    apiModel: input.apiModel,
+    inputImageIds: [...input.inputImageIds],
+    maskTargetImageId: input.maskTargetImageId,
+    maskImageId: input.maskImageId,
+    outputImages: [],
+    status: 'running',
+    error: null,
+    createdAt: Date.now() + index,
+    finishedAt: null,
+    elapsed: null,
+  }))
 }
 
 async function executeTask(taskId: string) {
@@ -1304,9 +1332,8 @@ export async function retryTask(task: TaskRecord) {
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0 })
-  const taskId = genId()
-  const newTask: TaskRecord = {
-    id: taskId,
+  const newTasks = createSplitTasks({
+    count: normalizedParams.n,
     prompt: task.prompt,
     params: normalizedParams,
     apiProvider: activeProfile.provider,
@@ -1316,19 +1343,13 @@ export async function retryTask(task: TaskRecord) {
     inputImageIds: [...task.inputImageIds],
     maskTargetImageId: task.maskTargetImageId ?? null,
     maskImageId: task.maskImageId ?? null,
-    outputImages: [],
-    status: 'running',
-    error: null,
-    createdAt: Date.now(),
-    finishedAt: null,
-    elapsed: null,
-  }
+  })
 
   const latestTasks = useStore.getState().tasks
-  useStore.getState().setTasks([newTask, ...latestTasks])
-  await putTask(newTask)
+  useStore.getState().setTasks([...newTasks, ...latestTasks])
+  await Promise.all(newTasks.map((newTask) => putTask(newTask)))
 
-  executeTask(taskId)
+  for (const newTask of newTasks) executeTask(newTask.id)
 }
 
 /** 复用配置 */

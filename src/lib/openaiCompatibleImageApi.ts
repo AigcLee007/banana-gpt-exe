@@ -241,13 +241,14 @@ async function parseImagesApiResponse(payload: ImageApiResponse, mime: string, s
 }
 
 export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+  const singleImageOpts = opts.params.n === 1 ? opts : { ...opts, params: { ...opts.params, n: 1 } }
   if (customProvider) {
-    return callCustomHttpImageApi(opts, profile, customProvider)
+    return callCustomHttpImageApi(singleImageOpts, profile, customProvider)
   }
 
   return profile.apiMode === 'responses'
-    ? callResponsesImageApi(opts, profile)
-    : callImagesApi(opts, profile)
+    ? callResponsesImageApi(singleImageOpts, profile)
+    : callImagesApi(singleImageOpts, profile)
 }
 
 async function callImagesApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
