@@ -366,11 +366,11 @@ function RatioSelect({ value, onChange, className }: { value: string; onChange: 
           event.preventDefault()
           setOpen((current) => !current)
         }}
-        className={`flex w-full items-center justify-between gap-1 select-none ${className}`}
+        className={`flex w-full min-w-[5.75rem] items-center justify-between gap-1 select-none ${className}`}
       >
-        <span className="flex min-w-0 items-center gap-1.5">
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
           <RatioFrame ratio={selected.value} active />
-          <span className="truncate">{selected.label}</span>
+          <span className="shrink-0">{selected.label}</span>
         </span>
         <svg className={`h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform duration-200 dark:text-gray-500 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -1713,7 +1713,7 @@ export default function InputBar() {
         </div>
       )}
 
-      <div data-input-bar className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-4xl px-3 sm:px-4 transition-all duration-300">
+      <div data-input-bar className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-5xl px-3 sm:px-4 transition-all duration-300">
         {selectedTaskIds.length > 0 && (
           <div className="flex justify-center mb-3">
             <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-lg rounded-full flex items-center p-1 border border-gray-200/50 dark:border-white/10 pointer-events-auto">
