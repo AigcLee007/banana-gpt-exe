@@ -13,6 +13,7 @@ import type {
 import { DEFAULT_PARAMS } from './types'
 import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
+import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
   CURRENT_THUMBNAIL_VERSION,
   getAllTasks,
@@ -307,7 +308,7 @@ interface AppState {
   addInputImage: (img: InputImage) => void
   removeInputImage: (idx: number) => void
   clearInputImages: () => void
-  setInputImages: (imgs: InputImage[]) => void
+  setInputImages: (imgs: InputImage[], options?: { equivalentImageIds?: Record<string, string> }) => void
   moveInputImage: (fromIdx: number, toIdx: number) => void
   maskDraft: MaskDraft | null
   setMaskDraft: (draft: MaskDraft | null) => void
@@ -432,24 +433,32 @@ export const useStore = create<AppState>()(
       removeInputImage: (idx) =>
         set((s) => {
           const removed = s.inputImages[idx]
+          const inputImages = s.inputImages.filter((_, i) => i !== idx)
           const shouldClearMask = removed?.id === s.maskDraft?.targetImageId
           return {
-            inputImages: s.inputImages.filter((_, i) => i !== idx),
+            inputImages,
+            prompt: remapImageMentionsForOrder(s.prompt, s.inputImages, inputImages),
             ...(shouldClearMask ? { maskDraft: null, maskEditorImageId: null } : {}),
           }
         }),
       clearInputImages: () =>
         set((s) => {
           for (const img of s.inputImages) imageCache.delete(img.id)
-          return { inputImages: [], maskDraft: null, maskEditorImageId: null }
+          return {
+            inputImages: [],
+            prompt: remapImageMentionsForOrder(s.prompt, s.inputImages, []),
+            maskDraft: null,
+            maskEditorImageId: null,
+          }
         }),
-      setInputImages: (imgs) =>
+      setInputImages: (imgs, options) =>
         set((s) => {
           const inputImages = orderImagesWithMaskFirst(imgs, s.maskDraft?.targetImageId)
           const shouldClearMask =
             Boolean(s.maskDraft) && !inputImages.some((img) => img.id === s.maskDraft?.targetImageId)
           return {
             inputImages,
+            prompt: remapImageMentionsForOrder(s.prompt, s.inputImages, inputImages, options?.equivalentImageIds),
             ...(shouldClearMask ? { maskDraft: null, maskEditorImageId: null } : {}),
           }
         }),
@@ -465,14 +474,21 @@ export const useStore = create<AppState>()(
           if (insertIdx === fromIdx) return s
           const [moved] = images.splice(fromIdx, 1)
           images.splice(insertIdx, 0, moved)
-          return { inputImages: images }
+          return {
+            inputImages: images,
+            prompt: remapImageMentionsForOrder(s.prompt, s.inputImages, images),
+          }
         }),
       maskDraft: null,
       setMaskDraft: (maskDraft) =>
-        set((s) => ({
-          maskDraft,
-          inputImages: orderImagesWithMaskFirst(s.inputImages, maskDraft?.targetImageId),
-        })),
+        set((s) => {
+          const inputImages = orderImagesWithMaskFirst(s.inputImages, maskDraft?.targetImageId)
+          return {
+            maskDraft,
+            inputImages,
+            prompt: remapImageMentionsForOrder(s.prompt, s.inputImages, inputImages),
+          }
+        }),
       clearMaskDraft: () => set({ maskDraft: null }),
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
@@ -1176,7 +1192,7 @@ async function executeTask(taskId: string) {
 
     const result = await callImageApi({
       settings: requestSettings,
-      prompt: task.prompt,
+      prompt: replaceImageMentionsForApi(task.prompt, inputDataUrls.length),
       params: task.params,
       inputImageDataUrls: inputDataUrls,
       maskDataUrl,
@@ -1363,13 +1379,13 @@ export async function reuseConfig(task: TaskRecord) {
   const taskProfileName = matchedProfile?.name ?? getTaskApiProfileName(task)
   const paramsSettings = shouldTemporarilyReuseProfile && matchedProfile ? createSettingsForApiProfile(normalizedSettings, matchedProfile) : normalizedSettings
 
-  setPrompt(task.prompt)
   setParams(normalizeParamsForSettings(task.params, paramsSettings, { hasInputImages: task.inputImageIds.length > 0 }))
   setReusedTaskApiProfile(
     shouldTemporarilyReuseProfile && matchedProfile ? matchedProfile.id : null,
     missingReusedProfile,
     taskProfileName,
   )
+  clearMaskDraft()
 
   // 恢复输入图片
   const imgs: InputImage[] = []
@@ -1380,6 +1396,7 @@ export async function reuseConfig(task: TaskRecord) {
     }
   }
   setInputImages(imgs)
+  setPrompt(task.prompt)
   const maskTargetImageId = task.maskTargetImageId ?? (task.maskImageId ? task.inputImageIds[0] : null)
   if (maskTargetImageId && task.maskImageId && imgs.some((img) => img.id === maskTargetImageId)) {
     const maskDataUrl = await ensureImageCached(task.maskImageId)

@@ -4,6 +4,7 @@ import { useStore, submitTask, addImageFromFile, updateTaskInStore, removeMultip
 import { DEFAULT_PARAMS } from '../types'
 import { getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
 import { DEFAULT_FAL_IMAGE_SIZE, getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
+import { getAtImageQuery, getImageMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, stripImageMentionMarkers } from '../lib/promptImageMentions'
 import { normalizeImageSize } from '../lib/size'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
@@ -184,6 +185,9 @@ export default function InputBar() {
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
+  const [atImageMenuIndex, setAtImageMenuIndex] = useState(0)
+  const [atImageMenuDismissed, setAtImageMenuDismissed] = useState(false)
+  const [promptCursor, setPromptCursor] = useState(0)
   const [touchDragPreview, setTouchDragPreview] = useState<{ src: string; x: number; y: number } | null>(null)
   const handleRef = useRef<HTMLDivElement>(null)
   const dragTouchRef = useRef({ startY: 0, moved: false })
@@ -262,6 +266,43 @@ export default function InputBar() {
   const referenceImages = maskTargetImage
     ? inputImages.filter((img) => img.id !== maskTargetImage.id)
     : inputImages
+  const atImageQuery = getAtImageQuery(prompt, promptCursor, inputImages)
+  const atImageOptions = atImageQuery
+    ? inputImages
+        .map((img, index) => ({ img, index }))
+        .filter(({ index }) => imageMentionMatches(atImageQuery.query, index))
+    : []
+  const showAtImageMenu = !atImageMenuDismissed && atImageOptions.length > 0
+
+  const setPromptCursorSoon = useCallback((cursor: number) => {
+    setPromptCursor(cursor)
+    window.setTimeout(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(cursor, cursor)
+    }, 0)
+  }, [])
+
+  const selectAtImageOption = useCallback((imageIndex: number) => {
+    const query = getAtImageQuery(prompt, promptCursor, inputImages)
+    if (!query) return
+    const next = insertImageMentionAtVisibleRange(prompt, query.start, stripImageMentionMarkers(prompt.slice(0, promptCursor)).length, imageIndex)
+    setAtImageMenuDismissed(true)
+    setAtImageMenuIndex(0)
+    setPrompt(next.prompt)
+    setPromptCursorSoon(next.cursor)
+  }, [inputImages, prompt, promptCursor, setPrompt, setPromptCursorSoon])
+
+  const insertImageMentionAtCursor = useCallback((imageIndex: number) => {
+    const cursor = textareaRef.current?.selectionStart ?? prompt.length
+    const visibleCursor = stripImageMentionMarkers(prompt.slice(0, cursor)).length
+    const next = insertImageMentionAtVisibleRange(prompt, visibleCursor, visibleCursor, imageIndex)
+    setAtImageMenuDismissed(true)
+    setAtImageMenuIndex(0)
+    setPrompt(next.prompt)
+    setPromptCursorSoon(next.cursor)
+  }, [prompt, setPrompt, setPromptCursorSoon])
 
   useEffect(() => {
     setOutputCompressionInput(
@@ -548,7 +589,44 @@ export default function InputBar() {
     e.target.value = ''
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const updatePromptCursorFromTextarea = useCallback(() => {
+    const cursor = textareaRef.current?.selectionStart ?? prompt.length
+    setPromptCursor(cursor)
+    return cursor
+  }, [prompt.length])
+
+  const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setPrompt(e.target.value)
+    setPromptCursor(e.target.selectionStart)
+    setAtImageMenuDismissed(false)
+    setAtImageMenuIndex(0)
+  }, [setPrompt])
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showAtImageMenu) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setAtImageMenuIndex((idx) => (idx + 1) % atImageOptions.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setAtImageMenuIndex((idx) => (idx - 1 + atImageOptions.length) % atImageOptions.length)
+        return
+      }
+      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+        e.preventDefault()
+        selectAtImageOption(atImageOptions[atImageMenuIndex]?.index ?? atImageOptions[0].index)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setAtImageMenuDismissed(true)
+        setAtImageMenuIndex(0)
+        return
+      }
+    }
+
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault()
       submitTask()
@@ -660,6 +738,10 @@ export default function InputBar() {
   useEffect(() => {
     adjustTextareaHeight()
   }, [prompt, adjustTextareaHeight])
+
+  useEffect(() => {
+    if (atImageMenuIndex >= atImageOptions.length) setAtImageMenuIndex(0)
+  }, [atImageMenuIndex, atImageOptions.length])
 
   // 图片队列变化时也重新计算
   useEffect(() => {
@@ -889,6 +971,10 @@ export default function InputBar() {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          insertImageMentionAtCursor(idx)
+        }}
       >
         <ButtonTooltip
           visible={imageHintId === img.id && Boolean(imageHintText) && (!isMobile || isMaskTarget)}
@@ -1319,15 +1405,47 @@ export default function InputBar() {
           )}
 
           {/* 输入框 */}
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            rows={1}
-            placeholder="描述你想生成的图片..."
-            className="w-full px-4 py-3 rounded-2xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm focus:outline-none focus:border-blue-400 dark:focus:border-blue-500/50 leading-relaxed resize-none shadow-sm transition-[border-color,box-shadow,background-color] duration-200"
-          />
+          <div className="relative">
+            <textarea
+              ref={textareaRef}
+              value={prompt}
+              onChange={handlePromptChange}
+              onKeyDown={handleKeyDown}
+              onSelect={updatePromptCursorFromTextarea}
+              onClick={updatePromptCursorFromTextarea}
+              onKeyUp={updatePromptCursorFromTextarea}
+              rows={1}
+              placeholder="描述你想生成的图片... 输入 @ 可引用参考图"
+              className="w-full px-4 py-3 rounded-2xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm focus:outline-none focus:border-blue-400 dark:focus:border-blue-500/50 leading-relaxed resize-none shadow-sm transition-[border-color,box-shadow,background-color] duration-200"
+            />
+            {showAtImageMenu && (
+              <div
+                className="absolute left-2 bottom-[calc(100%+8px)] z-50 w-56 overflow-hidden rounded-xl border border-gray-200/80 bg-white/95 p-1 shadow-xl backdrop-blur dark:border-white/[0.08] dark:bg-zinc-900/95"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {atImageOptions.map(({ img, index }, optionIndex) => (
+                  <button
+                    key={img.id}
+                    type="button"
+                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs transition-colors ${
+                      optionIndex === atImageMenuIndex
+                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200'
+                        : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-white/[0.06]'
+                    }`}
+                    onClick={() => selectAtImageOption(index)}
+                  >
+                    <img src={img.dataUrl} alt="" className="h-8 w-8 rounded-md object-cover" />
+                    <span className="font-medium">{getImageMentionLabel(index)}</span>
+                    {maskDraft?.targetImageId === img.id && (
+                      <span className="ml-auto rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-600 dark:text-blue-300">
+                        MASK
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* 参数 + 按钮 */}
           <div className="mt-3">
