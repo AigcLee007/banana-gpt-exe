@@ -1,16 +1,239 @@
 import { useRef, useEffect, useCallback, useState, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore, submitTask, addImageFromFile, updateTaskInStore, removeMultipleTasks, getCachedImage, ensureImageCached } from '../store'
-import { DEFAULT_PARAMS } from '../types'
 import { getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
-import { DEFAULT_FAL_IMAGE_SIZE, getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
-import { getAtImageQuery, getImageMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, stripImageMentionMarkers } from '../lib/promptImageMentions'
-import { normalizeImageSize } from '../lib/size'
+import { getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
+import { getAtImageQuery, getImageMentionLabel, getPromptIndexFromVisibleIndex, getPromptMentionParts, getSelectedImageMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, isCursorInSelectedImageMention, stripImageMentionMarkers } from '../lib/promptImageMentions'
+import { calculateImageSize, normalizeImageSize, type SizeTier } from '../lib/size'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
-import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import Select from './Select'
-import SizePickerModal from './SizePickerModal'
 import ViewportTooltip from './ViewportTooltip'
+
+function getMentionTagTextLength(el: Element) {
+  return el.textContent?.length ?? 0
+}
+
+function getNodeVisibleTextLength(node: Node): number {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent?.length ?? 0
+  if (node instanceof HTMLElement && node.classList.contains('mention-tag')) {
+    return getMentionTagTextLength(node)
+  }
+  return Array.from(node.childNodes).reduce((sum, child) => sum + getNodeVisibleTextLength(child), 0)
+}
+
+function getVisibleOffsetBeforeNode(root: HTMLElement, target: Node): number {
+  let offset = 0
+  let found = false
+
+  const walk = (node: Node) => {
+    if (found) return
+    if (node === target) {
+      found = true
+      return
+    }
+    if (node.nodeType === Node.TEXT_NODE) {
+      offset += node.textContent?.length ?? 0
+      return
+    }
+    if (node instanceof HTMLElement && node.classList.contains('mention-tag')) {
+      offset += getMentionTagTextLength(node)
+      return
+    }
+    node.childNodes.forEach(walk)
+  }
+
+  root.childNodes.forEach(walk)
+  return offset
+}
+
+function getMentionTagForBoundary(root: HTMLElement, container: Node) {
+  const el = container.nodeType === Node.ELEMENT_NODE
+    ? container as Element
+    : container.parentElement
+  const tag = el?.closest('.mention-tag')
+  return tag && root.contains(tag) ? tag : null
+}
+
+function getBoundaryOffsetInMention(tag: Element, container: Node, offset: number) {
+  try {
+    const range = document.createRange()
+    range.selectNodeContents(tag)
+    range.setEnd(container, offset)
+    return range.toString().length
+  } catch {
+    return getMentionTagTextLength(tag)
+  }
+}
+
+function getContentEditableBoundaryOffset(
+  root: HTMLElement,
+  container: Node,
+  offset: number,
+  edge: 'start' | 'end',
+  collapsed: boolean,
+) {
+  if (container === root) {
+    let visibleOffset = 0
+    for (const child of Array.from(root.childNodes).slice(0, offset)) {
+      visibleOffset += getNodeVisibleTextLength(child)
+    }
+    return visibleOffset
+  }
+
+  if (!root.contains(container)) {
+    const position = root.compareDocumentPosition(container)
+    if (position & Node.DOCUMENT_POSITION_PRECEDING) return 0
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) return root.textContent?.length ?? 0
+
+    if (container.contains(root)) {
+      const children = Array.from(container.childNodes)
+      const rootIndex = children.indexOf(root as any)
+      return offset <= rootIndex ? 0 : root.textContent?.length ?? 0
+    }
+    return edge === 'start' ? 0 : root.textContent?.length ?? 0
+  }
+
+  const mentionTag = getMentionTagForBoundary(root, container)
+  if (mentionTag) {
+    const mentionStart = getVisibleOffsetBeforeNode(root, mentionTag)
+    const mentionLength = getMentionTagTextLength(mentionTag)
+    if (!collapsed) return edge === 'start' ? mentionStart : mentionStart + mentionLength
+    const mentionOffset = getBoundaryOffsetInMention(mentionTag, container, offset)
+    return mentionStart + (mentionOffset < mentionLength / 2 ? 0 : mentionLength)
+  }
+
+  if (container.nodeType === Node.TEXT_NODE) {
+    return getVisibleOffsetBeforeNode(root, container) + offset
+  }
+
+  const element = container.nodeType === Node.ELEMENT_NODE ? container as Element : null
+  if (element) {
+    let visibleOffset = element === root ? 0 : getVisibleOffsetBeforeNode(root, element)
+    for (const child of Array.from(element.childNodes).slice(0, offset)) {
+      visibleOffset += getNodeVisibleTextLength(child)
+    }
+    return visibleOffset
+  }
+
+  return root.textContent?.length ?? 0
+}
+
+function getContentEditableCursor(el: HTMLElement): number {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return el.textContent?.length ?? 0
+  try {
+    const range = sel.getRangeAt(0)
+    if (!el.contains(range.startContainer)) return el.textContent?.length ?? 0
+    return getContentEditableBoundaryOffset(el, range.startContainer, range.startOffset, 'start', range.collapsed)
+  } catch {
+    return el.textContent?.length ?? 0
+  }
+}
+
+function getContentEditableSelection(el: HTMLElement): { start: number; end: number } {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) {
+    const end = el.textContent?.length ?? 0
+    return { start: end, end }
+  }
+  try {
+    const range = sel.getRangeAt(0)
+    const start = getContentEditableBoundaryOffset(el, range.startContainer, range.startOffset, 'start', range.collapsed)
+    const end = range.collapsed
+      ? start
+      : getContentEditableBoundaryOffset(el, range.endContainer, range.endOffset, 'end', false)
+    return { start, end }
+  } catch {
+    const end = el.textContent?.length ?? 0
+    return { start: end, end }
+  }
+}
+
+function getContentEditablePlainText(el: HTMLElement): string {
+  let text = ''
+  const appendNodeText = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent ?? ''
+      return
+    }
+    if (node instanceof HTMLElement && node.classList.contains('mention-tag')) {
+      text += node.dataset.mentionText ?? node.textContent ?? ''
+      return
+    }
+    node.childNodes.forEach(appendNodeText)
+  }
+  el.childNodes.forEach(appendNodeText)
+  return text.replace(/\r\n?/g, '\n')
+}
+
+function syncMentionTagSelection(el: HTMLElement) {
+  const tags = el.querySelectorAll<HTMLElement>('.mention-tag')
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) {
+    tags.forEach((tag) => tag.classList.remove('selected'))
+    return
+  }
+
+  const range = sel.getRangeAt(0)
+  if (range.collapsed) {
+    tags.forEach((tag) => tag.classList.remove('selected'))
+    return
+  }
+
+  tags.forEach((tag) => {
+    let isSelected = false
+    try {
+      isSelected = range.intersectsNode(tag)
+    } catch {
+      isSelected = false
+    }
+    tag.classList.toggle('selected', isSelected)
+  })
+}
+
+function setContentEditableCursor(el: HTMLElement, offset: number) {
+  const sel = window.getSelection()
+  if (!sel) return
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+  let remaining = offset
+  let node: Text | null = null
+  while (walker.nextNode()) {
+    node = walker.currentNode as Text
+    const mentionTag = node.parentElement?.closest('.mention-tag')
+    if (mentionTag) {
+      if (remaining <= node.length) {
+        const range = document.createRange()
+        if (remaining < node.length / 2) {
+          range.setStartBefore(mentionTag)
+        } else {
+          range.setStartAfter(mentionTag)
+        }
+        range.collapse(true)
+        sel.removeAllRanges()
+        sel.addRange(range)
+        return
+      }
+      remaining -= node.length
+      continue
+    }
+    if (remaining <= node.length) {
+      const range = document.createRange()
+      range.setStart(node, remaining)
+      range.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(range)
+      return
+    }
+    remaining -= node.length
+  }
+  if (node) {
+    const range = document.createRange()
+    range.setStart(node, node.length)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }
+}
 
 /** 通用悬浮气泡提示 */
 function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode }) {
@@ -23,6 +246,164 @@ function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode })
 
 /** API 支持的最大参考图数量 */
 const API_MAX_IMAGES = 16
+const SIZE_TIERS: SizeTier[] = ['1K', '2K', '4K']
+const DEFAULT_SIZE_TIER: SizeTier = '1K'
+const DEFAULT_RATIO = '1:1'
+const RATIO_OPTIONS = [
+  { label: '1:1', value: '1:1' },
+  { label: '16:9', value: '16:9' },
+  { label: '9:16', value: '9:16' },
+  { label: '4:3', value: '4:3' },
+  { label: '3:4', value: '3:4' },
+  { label: '3:2', value: '3:2' },
+  { label: '2:3', value: '2:3' },
+  { label: '21:9', value: '21:9' },
+]
+const COUNT_OPTIONS = [1, 2, 4, 8, 16]
+
+function parseSizeValue(size: string) {
+  const match = size.match(/^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/)
+  if (!match) return null
+  return { width: Number(match[1]), height: Number(match[2]) }
+}
+
+function parseRatioValue(ratio: string) {
+  const match = ratio.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/)
+  if (!match) return null
+  const width = Number(match[1])
+  const height = Number(match[2])
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+    ? { width, height }
+    : null
+}
+
+function getSizeForPreset(tier: SizeTier, ratio: string, isGemini: boolean) {
+  return calculateImageSize(tier, ratio, isGemini) ?? calculateImageSize(DEFAULT_SIZE_TIER, DEFAULT_RATIO, isGemini) ?? '1024x1024'
+}
+
+function findPresetForSize(size: string, isGemini: boolean): { tier: SizeTier; ratio: string } {
+  if (!size || size === 'auto') return { tier: DEFAULT_SIZE_TIER, ratio: DEFAULT_RATIO }
+
+  const normalized = normalizeImageSize(size, isGemini)
+  for (const tier of SIZE_TIERS) {
+    for (const ratio of RATIO_OPTIONS) {
+      if (normalizeImageSize(getSizeForPreset(tier, ratio.value, isGemini), isGemini) === normalized) {
+        return { tier, ratio: ratio.value }
+      }
+    }
+  }
+
+  const parsed = parseSizeValue(normalized)
+  if (!parsed) return { tier: DEFAULT_SIZE_TIER, ratio: DEFAULT_RATIO }
+
+  const actualRatio = parsed.width / parsed.height
+  const nearestRatio = RATIO_OPTIONS
+    .map((option) => {
+      const parsedRatio = parseRatioValue(option.value)
+      const optionRatio = parsedRatio ? parsedRatio.width / parsedRatio.height : 1
+      return {
+        value: option.value,
+        delta: Math.abs(Math.log(actualRatio / optionRatio)),
+      }
+    })
+    .sort((a, b) => a.delta - b.delta)[0]?.value ?? DEFAULT_RATIO
+
+  const longEdge = Math.max(parsed.width, parsed.height)
+  const tier: SizeTier = longEdge <= 1600 ? '1K' : longEdge <= 3200 ? '2K' : '4K'
+  return { tier, ratio: nearestRatio }
+}
+
+function getAllowedCountOptions(outputImageLimit: number) {
+  const allowed = COUNT_OPTIONS.filter((value) => value <= outputImageLimit)
+  return allowed.length ? allowed : [1]
+}
+
+function normalizeCountOption(value: number, outputImageLimit: number) {
+  const allowed = getAllowedCountOptions(outputImageLimit)
+  if (allowed.includes(value)) return value
+  return [...allowed].reverse().find((option) => option <= value) ?? allowed[0]
+}
+
+function RatioFrame({ ratio, active }: { ratio: string; active?: boolean }) {
+  const parsed = parseRatioValue(ratio) ?? { width: 1, height: 1 }
+  const maxWidth = 22
+  const maxHeight = 20
+  const scale = Math.min(maxWidth / parsed.width, maxHeight / parsed.height)
+  const width = Math.max(8, Math.round(parsed.width * scale))
+  const height = Math.max(8, Math.round(parsed.height * scale))
+
+  return (
+    <span className="inline-flex h-5 w-6 shrink-0 items-center justify-center">
+      <span
+        className={`rounded-[3px] border ${active ? 'border-yellow-400' : 'border-gray-400 dark:border-gray-500'}`}
+        style={{ width, height }}
+      />
+    </span>
+  )
+}
+
+function RatioSelect({ value, onChange, className }: { value: string; onChange: (value: string) => void; className: string }) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const selected = RATIO_OPTIONS.find((option) => option.value === value) ?? RATIO_OPTIONS[0]
+
+  useEffect(() => {
+    if (!open) return
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [open])
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={(event) => {
+          event.preventDefault()
+          setOpen((current) => !current)
+        }}
+        className={`flex w-full items-center justify-between gap-1 select-none ${className}`}
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          <RatioFrame ratio={selected.value} active />
+          <span className="truncate">{selected.label}</span>
+        </span>
+        <svg className={`h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform duration-200 dark:text-gray-500 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute bottom-full z-50 mb-1.5 max-h-64 w-40 overflow-hidden overflow-y-auto rounded-xl border border-gray-200/60 bg-white/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl animate-dropdown-up custom-scrollbar dark:border-white/[0.08] dark:bg-gray-900/95 dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10">
+          {RATIO_OPTIONS.map((option) => {
+            const active = option.value === value
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onChange(option.value)
+                  setOpen(false)
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors ${
+                  active
+                    ? 'bg-purple-100 text-gray-900 dark:bg-purple-500/20 dark:text-white font-medium'
+                    : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.06]'
+                }`}
+              >
+                <RatioFrame ratio={option.value} active={active} />
+                <span>{option.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
@@ -167,7 +548,7 @@ export default function InputBar() {
   const moveInputImage = useStore((s) => s.moveInputImage)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const textareaRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const imagesRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(42)
@@ -177,17 +558,16 @@ export default function InputBar() {
   const [attachHover, setAttachHover] = useState(false)
   const [compressionHintVisible, setCompressionHintVisible] = useState(false)
   const [moderationHintVisible, setModerationHintVisible] = useState(false)
-  const [sizeHintVisible, setSizeHintVisible] = useState(false)
   const [qualityHintVisible, setQualityHintVisible] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
   const [mobileCollapsed, setMobileCollapsed] = useState(false)
-  const [showSizePicker, setShowSizePicker] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
   const [atImageMenuIndex, setAtImageMenuIndex] = useState(0)
   const [atImageMenuDismissed, setAtImageMenuDismissed] = useState(false)
   const [promptCursor, setPromptCursor] = useState(0)
+  const [mentionMenuLeft, setMentionMenuLeft] = useState(0)
   const [touchDragPreview, setTouchDragPreview] = useState<{ src: string; x: number; y: number } | null>(null)
   const handleRef = useRef<HTMLDivElement>(null)
   const dragTouchRef = useRef({ startY: 0, moved: false })
@@ -196,18 +576,16 @@ export default function InputBar() {
   const imageDragOverIndexRef = useRef<number | null>(null)
   const imageDragPreviewRef = useRef<HTMLElement | null>(null)
   const suppressImageClickRef = useRef(false)
+  const isUserInputRef = useRef(false)
   const maskConflictNoticeShownRef = useRef(false)
   const compressionHintTimerRef = useRef<number | null>(null)
   const moderationHintTimerRef = useRef<number | null>(null)
-  const sizeHintTimerRef = useRef<number | null>(null)
   const qualityHintTimerRef = useRef<number | null>(null)
   const imageHintTimerRef = useRef<number | null>(null)
   const nLimitHintTimerRef = useRef<number | null>(null)
   const [outputCompressionInput, setOutputCompressionInput] = useState(
     params.output_compression == null ? '' : String(params.output_compression),
   )
-  const [nInput, setNInput] = useState(String(params.n))
-  const [nInputFocused, setNInputFocused] = useState(false)
   const [nLimitHintVisible, setNLimitHintVisible] = useState(false)
   const dragCounter = useRef(0)
   const isMobile = useIsMobile()
@@ -240,13 +618,11 @@ export default function InputBar() {
   const moderationDisabled = activeProfile.apiMode === 'responses' || isFalProvider
   const compressionDisabled = params.output_format === 'png' || isFalProvider
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
-  const isFalTextToImage = isFalProvider && inputImages.length === 0
   const nLimitHintText = isFalProvider
     ? `fal.ai 最大请求数量为 ${outputImageLimit}`
     : `OpenAI 最大请求数量为 ${outputImageLimit}`
-  const displaySize = isFalTextToImage && params.size === 'auto'
-    ? DEFAULT_FAL_IMAGE_SIZE
-    : normalizeImageSize(params.size, isGemini) || DEFAULT_PARAMS.size
+  const selectedSizePreset = useMemo(() => findPresetForSize(params.size, isGemini), [params.size, isGemini])
+  const countOptions = useMemo(() => getAllowedCountOptions(outputImageLimit), [outputImageLimit])
   const qualityOptions = isFalProvider
     ? [
         { label: 'low', value: 'low' },
@@ -266,7 +642,10 @@ export default function InputBar() {
   const referenceImages = maskTargetImage
     ? inputImages.filter((img) => img.id !== maskTargetImage.id)
     : inputImages
-  const atImageQuery = getAtImageQuery(prompt, promptCursor, inputImages)
+  const visiblePrompt = stripImageMentionMarkers(prompt)
+  const atImageQuery = isCursorInSelectedImageMention(prompt, promptCursor)
+    ? null
+    : getAtImageQuery(visiblePrompt, promptCursor, inputImages)
   const atImageOptions = atImageQuery
     ? inputImages
         .map((img, index) => ({ img, index }))
@@ -280,29 +659,47 @@ export default function InputBar() {
       const el = textareaRef.current
       if (!el) return
       el.focus()
-      el.setSelectionRange(cursor, cursor)
+      setContentEditableCursor(el, cursor)
     }, 0)
   }, [])
 
   const selectAtImageOption = useCallback((imageIndex: number) => {
-    const query = getAtImageQuery(prompt, promptCursor, inputImages)
+    const query = getAtImageQuery(stripImageMentionMarkers(prompt), promptCursor, inputImages)
     if (!query) return
-    const next = insertImageMentionAtVisibleRange(prompt, query.start, stripImageMentionMarkers(prompt.slice(0, promptCursor)).length, imageIndex)
+    const next = insertImageMentionAtVisibleRange(prompt, query.start, promptCursor, imageIndex)
     setAtImageMenuDismissed(true)
     setAtImageMenuIndex(0)
+    isUserInputRef.current = false
     setPrompt(next.prompt)
     setPromptCursorSoon(next.cursor)
   }, [inputImages, prompt, promptCursor, setPrompt, setPromptCursorSoon])
 
   const insertImageMentionAtCursor = useCallback((imageIndex: number) => {
-    const cursor = textareaRef.current?.selectionStart ?? prompt.length
-    const visibleCursor = stripImageMentionMarkers(prompt.slice(0, cursor)).length
-    const next = insertImageMentionAtVisibleRange(prompt, visibleCursor, visibleCursor, imageIndex)
+    const cursor = textareaRef.current ? getContentEditableCursor(textareaRef.current) : stripImageMentionMarkers(prompt).length
+    const next = insertImageMentionAtVisibleRange(prompt, cursor, cursor, imageIndex)
     setAtImageMenuDismissed(true)
     setAtImageMenuIndex(0)
+    isUserInputRef.current = false
     setPrompt(next.prompt)
     setPromptCursorSoon(next.cursor)
   }, [prompt, setPrompt, setPromptCursorSoon])
+
+  const setPresetSize = useCallback((tier: SizeTier, ratio: string) => {
+    setParams({ size: getSizeForPreset(tier, ratio, isGemini) })
+  }, [isGemini, setParams])
+
+  const handleRatioChange = useCallback((nextRatio: string) => {
+    setPresetSize(selectedSizePreset.tier, nextRatio)
+  }, [selectedSizePreset.tier, setPresetSize])
+
+  const handleTierChange = useCallback((nextTier: SizeTier) => {
+    setPresetSize(nextTier, selectedSizePreset.ratio)
+  }, [selectedSizePreset.ratio, setPresetSize])
+
+  const handleCountChange = useCallback((value: number) => {
+    setNLimitHintVisible(false)
+    setParams({ n: value })
+  }, [setParams])
 
   useEffect(() => {
     setOutputCompressionInput(
@@ -311,16 +708,25 @@ export default function InputBar() {
   }, [params.output_compression])
 
   useEffect(() => {
-    setNInput(String(params.n))
-  }, [params.n])
-
-  useEffect(() => {
     const normalizedParams = normalizeParamsForSettings(params, effectiveSettings, { hasInputImages: inputImages.length > 0 })
     const patch = getChangedParams(params, normalizedParams)
     if (Object.keys(patch).length) {
       setParams(patch)
     }
   }, [inputImages.length, params, effectiveSettings, setParams])
+
+  useEffect(() => {
+    if (params.size === 'auto') {
+      setPresetSize(DEFAULT_SIZE_TIER, DEFAULT_RATIO)
+    }
+  }, [params.size, setPresetSize])
+
+  useEffect(() => {
+    const normalized = normalizeCountOption(params.n, outputImageLimit)
+    if (params.n !== normalized) {
+      setParams({ n: normalized })
+    }
+  }, [outputImageLimit, params.n, setParams])
 
   useEffect(() => () => {
     if (compressionHintTimerRef.current != null) {
@@ -331,9 +737,6 @@ export default function InputBar() {
     }
     if (qualityHintTimerRef.current != null) {
       window.clearTimeout(qualityHintTimerRef.current)
-    }
-    if (sizeHintTimerRef.current != null) {
-      window.clearTimeout(sizeHintTimerRef.current)
     }
     if (imageHintTimerRef.current != null) {
       window.clearTimeout(imageHintTimerRef.current)
@@ -380,20 +783,6 @@ export default function InputBar() {
     setParams({ output_compression: nextValue })
   }, [outputCompressionInput, params.output_compression, setParams])
 
-  const commitN = useCallback(() => {
-    setNLimitHintVisible(false)
-    if (nLimitHintTimerRef.current != null) {
-      window.clearTimeout(nLimitHintTimerRef.current)
-      nLimitHintTimerRef.current = null
-    }
-    const nextValue = Number(nInput)
-    const normalizedValue =
-      nInput.trim() === '' ? DEFAULT_PARAMS.n : Number.isNaN(nextValue) ? params.n : nextValue
-    const clampedValue = Math.min(outputImageLimit, Math.max(1, normalizedValue))
-    setNInput(String(clampedValue))
-    setParams({ n: clampedValue })
-  }, [nInput, outputImageLimit, params.n, setParams])
-
   const showNLimitHint = useCallback(() => {
     setNLimitHintVisible(true)
     if (nLimitHintTimerRef.current != null) {
@@ -412,25 +801,6 @@ export default function InputBar() {
       nLimitHintTimerRef.current = null
     }
   }, [])
-
-  const handleNInputChange = useCallback((value: string) => {
-    setNInput(value)
-    const nextValue = Number(value)
-    if (!Number.isNaN(nextValue) && nextValue > outputImageLimit) {
-      showNLimitHint()
-    } else {
-      hideNLimitHint()
-    }
-  }, [hideNLimitHint, outputImageLimit, showNLimitHint])
-
-  const handleNLimitIncreaseAttempt = useCallback((preventDefault: () => void) => {
-    const currentValue = Number(nInput)
-    const effectiveValue = Number.isNaN(currentValue) ? params.n : currentValue
-    if (!nInputFocused || effectiveValue < outputImageLimit) return
-
-    preventDefault()
-    showNLimitHint()
-  }, [nInput, nInputFocused, outputImageLimit, params.n, showNLimitHint])
 
   const showModerationHint = () => {
     if (moderationDisabled) setModerationHintVisible(true)
@@ -479,30 +849,6 @@ export default function InputBar() {
 
   const showQualityHint = () => {
     if (settings.codexCli || isFalProvider) setQualityHintVisible(true)
-  }
-
-  const showSizeHint = () => {
-    if (isFalTextToImage) setSizeHintVisible(true)
-  }
-
-  const hideSizeHint = () => {
-    setSizeHintVisible(false)
-    clearSizeHintTimer()
-  }
-
-  const clearSizeHintTimer = () => {
-    if (sizeHintTimerRef.current != null) {
-      window.clearTimeout(sizeHintTimerRef.current)
-      sizeHintTimerRef.current = null
-    }
-  }
-
-  const startSizeHintTouch = () => {
-    if (!isFalTextToImage) return
-    sizeHintTimerRef.current = window.setTimeout(() => {
-      setSizeHintVisible(true)
-      sizeHintTimerRef.current = null
-    }, 450)
   }
 
   const hideQualityHint = () => {
@@ -589,20 +935,19 @@ export default function InputBar() {
     e.target.value = ''
   }
 
-  const updatePromptCursorFromTextarea = useCallback(() => {
-    const cursor = textareaRef.current?.selectionStart ?? prompt.length
-    setPromptCursor(cursor)
-    return cursor
-  }, [prompt.length])
+  const insertPromptTextAtSelection = useCallback((text: string) => {
+    const el = textareaRef.current
+    const selection = el ? getContentEditableSelection(el) : { start: stripImageMentionMarkers(prompt).length, end: stripImageMentionMarkers(prompt).length }
+    const promptStart = getPromptIndexFromVisibleIndex(prompt, selection.start)
+    const promptEnd = getPromptIndexFromVisibleIndex(prompt, selection.end)
+    const nextPrompt = `${prompt.slice(0, promptStart)}${text}${prompt.slice(promptEnd)}`
+    const nextCursor = selection.start + text.length
+    isUserInputRef.current = false
+    setPrompt(nextPrompt)
+    setPromptCursorSoon(nextCursor)
+  }, [prompt, setPrompt, setPromptCursorSoon])
 
-  const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setPrompt(e.target.value)
-    setPromptCursor(e.target.selectionStart)
-    setAtImageMenuDismissed(false)
-    setAtImageMenuIndex(0)
-  }, [setPrompt])
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (showAtImageMenu) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -630,7 +975,38 @@ export default function InputBar() {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault()
       submitTask()
+      return
     }
+
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      insertPromptTextAtSelection('\n')
+    }
+  }
+
+  const handlePromptPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const text = e.clipboardData.getData('text/plain')
+    if (!text) return
+    if (Array.from(e.clipboardData.items).some((item) => item.type.startsWith('image/'))) return
+
+    e.preventDefault()
+    insertPromptTextAtSelection(text.replace(/\r\n?/g, '\n'))
+  }
+
+  const handlePromptCopy = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const el = textareaRef.current
+    if (!el) return
+
+    const selection = getContentEditableSelection(el)
+    if (selection.start === selection.end) return
+
+    const promptStart = getPromptIndexFromVisibleIndex(prompt, selection.start)
+    const promptEnd = getPromptIndexFromVisibleIndex(prompt, selection.end)
+    const text = stripImageMentionMarkers(prompt.slice(promptStart, promptEnd))
+    const copyText = /^\s*@图\d+\s*$/.test(text) ? text.trim() : text
+
+    e.preventDefault()
+    e.clipboardData.setData('text/plain', copyText)
   }
 
   // 粘贴图片
@@ -736,8 +1112,58 @@ export default function InputBar() {
   }, [])
 
   useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    if (isUserInputRef.current) {
+      isUserInputRef.current = false
+      return
+    }
+    const parts = getPromptMentionParts(prompt, inputImages)
+    const html = prompt
+      ? parts.map((part) =>
+          part.type === 'mention'
+            ? `<span contenteditable="false" class="mention-tag" data-mention-text="${getSelectedImageMentionLabel(part.imageIndex)}">${part.text}</span>`
+            : part.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        ).join('')
+      : ''
+    if (el.innerHTML !== html) {
+      el.innerHTML = html
+    }
+  }, [prompt, inputImages])
+
+  useEffect(() => {
     adjustTextareaHeight()
-  }, [prompt, adjustTextareaHeight])
+  }, [prompt, inputImages, adjustTextareaHeight])
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const el = textareaRef.current
+      if (!el) return
+      const sel = window.getSelection()
+      if (!sel || sel.rangeCount === 0) return
+
+      const domRange = sel.getRangeAt(0)
+      try {
+        if (!domRange.intersectsNode(el)) {
+          syncMentionTagSelection(el)
+          return
+        }
+      } catch {
+        return
+      }
+
+      const range = getContentEditableSelection(el)
+      setPromptCursor(range.start)
+      syncMentionTagSelection(el)
+
+      const rangeRect = domRange.getBoundingClientRect()
+      const elRect = el.getBoundingClientRect()
+      if (rangeRect.width === 0 && rangeRect.height === 0) return
+      setMentionMenuLeft(rangeRect.left - elRect.left)
+    }
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => document.removeEventListener('selectionchange', handleSelectionChange)
+  }, [])
 
   useEffect(() => {
     if (atImageMenuIndex >= atImageOptions.length) setAtImageMenuIndex(0)
@@ -1017,6 +1443,9 @@ export default function InputBar() {
               MASK
             </span>
           )}
+          <span className="absolute bottom-1 left-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/55 text-[9px] font-semibold text-white backdrop-blur-sm z-10 pointer-events-none">
+            {idx + 1}
+          </span>
           {canEdit && (
             <button 
               className="absolute inset-0 w-full h-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer z-20 focus:outline-none border-none"
@@ -1105,27 +1534,21 @@ export default function InputBar() {
           className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-700 focus:outline-none text-xs transition-all duration-200 shadow-sm"
         />
       </label>
-      <label
-        className="relative flex flex-col gap-0.5"
-        onMouseEnter={showSizeHint}
-        onMouseLeave={hideSizeHint}
-        onTouchStart={startSizeHintTouch}
-        onTouchEnd={clearSizeHintTimer}
-        onTouchCancel={hideSizeHint}
-        onClick={showSizeHint}
-      >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">尺寸</span>
-        <button
-          type="button"
-          onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
-          className="px-3 py-1.5 rounded-xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-700 focus:outline-none text-xs text-left transition-all duration-200 shadow-sm font-mono"
-          title="选择尺寸"
-        >
-          {displaySize}
-        </button>
-        <ButtonTooltip
-          visible={isFalTextToImage && sizeHintVisible}
-          text={<>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>}
+      <label className="relative flex flex-col gap-0.5">
+        <span className="text-gray-400 dark:text-gray-500 ml-1">比例</span>
+        <RatioSelect
+          value={selectedSizePreset.ratio}
+          onChange={handleRatioChange}
+          className={selectClass}
+        />
+      </label>
+      <label className="relative flex flex-col gap-0.5">
+        <span className="text-gray-400 dark:text-gray-500 ml-1">分辨率</span>
+        <Select
+          value={selectedSizePreset.tier}
+          onChange={(val) => handleTierChange(val as SizeTier)}
+          options={SIZE_TIERS.map((value) => ({ label: value, value }))}
+          className={selectClass}
         />
       </label>
       {!isGemini && (
@@ -1230,30 +1653,24 @@ export default function InputBar() {
         />
       </label>
       )}
-      <label className="relative flex flex-col gap-0.5">
+      <label
+        className="relative flex flex-col gap-0.5"
+        onMouseEnter={() => {
+          if (outputImageLimit < COUNT_OPTIONS[COUNT_OPTIONS.length - 1]) showNLimitHint()
+        }}
+        onMouseLeave={hideNLimitHint}
+        onTouchStart={() => {
+          if (outputImageLimit < COUNT_OPTIONS[COUNT_OPTIONS.length - 1]) showNLimitHint()
+        }}
+        onTouchEnd={hideNLimitHint}
+        onTouchCancel={hideNLimitHint}
+      >
         <span className="text-gray-400 dark:text-gray-500 ml-1">数量</span>
-        <input
-          value={nInput}
-          onChange={(e) => handleNInputChange(e.target.value)}
-          onFocus={() => setNInputFocused(true)}
-          onBlur={() => {
-            setNInputFocused(false)
-            commitN()
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowUp') {
-              handleNLimitIncreaseAttempt(() => e.preventDefault())
-            }
-          }}
-          onWheel={(e) => {
-            if (e.deltaY < 0) {
-              handleNLimitIncreaseAttempt(() => e.preventDefault())
-            }
-          }}
-          type="number"
-          min={1}
-          max={outputImageLimit}
-          className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] focus:outline-none text-xs transition-all duration-200 shadow-sm"
+        <Select
+          value={normalizeCountOption(params.n, outputImageLimit)}
+          onChange={(val) => handleCountChange(Number(val))}
+          options={countOptions.map((value) => ({ label: String(value), value }))}
+          className={selectClass}
         />
         <ButtonTooltip visible={nLimitHintVisible} text={nLimitHintText} />
       </label>
@@ -1294,15 +1711,6 @@ export default function InputBar() {
             </div>
           </div>
         </div>
-      )}
-
-      {showSizePicker && (
-        <SizePickerModal
-          currentSize={isFalTextToImage && params.size === 'auto' ? DEFAULT_FAL_IMAGE_SIZE : params.size}
-          onSelect={(size) => setParams({ size })}
-          onClose={() => setShowSizePicker(false)}
-          allowAuto={!isFalTextToImage}
-        />
       )}
 
       <div data-input-bar className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-4xl px-3 sm:px-4 transition-all duration-300">
@@ -1406,52 +1814,87 @@ export default function InputBar() {
 
           {/* 输入框 */}
           <div className="relative">
-            <textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={handlePromptChange}
-              onKeyDown={handleKeyDown}
-              onSelect={updatePromptCursorFromTextarea}
-              onClick={updatePromptCursorFromTextarea}
-              onKeyUp={updatePromptCursorFromTextarea}
-              rows={1}
-              placeholder="描述你想生成的图片... 输入 @ 可引用参考图"
-              className="w-full px-4 py-3 rounded-2xl border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm focus:outline-none focus:border-blue-400 dark:focus:border-blue-500/50 leading-relaxed resize-none shadow-sm transition-[border-color,box-shadow,background-color] duration-200"
-            />
             {showAtImageMenu && (
-              <div
-                className="absolute left-2 bottom-[calc(100%+8px)] z-50 w-56 overflow-hidden rounded-xl border border-gray-200/80 bg-white/95 p-1 shadow-xl backdrop-blur dark:border-white/[0.08] dark:bg-zinc-900/95"
-                onMouseDown={(e) => e.preventDefault()}
-              >
-                {atImageOptions.map(({ img, index }, optionIndex) => (
-                  <button
-                    key={img.id}
-                    type="button"
-                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs transition-colors ${
-                      optionIndex === atImageMenuIndex
-                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200'
-                        : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-white/[0.06]'
-                    }`}
-                    onClick={() => selectAtImageOption(index)}
-                  >
-                    <img src={img.dataUrl} alt="" className="h-8 w-8 rounded-md object-cover" />
-                    <span className="font-medium">{getImageMentionLabel(index)}</span>
-                    {maskDraft?.targetImageId === img.id && (
-                      <span className="ml-auto rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-600 dark:text-blue-300">
-                        MASK
+              <div style={{ left: `${mentionMenuLeft}px` }} className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
+                <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">选择当前参考图</div>
+                <div className="max-h-56 overflow-y-auto custom-scrollbar">
+                  {atImageOptions.map(({ img, index }, optionIndex) => (
+                    <button
+                      key={img.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        selectAtImageOption(index)
+                      }}
+                      onMouseEnter={() => setAtImageMenuIndex(optionIndex)}
+                      className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs transition-colors ${
+                        optionIndex === atImageMenuIndex
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'
+                          : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <span className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200/70 dark:border-white/[0.08]">
+                        <img src={img.dataUrl} className="h-full w-full object-cover" alt="" />
                       </span>
-                    )}
-                  </button>
-                ))}
+                      <span className="min-w-0 flex-1 truncate font-medium">{getImageMentionLabel(index)}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
+            <div
+              ref={textareaRef}
+              contentEditable
+              suppressContentEditableWarning
+              onInput={(e) => {
+                isUserInputRef.current = true
+                const el = e.currentTarget
+                const range = getContentEditableSelection(el)
+                setPromptCursor(range.start)
+                syncMentionTagSelection(el)
+                setPrompt(getContentEditablePlainText(el))
+                setAtImageMenuDismissed(false)
+                setAtImageMenuIndex(0)
+              }}
+              onSelect={(e) => {
+                const el = e.currentTarget
+                const range = getContentEditableSelection(el)
+                setPromptCursor(range.start)
+                syncMentionTagSelection(el)
+                setAtImageMenuDismissed(false)
+                setAtImageMenuIndex(0)
+              }}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePromptPaste}
+              onCopy={handlePromptCopy}
+              onClick={(e) => {
+                const el = textareaRef.current
+                if (!el) return
+                const target = e.target as HTMLElement
+                if (target.classList.contains('mention-tag')) {
+                  const sel = window.getSelection()
+                  if (sel) {
+                    const range = document.createRange()
+                    range.selectNode(target)
+                    sel.removeAllRanges()
+                    sel.addRange(range)
+                    syncMentionTagSelection(el)
+                  }
+                  return
+                }
+
+                syncMentionTagSelection(el)
+              }}
+              data-placeholder="描述你想生成的图片，可输入 @ 指定当前参考图..."
+              className="min-h-[42px] w-full whitespace-pre-wrap break-words rounded-2xl border border-gray-200/60 bg-white/50 px-4 py-3 text-sm leading-relaxed shadow-sm outline-none transition-[border-color,box-shadow] duration-200 focus:ring-1 focus:ring-blue-300/40 empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-100 dark:focus:ring-blue-500/30 dark:empty:before:text-gray-500"
+            />
           </div>
 
           {/* 参数 + 按钮 */}
           <div className="mt-3">
             {/* 桌面端布局 */}
             <div className="hidden sm:flex items-end justify-between gap-3">
-              {renderParams(isGemini ? 'grid-cols-6' : 'grid-cols-8')}
+              {renderParams(isGemini ? 'grid-cols-7' : 'grid-cols-9')}
 
               <div className="flex gap-2 flex-shrink-0 mb-0.5">
                 <div

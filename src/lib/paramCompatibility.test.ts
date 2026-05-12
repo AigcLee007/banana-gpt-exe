@@ -4,11 +4,11 @@ import { createDefaultFalProfile, DEFAULT_SETTINGS, normalizeSettings } from './
 import { getOutputImageLimitForSettings, normalizeParamsForSettings } from './paramCompatibility'
 
 describe('parameter compatibility', () => {
-  it('limits OpenAI output count to 10', () => {
+  it('limits OpenAI output count to 16', () => {
     const settings = normalizeSettings(DEFAULT_SETTINGS)
 
-    expect(getOutputImageLimitForSettings(settings)).toBe(10)
-    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, n: 12 }, settings).n).toBe(10)
+    expect(getOutputImageLimitForSettings(settings)).toBe(16)
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, n: 20 }, settings).n).toBe(16)
   })
 
   it('limits fal.ai output count to 4', () => {

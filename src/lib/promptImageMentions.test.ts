@@ -23,9 +23,9 @@ describe('prompt image mentions', () => {
   })
 
   it('inserts a selected image mention with hidden markers', () => {
-    expect(insertImageMentionAtVisibleRange('参考@生成', 2, 3, 1)).toMatchObject({
+    expect(insertImageMentionAtVisibleRange('参考@生成', 2, 3, 1)).toEqual({
       prompt: `参考${getSelectedImageMentionLabel(1)}生成`,
-      visibleCursor: 5,
+      cursor: 5,
     })
   })
 

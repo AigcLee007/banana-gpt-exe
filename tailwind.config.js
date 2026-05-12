@@ -13,6 +13,12 @@ export default {
         sans: ['var(--font-ui-sans)'],
         mono: ['var(--font-mono)'],
       },
+      height: {
+        dvh: '100dvh',
+      },
+      minHeight: {
+        dvh: '100dvh',
+      },
     },
   },
   plugins: [],

@@ -59,8 +59,8 @@ export default function App() {
   return (
     <>
       <Header />
-      <main data-home-main data-drag-select-surface className="pb-48">
-        <div className="safe-area-x max-w-7xl mx-auto">
+      <main data-home-main data-drag-select-surface className="pb-64 sm:pb-48 min-h-dvh">
+        <div className="safe-area-x max-w-7xl mx-auto pt-4">
           <SearchBar />
           <TaskGrid />
         </div>
