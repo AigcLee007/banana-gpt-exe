@@ -20,9 +20,7 @@ function ceilToMultiple(value: number, multiple: number) {
   return Math.max(multiple, Math.ceil(value / multiple) * multiple)
 }
 
-function normalizeDimensions(width: number, height: number, isGemini?: boolean) {
-  const maxEdge = isGemini ? 8192 : 3840
-  const maxPixels = isGemini ? 20000000 : 8294400 // Gemini allows up to ~17.5M in the table
+function normalizeDimensions(width: number, height: number) {
   let normalizedWidth = roundToMultiple(width, SIZE_MULTIPLE)
   let normalizedHeight = roundToMultiple(height, SIZE_MULTIPLE)
 
@@ -37,9 +35,9 @@ function normalizeDimensions(width: number, height: number, isGemini?: boolean) 
   }
 
   for (let i = 0; i < 4; i++) {
-    const currentMaxEdge = Math.max(normalizedWidth, normalizedHeight)
-    if (currentMaxEdge > maxEdge) {
-      scaleToFit(maxEdge / currentMaxEdge)
+    const maxEdge = Math.max(normalizedWidth, normalizedHeight)
+    if (maxEdge > MAX_EDGE) {
+      scaleToFit(MAX_EDGE / maxEdge)
     }
 
     if (normalizedWidth / normalizedHeight > MAX_ASPECT_RATIO) {
@@ -49,8 +47,8 @@ function normalizeDimensions(width: number, height: number, isGemini?: boolean) 
     }
 
     const pixels = normalizedWidth * normalizedHeight
-    if (pixels > maxPixels) {
-      scaleToFit(Math.sqrt(maxPixels / pixels))
+    if (pixels > MAX_PIXELS) {
+      scaleToFit(Math.sqrt(MAX_PIXELS / pixels))
     } else if (pixels < MIN_PIXELS) {
       scaleToFill(Math.sqrt(MIN_PIXELS / pixels))
     }
@@ -59,12 +57,12 @@ function normalizeDimensions(width: number, height: number, isGemini?: boolean) 
   return { width: normalizedWidth, height: normalizedHeight }
 }
 
-export function normalizeImageSize(size: string, isGemini?: boolean) {
+export function normalizeImageSize(size: string) {
   const trimmed = size.trim()
   const match = trimmed.match(SIZE_PATTERN)
   if (!match) return trimmed
 
-  const { width, height } = normalizeDimensions(Number(match[1]), Number(match[2]), isGemini)
+  const { width, height } = normalizeDimensions(Number(match[1]), Number(match[2]))
   return `${width}x${height}`
 }
 
@@ -151,59 +149,57 @@ export function formatImageRatio(width: number, height: number) {
   return friendlyNearest && friendlyNearest.delta <= 0.04 ? `≈${friendlyNearest.label}` : simplified
 }
 
-const GEMINI_SIZE_TABLE: Record<string, Record<SizeTier, [number, number]>> = {
-  '1:1': { '1K': [1024, 1024], '2K': [2048, 2048], '4K': [4096, 4096] },
-  '9:16': { '1K': [768, 1376], '2K': [1536, 2752], '4K': [3072, 5504] },
-  '2:3': { '1K': [848, 1264], '2K': [1696, 2528], '4K': [3392, 5056] },
-  '3:2': { '1K': [1264, 848], '2K': [2528, 1696], '4K': [5056, 3392] },
-  '3:4': { '1K': [864, 1152], '2K': [1728, 2304], '4K': [3456, 4608] },
-  '4:3': { '1K': [1152, 864], '2K': [2304, 1728], '4K': [4608, 3456] },
-  '16:9': { '1K': [1376, 768], '2K': [2752, 1536], '4K': [5504, 3072] },
-  '21:9': { '1K': [1584, 672], '2K': [3168, 1344], '4K': [6336, 2688] },
+/**
+ * 每个档位的像素预算上限。
+ * 在该预算内、满足所有 OpenAI 约束的前提下，选取总像素最大的候选尺寸。
+ */
+const TIER_PIXEL_BUDGET: Record<SizeTier, number> = {
+  '1K': 1_572_864,   // 1024 × 1536
+  '2K': 4_194_304,   // 2048 × 2048
+  '4K': MAX_PIXELS,  // 8_294_400
 }
 
-export function getGeminiParamsFromSize(size: string): { aspect_ratio?: string, image_size?: string } | null {
-  for (const [ratio, tiers] of Object.entries(GEMINI_SIZE_TABLE)) {
-    for (const [tier, [w, h]] of Object.entries(tiers)) {
-      if (`${w}x${h}` === size) {
-        return { aspect_ratio: ratio, image_size: tier as SizeTier }
-      }
-    }
-  }
-  return null
-}
+const MAX_RATIO_ERROR = 0.01
 
-export function calculateImageSize(tier: SizeTier, ratio: string, isGemini?: boolean) {
-  if (isGemini) {
-    const table = GEMINI_SIZE_TABLE[ratio]
-    if (table) {
-      const [w, h] = table[tier]
-      return `${w}x${h}`
-    }
-  }
-
+export function calculateImageSize(tier: SizeTier, ratio: string) {
   const parsed = parseRatio(ratio)
   if (!parsed) return null
 
   const { width: ratioWidth, height: ratioHeight } = parsed
+  const targetRatio = ratioWidth / ratioHeight
+  const pixelBudget = TIER_PIXEL_BUDGET[tier]
 
-  if (isGemini) {
-    const areaBenchmark = tier === '1K' ? 1048576 : tier === '2K' ? 4194304 : 16777216
-    const r = ratioWidth / ratioHeight
-    const width = roundToMultiple(Math.sqrt(areaBenchmark * r), SIZE_MULTIPLE)
-    const height = roundToMultiple(width / r, SIZE_MULTIPLE)
-    return normalizeImageSize(`${width}x${height}`, true)
+  let bestWidth = 0
+  let bestHeight = 0
+  let bestPixels = 0
+
+  for (let w = SIZE_MULTIPLE; w <= MAX_EDGE; w += SIZE_MULTIPLE) {
+    const idealH = w / targetRatio
+    // 尝试 floor 和 ceil 对齐到 16 的倍数，取像素更大且合法的那个
+    const candidates = [
+      Math.floor(idealH / SIZE_MULTIPLE) * SIZE_MULTIPLE,
+      Math.ceil(idealH / SIZE_MULTIPLE) * SIZE_MULTIPLE,
+    ]
+
+    for (const h of candidates) {
+      if (h < SIZE_MULTIPLE || h > MAX_EDGE) continue
+
+      const pixels = w * h
+      if (pixels > pixelBudget || pixels < MIN_PIXELS) continue
+      if (Math.max(w / h, h / w) > MAX_ASPECT_RATIO) continue
+
+      const actualRatio = w / h
+      const ratioError = Math.abs(actualRatio - targetRatio) / targetRatio
+      if (ratioError > MAX_RATIO_ERROR) continue
+
+      if (pixels > bestPixels) {
+        bestPixels = pixels
+        bestWidth = w
+        bestHeight = h
+      }
+    }
   }
 
-  const longBenchmark = tier === '1K' ? 1024 : tier === '2K' ? 2048 : 3840
-  let width, height
-  if (ratioWidth >= ratioHeight) {
-    width = longBenchmark
-    height = roundToMultiple(longBenchmark * ratioHeight / ratioWidth, SIZE_MULTIPLE)
-  } else {
-    height = longBenchmark
-    width = roundToMultiple(longBenchmark * ratioWidth / ratioHeight, SIZE_MULTIPLE)
-  }
-
-  return normalizeImageSize(`${width}x${height}`, false)
+  if (bestPixels === 0) return null
+  return `${bestWidth}x${bestHeight}`
 }

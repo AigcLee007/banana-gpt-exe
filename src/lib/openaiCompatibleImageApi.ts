@@ -1,4 +1,4 @@
-import type { ApiProfile, CustomProviderDefinition, CustomProviderPollMapping, CustomProviderResultMapping, CustomProviderSubmitMapping, ImageApiResponse, ResponsesApiResponse, TaskParams } from '../types'
+import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import {
@@ -17,9 +17,12 @@ import {
   normalizeBase64Image,
   pickActualParams,
 } from './imageApiShared'
-import { getGeminiParamsFromSize } from './size'
 
 const PROMPT_REWRITE_GUARD_PREFIX = 'Use the following text as the complete prompt. Do not rewrite it:'
+
+function getStreamPartialImages(profile: ApiProfile): number {
+  return profile.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES
+}
 
 function appendQuery(path: string, query?: Record<string, string>): string {
   if (!query || !Object.keys(query).length) return path
@@ -83,6 +86,96 @@ function createRequestHeaders(profile: ApiProfile): Record<string, string> {
   }
 }
 
+function isEventStreamResponse(response: Response): boolean {
+  return response.headers.get('Content-Type')?.toLowerCase().includes('text/event-stream') ?? false
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getStringValue(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key]
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function getNumberValue(source: Record<string, unknown>, key: string): number | undefined {
+  const value = source[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function getStreamEventErrorMessage(event: Record<string, unknown>): string | null {
+  const error = event.error
+  if (isRecordValue(error)) {
+    const message = getStringValue(error, 'message')
+    if (message) return message
+  }
+  if (typeof error === 'string' && error.trim()) return error
+
+  const type = getStringValue(event, 'type')
+  if (type?.endsWith('.failed')) {
+    return getStringValue(event, 'message') ?? '流式请求失败'
+  }
+  return null
+}
+
+function parseServerSentEventBlock(block: string): string | null {
+  const dataLines: string[] = []
+  for (const line of block.split(/\r?\n/)) {
+    if (!line || line.startsWith(':')) continue
+    if (!line.startsWith('data:')) continue
+    dataLines.push(line.slice(5).replace(/^ /, ''))
+  }
+
+  const data = dataLines.join('\n').trim()
+  if (!data || data === '[DONE]') return null
+  return data
+}
+
+async function readJsonServerSentEvents(response: Response, onEvent: (event: Record<string, unknown>) => void | Promise<void>): Promise<void> {
+  if (!response.body) throw new Error('接口未返回可读取的流式响应')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  const processBlock = async (block: string) => {
+    const data = parseServerSentEventBlock(block)
+    if (!data) return
+
+    let event: unknown
+    try {
+      event = JSON.parse(data)
+    } catch {
+      throw new Error('流式响应包含无法解析的 JSON 事件')
+    }
+    if (!isRecordValue(event)) return
+
+    const errorMessage = getStreamEventErrorMessage(event)
+    if (errorMessage) throw new Error(errorMessage)
+
+    await onEvent(event)
+  }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    let separatorIndex = buffer.search(/\r?\n\r?\n/)
+    while (separatorIndex >= 0) {
+      const block = buffer.slice(0, separatorIndex)
+      const separator = buffer.match(/\r?\n\r?\n/)?.[0] ?? '\n\n'
+      buffer = buffer.slice(separatorIndex + separator.length)
+      await processBlock(block)
+      separatorIndex = buffer.search(/\r?\n\r?\n/)
+    }
+  }
+
+  buffer += decoder.decode()
+  if (buffer.trim()) await processBlock(buffer)
+}
+
 function createResponsesImageTool(
   params: TaskParams,
   isEdit: boolean,
@@ -94,6 +187,11 @@ function createResponsesImageTool(
     action: isEdit ? 'edit' : 'generate',
     size: params.size,
     output_format: params.output_format,
+    moderation: params.moderation,
+  }
+
+  if (profile.streamImages) {
+    tool.partial_images = getStreamPartialImages(profile)
   }
 
   if (!profile.codexCli) {
@@ -107,29 +205,6 @@ function createResponsesImageTool(
   if (maskDataUrl) {
     tool.input_image_mask = {
       image_url: maskDataUrl,
-    }
-  }
-  const isGemini = profile.model.toLowerCase().includes('gemini') || 
-    profile.baseUrl.toLowerCase().includes('generativelanguage.googleapis.com')
-
-  if (isGemini) {
-    const geminiParams = getGeminiParamsFromSize(params.size)
-    if (geminiParams) {
-      const gp = {
-        aspect_ratio: geminiParams.aspect_ratio,
-        image_size: geminiParams.image_size,
-        aspectRatio: geminiParams.aspect_ratio,
-        imageSize: geminiParams.image_size,
-      }
-      Object.assign(tool, gp)
-      tool.imageConfig = {
-        aspectRatio: geminiParams.aspect_ratio,
-        imageSize: geminiParams.image_size
-      }
-      tool.image_config = {
-        aspect_ratio: geminiParams.aspect_ratio,
-        image_size: geminiParams.image_size
-      }
     }
   }
 
@@ -171,10 +246,10 @@ function parseResponsesImageResults(payload: ResponsesApiResponse, fallbackMime:
   for (const item of output) {
     if (item?.type !== 'image_generation_call') continue
 
-    const result = item.result
-    if (typeof result === 'string' && result.trim()) {
+    const b64 = getResponsesImageResultBase64(item.result)
+    if (b64) {
       results.push({
-        image: normalizeBase64Image(result, fallbackMime),
+        image: normalizeBase64Image(b64, fallbackMime),
         actualParams: mergeActualParams(pickActualParams(item)),
         revisedPrompt: typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined,
       })
@@ -188,6 +263,24 @@ function parseResponsesImageResults(payload: ResponsesApiResponse, fallbackMime:
   }
 
   return results
+}
+
+function getResponsesImageResultBase64(result: ResponsesOutputItem['result']): string | undefined {
+  const b64 = typeof result === 'string'
+    ? result
+    : result && typeof result === 'object'
+    ? typeof result.b64_json === 'string'
+      ? result.b64_json
+      : typeof result.base64 === 'string'
+      ? result.base64
+      : typeof result.image === 'string'
+      ? result.image
+      : typeof result.data === 'string'
+      ? result.data
+      : ''
+    : ''
+
+  return b64.trim() ? b64 : undefined
 }
 
 async function parseImagesApiResponse(payload: ImageApiResponse, mime: string, signal?: AbortSignal): Promise<CallApiResult> {
@@ -240,20 +333,143 @@ async function parseImagesApiResponse(payload: ImageApiResponse, mime: string, s
   }
 }
 
+function eventToImageResponseItem(event: Record<string, unknown>): ImageResponseItem {
+  return {
+    b64_json: getStringValue(event, 'b64_json'),
+    revised_prompt: getStringValue(event, 'revised_prompt'),
+    size: getStringValue(event, 'size'),
+    quality: getStringValue(event, 'quality'),
+    output_format: getStringValue(event, 'output_format'),
+    output_compression: getNumberValue(event, 'output_compression'),
+    moderation: getStringValue(event, 'moderation'),
+  }
+}
+
+async function parseImagesApiStreamResponse(
+  response: Response,
+  mime: string,
+  onPartialImage?: CallApiOptions['onPartialImage'],
+): Promise<CallApiResult> {
+  const completedItems: ImageResponseItem[] = []
+
+  await readJsonServerSentEvents(response, (event) => {
+    const type = getStringValue(event, 'type')
+    if (type === 'image_generation.partial_image' || type === 'image_edit.partial_image') {
+      const b64 = getStringValue(event, 'b64_json')
+      if (b64) {
+        onPartialImage?.({
+          image: normalizeBase64Image(b64, mime),
+          partialImageIndex: getNumberValue(event, 'partial_image_index'),
+        })
+      }
+      return
+    }
+
+    if (type === 'image_generation.completed' || type === 'image_edit.completed') {
+      completedItems.push(eventToImageResponseItem(event))
+    }
+  })
+
+  if (!completedItems.length) {
+    throw new Error('流式接口未返回最终图片数据')
+  }
+
+  const images = completedItems
+    .map((item) => item.b64_json)
+    .filter((b64): b64 is string => Boolean(b64))
+    .map((b64) => normalizeBase64Image(b64, mime))
+  if (!images.length) throw new Error('流式接口未返回可用图片数据')
+
+  const actualParamsList = completedItems.map((item) => mergeActualParams(pickActualParams(item)))
+  const actualParams = mergeActualParams(
+    actualParamsList[0],
+    images.length > 1 ? { n: images.length } : undefined,
+  )
+  return {
+    images,
+    actualParams,
+    actualParamsList,
+    revisedPrompts: completedItems.map((item) => item.revised_prompt),
+  }
+}
+
+function getResponsesStreamPayload(event: Record<string, unknown>): ResponsesApiResponse | null {
+  const response = event.response
+  if (isRecordValue(response)) return response as ResponsesApiResponse
+
+  const item = event.item
+  if (isRecordValue(item) && item.type === 'image_generation_call') {
+    return { output: [item as ResponsesOutputItem] }
+  }
+
+  return null
+}
+
+async function parseResponsesApiStreamResponse(
+  response: Response,
+  mime: string,
+  onPartialImage?: CallApiOptions['onPartialImage'],
+): Promise<CallApiResult> {
+  let completedPayload: ResponsesApiResponse | null = null
+  const outputItems: ResponsesOutputItem[] = []
+
+  await readJsonServerSentEvents(response, (event) => {
+    const type = getStringValue(event, 'type')
+    if (type === 'response.image_generation_call.partial_image') {
+      const b64 = getStringValue(event, 'partial_image_b64')
+      if (b64) {
+        onPartialImage?.({
+          image: normalizeBase64Image(b64, mime),
+          partialImageIndex: getNumberValue(event, 'partial_image_index'),
+        })
+      }
+      return
+    }
+
+    const payload = getResponsesStreamPayload(event)
+    if (!payload) return
+
+    if (type === 'response.output_item.done' && Array.isArray(payload.output)) {
+      outputItems.push(...payload.output)
+      return
+    }
+
+    completedPayload = payload
+  })
+
+  const payload = completedPayload ?? (outputItems.length ? { output: outputItems } : null)
+  if (!payload) throw new Error('流式接口未返回最终图片数据')
+
+  let imageResults: ReturnType<typeof parseResponsesImageResults>
+  try {
+    imageResults = parseResponsesImageResults(payload, mime)
+  } catch (err) {
+    const collectedImageItems = outputItems.filter((item) => getResponsesImageResultBase64(item.result))
+    if (collectedImageItems.length === 0) throw err
+    imageResults = parseResponsesImageResults({ output: collectedImageItems }, mime)
+  }
+  const actualParams = mergeActualParams(imageResults[0]?.actualParams ?? {})
+  return {
+    images: imageResults.map((result) => result.image),
+    actualParams,
+    actualParamsList: imageResults.map((result) => mergeActualParams(result.actualParams ?? {})),
+    revisedPrompts: imageResults.map((result) => result.revisedPrompt),
+  }
+}
+
 export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
-  const singleImageOpts = opts.params.n === 1 ? opts : { ...opts, params: { ...opts.params, n: 1 } }
   if (customProvider) {
-    return callCustomHttpImageApi(singleImageOpts, profile, customProvider)
+    return callCustomHttpImageApi(opts, profile, customProvider)
   }
 
   return profile.apiMode === 'responses'
-    ? callResponsesImageApi(singleImageOpts, profile)
-    : callImagesApi(singleImageOpts, profile)
+    ? callResponsesImageApi(opts, profile)
+    : callImagesApi(opts, profile)
 }
 
 async function callImagesApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   const n = opts.params.n > 0 ? opts.params.n : 1
-  if (profile.codexCli && n > 1) {
+  if ((profile.codexCli || (profile.streamImages && n > 1)) && n > 1) {
     return callImagesApiConcurrent(opts, profile, n, customProvider)
   }
 
@@ -261,9 +477,21 @@ async function callImagesApi(opts: CallApiOptions, profile: ApiProfile, customPr
 }
 
 async function callImagesApiConcurrent(opts: CallApiOptions, profile: ApiProfile, n: number, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
-  const singleOpts = { ...opts, params: { ...opts.params, n: 1, quality: 'auto' as const } }
+  const singleOpts = {
+    ...opts,
+    params: {
+      ...opts.params,
+      n: 1,
+      ...(profile.codexCli ? { quality: 'auto' as const } : {}),
+    },
+  }
   const results = await Promise.allSettled(
-    Array.from({ length: n }).map(() => callImagesApiSingle(singleOpts, profile, customProvider)),
+    Array.from({ length: n }).map((_, requestIndex) => callImagesApiSingle({
+      ...singleOpts,
+      onPartialImage: opts.onPartialImage
+        ? (partial) => opts.onPartialImage?.({ ...partial, requestIndex })
+        : undefined,
+    }, profile, customProvider)),
   )
 
   const successfulResults = results
@@ -310,97 +538,6 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
   try {
     let response: Response
 
-    const isGemini = profile.model.startsWith('gemini-')
-
-    if (isGemini) {
-      const geminiPath = `v1beta/models/${profile.model}:generateContent`
-      
-      let base = profile.baseUrl.trim().replace(/\/+$/, '')
-      if (!base.startsWith('http')) {
-        base = `https://${base}`
-      }
-      base = base.replace(/\/v1$/, '')
-      
-      if (useApiProxy) {
-        base = proxyConfig?.prefix ?? '/api-proxy'
-      }
-      
-      const endpointUrl = `${base}/${geminiPath}`
-      const urlWithKey = appendQuery(endpointUrl, { key: profile.apiKey })
-
-      const parts: any[] = [{ text: prompt }]
-      for (const dataUrl of inputImageDataUrls) {
-         const [meta, b64] = dataUrl.split(',')
-         const mimeType = meta.match(/:(.*?);/)?.[1] || 'image/png'
-         parts.push({
-           inlineData: {
-             mimeType,
-             data: b64
-           }
-         })
-      }
-
-      const geminiParams = getGeminiParamsFromSize(params.size)
-      const body: any = {
-        contents: [{
-          role: "user",
-          parts
-        }],
-        generationConfig: {
-          responseModalities: ["IMAGE"],
-          ...(geminiParams && {
-            imageConfig: {
-              aspectRatio: geminiParams.aspect_ratio,
-              imageSize: geminiParams.image_size
-            }
-          })
-        }
-      }
-
-      response = await fetch(urlWithKey, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${profile.apiKey}`
-        },
-        cache: 'no-store',
-        body: JSON.stringify(body),
-        signal: controller.signal
-      })
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response))
-      }
-
-      const payload = await response.json()
-      const images: string[] = []
-      const candidates = payload.candidates || []
-      for (const candidate of candidates) {
-        const cParts = candidate.content?.parts || []
-        for (const part of cParts) {
-          if (part.inlineData && part.inlineData.data) {
-             const b64 = part.inlineData.data
-             const mimeType = part.inlineData.mimeType || 'image/png'
-             images.push(`data:${mimeType};base64,${b64}`)
-          }
-        }
-      }
-
-      if (!images.length) {
-         const err = new Error('Gemini 接口没有返回图片数据')
-         ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
-         throw err
-      }
-
-      const actualParams = mergeActualParams(pickActualParams(payload))
-      return {
-        images,
-        actualParams,
-        actualParamsList: images.map(() => actualParams),
-        revisedPrompts: images.map(() => undefined),
-      }
-    }
-
     if (isEdit) {
       const formData = new FormData()
       formData.append('model', profile.model)
@@ -408,13 +545,6 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       formData.append('size', params.size)
       formData.append('output_format', params.output_format)
       formData.append('moderation', params.moderation)
-
-      const isGemini = profile.model.toLowerCase().includes('gemini')
-      const geminiParams = isGemini ? getGeminiParamsFromSize(params.size) : null
-      if (geminiParams) {
-        formData.append('aspect_ratio', geminiParams.aspect_ratio!)
-        formData.append('image_size', geminiParams.image_size!)
-      }
 
       if (!profile.codexCli) {
         formData.append('quality', params.quality)
@@ -428,6 +558,10 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       }
       if (profile.responseFormatB64Json) {
         formData.append('response_format', 'b64_json')
+      }
+      if (profile.streamImages) {
+        formData.append('stream', 'true')
+        formData.append('partial_images', String(getStreamPartialImages(profile)))
       }
 
       const imageBlobs: Blob[] = []
@@ -466,45 +600,15 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         signal: controller.signal,
       })
     } else {
-      const isGemini = profile.model.toLowerCase().includes('gemini')
-      const geminiParams = isGemini ? getGeminiParamsFromSize(params.size) : null
-
       const body: Record<string, unknown> = {
         model: profile.model,
         prompt,
+        size: params.size,
         output_format: params.output_format,
         moderation: params.moderation,
       }
 
-      if (geminiParams) {
-        const gp = {
-          aspect_ratio: geminiParams.aspect_ratio,
-          image_size: geminiParams.image_size,
-          aspectRatio: geminiParams.aspect_ratio,
-          imageSize: geminiParams.image_size,
-        }
-        const imageConfig = {
-          aspectRatio: geminiParams.aspect_ratio,
-          imageSize: geminiParams.image_size
-        }
-        const image_config = {
-          aspect_ratio: geminiParams.aspect_ratio,
-          image_size: geminiParams.image_size
-        }
-
-        Object.assign(body, gp)
-        body.imageConfig = imageConfig
-        body.image_config = image_config
-        
-        // Wrap in common proxy envelopes
-        body.extra_body = { ...gp, imageConfig, image_config }
-        body.parameters = { ...gp, imageConfig, image_config }
-        body.provider_params = { ...gp, imageConfig, image_config }
-      } else {
-        body.size = params.size
-      }
-
-      if (!profile.codexCli && !isGemini) {
+      if (!profile.codexCli) {
         body.quality = params.quality
       }
 
@@ -516,6 +620,10 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       }
       if (profile.responseFormatB64Json) {
         body.response_format = 'b64_json'
+      }
+      if (profile.streamImages) {
+        body.stream = true
+        body.partial_images = getStreamPartialImages(profile)
       }
 
       response = await fetch(buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy), {
@@ -532,6 +640,10 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
 
     if (!response.ok) {
       throw new Error(await getApiErrorMessage(response))
+    }
+
+    if (profile.streamImages && isEventStreamResponse(response)) {
+      return parseImagesApiStreamResponse(response, mime, opts.onPartialImage)
     }
 
     return parseImagesApiResponse(await response.json() as ImageApiResponse, mime, controller.signal)
@@ -566,11 +678,6 @@ function isRecoverablePollingError(err: unknown): boolean {
   if (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError') return true
   const message = err instanceof Error ? err.message : String(err)
   return /abort|network|failed to fetch|fetch failed|load failed|timeout|连接|断开|中断/i.test(message)
-}
-
-function getLimitText(isGemini: boolean) {
-  const maxEdge = isGemini ? 8192 : 3840
-  return `由于模型限制，最终输出会自动规整到合法尺寸：宽高均为 16 的倍数，最大边长 ${maxEdge}px，宽高比不超过 3:1，总像素限制为 655360-${isGemini ? '20000000' : '8294400'}。`
 }
 
 function isRetryablePollingStatus(status: number): boolean {
@@ -846,7 +953,12 @@ async function callResponsesImageApi(opts: CallApiOptions, profile: ApiProfile):
     return callResponsesImageApiSingle(opts, profile)
   }
 
-  const promises = Array.from({ length: n }).map(() => callResponsesImageApiSingle(opts, profile))
+  const promises = Array.from({ length: n }).map((_, requestIndex) => callResponsesImageApiSingle({
+    ...opts,
+    onPartialImage: opts.onPartialImage
+      ? (partial) => opts.onPartialImage?.({ ...partial, requestIndex })
+      : undefined,
+  }, profile))
   const results = await Promise.allSettled(promises)
   
   const successfulResults = results
@@ -894,11 +1006,14 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
         (opts.maskDataUrl ? getDataUrlEncodedByteSize(opts.maskDataUrl) : 0),
     )
 
-    const body = {
+    const body: Record<string, unknown> = {
       model: profile.model,
       input: createResponsesInput(prompt, inputImageDataUrls),
       tools: [createResponsesImageTool(params, inputImageDataUrls.length > 0, profile, opts.maskDataUrl)],
       tool_choice: 'required',
+    }
+    if (profile.streamImages) {
+      body.stream = true
     }
 
     const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
@@ -914,6 +1029,10 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
 
     if (!response.ok) {
       throw new Error(await getApiErrorMessage(response))
+    }
+
+    if (profile.streamImages && isEventStreamResponse(response)) {
+      return parseResponsesApiStreamResponse(response, mime, opts.onPartialImage)
     }
 
     const payload = await response.json() as ResponsesApiResponse

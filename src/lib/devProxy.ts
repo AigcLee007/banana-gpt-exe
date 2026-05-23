@@ -86,7 +86,10 @@ export function readClientDevProxyConfig(): DevProxyConfig | null {
 }
 
 export function isApiProxyAvailable(proxyConfig: DevProxyConfig | null = readClientDevProxyConfig()): boolean {
-  return readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true' || Boolean(proxyConfig?.enabled)
+  const runtimeValue = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE)
+  if (runtimeValue === 'true') return true
+  if (runtimeValue === 'false') return false
+  return Boolean(proxyConfig?.enabled)
 }
 
 export function isApiProxyLocked(proxyConfig: DevProxyConfig | null = readClientDevProxyConfig()): boolean {

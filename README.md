@@ -1,10 +1,29 @@
-# GPT Image Playground
+<div align="center">
 
-面向多类图像生成接口的图片生成与编辑工具。提供简洁精美的 Web UI，支持 OpenAI / OpenAI 兼容接口、fal.ai 与可导入的自定义 HTTP 服务商，支持文本生图、参考图与遮罩编辑，数据纯本地化存储，带来流畅的历史记录与参数管理体验。
+# 🎨 GPT Image Playground
 
-> 若需调用非 HTTPS 的内网或本地 HTTP API，请使用 GitHub Pages 版本或自行部署，Vercel 部署的体验版绑定的 `.dev` 域名因安全策略通常要求接口必须为 HTTPS。
+[![GitHub Repo stars](https://img.shields.io/github/stars/CookSleep/gpt_image_playground?style=flat-square&color=eab308)](https://github.com/CookSleep/gpt_image_playground/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/CookSleep/gpt_image_playground?style=flat-square&color=3b82f6)](https://github.com/CookSleep/gpt_image_playground/network/members)
+[![License](https://img.shields.io/badge/license-MIT-10b981?style=flat-square)](https://github.com/CookSleep/gpt_image_playground/blob/main/LICENSE)
+[![React](https://img.shields.io/badge/React-19-20232A?style=flat-square&logo=react&logoColor=61DAFB)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-[**🌐 Vercel 在线体验**](https://gpt-image-playground.cooksleep.dev) &nbsp;|&nbsp; [**🌐 GitHub Pages 在线体验**](https://cooksleep.github.io/gpt_image_playground)
+**基于 OpenAI gpt-image-2 API 的图片生成与编辑工具**
+
+提供简洁精美的 Web UI，支持 OpenAI / OpenAI 兼容接口、fal.ai 与可导入的自定义 HTTP 服务商。<br>
+支持文本生图、参考图与遮罩编辑，数据纯本地化存储，带来流畅的历史记录与参数管理体验。
+
+<br>
+
+[![Vercel 在线体验](https://img.shields.io/badge/Vercel-%E5%9C%A8%E7%BA%BF%E4%BD%93%E9%AA%8C-black?style=for-the-badge&logo=vercel&logoColor=white)](https://gpt-image-playground.cooksleep.dev)
+&nbsp;&nbsp;&nbsp;
+[![GitHub Pages 在线体验](https://img.shields.io/badge/GitHub%20Pages-%E5%9C%A8%E7%BA%BF%E4%BD%93%E9%AA%8C-222222?style=for-the-badge&logo=github&logoColor=white)](https://cooksleep.github.io/gpt_image_playground)
+
+</div>
+
+<br>
+
+> 💡 **提示**：若需调用非 HTTPS 的内网或本地 HTTP API，请使用 GitHub Pages 版本或自行部署，Vercel 部署的体验版绑定的 `.dev` 域名因安全策略通常要求接口必须为 HTTPS。
 
 ---
 
@@ -16,21 +35,28 @@
 
 <div align="center">
   <b>桌面端主界面</b><br>
-  <img src="docs/images/example_pc_1.png" alt="桌面端主界面" />
+  <img src="docs/images/example_pc_1.jpg" alt="桌面端主界面" />
 </div>
 
 <br>
 
 <div align="center">
   <b>任务详情与实际参数</b><br>
-  <img src="docs/images/example_pc_2.png" alt="任务详情与实际参数" />
+  <img src="docs/images/example_pc_2.jpg" alt="任务详情与实际参数" />
 </div>
 
 <br>
 
 <div align="center">
   <b>桌面端批量选择</b><br>
-  <img src="docs/images/example_pc_3.png" alt="桌面端批量选择" />
+  <img src="docs/images/example_pc_3.jpg" alt="桌面端批量选择" />
+</div>
+
+<br>
+
+<div align="center">
+  <b>桌面端 Agent 模式</b><br>
+  <img src="docs/images/example_pc_4.jpg" alt="桌面端 Agent 模式" />
 </div>
 
 <br>
@@ -57,6 +83,14 @@
 - **双模接口支持**：自由切换使用常规 `Images API` (`/v1/images`) 或 `Responses API` (`/v1/responses`)。
 - **参考图与遮罩**：支持上传最多 16 张参考图（支持剪贴板和拖拽）。内置可视化遮罩编辑器，自动预处理以符合官方分辨率限制。
 - **批量与迭代**：支持单次多图生成；一键将满意结果转为参考图，无缝开启下一轮修改。
+- **流式生成预览**：Responses API 模式下支持流式接收图像，缓解连接超时问题。
+
+### 🤖 Agent 多轮对话模式
+- **多轮对话与上下文记忆**：基于 Responses API 的对话式生成，Agent 会理解上下文并按需调用图像工具；支持 `@` 引用参考图或前面轮次生成的图片，并自动识别上下文中的图片。
+- **并发批量生成**：内置 `generate_image_batch` 工具，让 Agent 在一次轮次中并发生成多张关联图像，并通过 `continue_generation` 自动追加新一轮以处理依赖关系。
+- **分支与重新生成**：编辑某轮消息重新发送或重新生成某轮消息会产生可切换的分支，引用解析严格限定在当前分支路径内，避免误用其他分支的图片。
+- **画廊同步与隔离删除**：Agent 生成的图片会同步到画廊；删除对话默认保留画廊记录，删除画廊任务时也会自动清理对话中残留的图片引用。
+- **可选 Web 搜索**：可开启 `web_search` 工具，Agent 会在需要时搜索网络信息并附带引用链接。
 
 ### ⚙️ 精细化参数追踪
 - **智能尺寸控制**：提供 1K/2K/4K 快速预设，自定义宽高时会自动规整至模型安全范围（16 的倍数、总像素校验等）。
@@ -65,10 +99,11 @@
 ### 📁 高效历史管理 (纯本地)
 - **瀑布流与画廊**：历史任务自动保存，支持按状态过滤、全屏大图预览与快捷下载。
 - **快捷批量操作**：桌面端支持鼠标拖拽框选、Ctrl/⌘ 连选，移动端支持顺滑侧滑多选；轻松实现批量收藏与清理。
+- **优化的图片查看与下载**：大图预览支持左右滑动切换、移动端长按弹出操作菜单，支持快捷下载与批量下载。
 - **极致性能与隐私**：所有记录与图片均存放在浏览器 IndexedDB 中（采用 SHA-256 去重压缩），不经过任何第三方服务器。支持一键打包导出 ZIP 备份。
 
 ### 🔌 多配置与服务商增强
-- **多配置管理**：支持创建并保存多个 API 配置（包含服务商、API Key、模型等），按需快速切换；支持通过拖拽对配置列表与服务商列表进行自定义排序。
+- **多配置管理**：支持创建并保存多个 API 配置（包含服务商、API Key、模型等），按需快速切换；支持一键复制当前配置到列表底部，并通过拖拽对配置列表与服务商列表进行自定义排序。
 - **多服务商接入**：内置 OpenAI 兼容接口（含 `Images API` 和 `Responses API`）、fal.ai（支持队列），并支持通过 JSON 导入自定义 HTTP 服务商配置（兼容同步/异步任务）。
 - **API 代理**：OpenAI 兼容接口与 fal.ai 均可配置自定义代理。其中 OpenAI 兼容接口可开启同源 `/api-proxy/` 代理，交由 Docker 或本地开发环境转发至真实 API，绕开浏览器 CORS 限制。
 - **Codex CLI 兼容模式**：对上游为 Codex CLI 的 API，开启后应用 Codex CLI 实际支持的参数，并将多图生成拆分为并发单图。
@@ -256,7 +291,14 @@ https://cooksleep.github.io/gpt_image_playground?apiUrl={address}&apiKey={key}&m
 如果需要导入自定义格式的 API 配置，请使用 `settings` 参数并传入 URL 编码后的完整 JSON：
 - `?settings={URL编码后的JSON}`（只读取 `customProviders` 和 `profiles` 列表）
 
-> 推荐在项目内的 **设置 - API 配置 - 服务商类型 - 创建自定义服务商 - AI 一键生成与导入** 完成配置生成与导入后，在 **API 配置 - 当前配置 - 复制按钮** 处一键复制可导入配置的 URL。复制时可选择不包含 API Key，并使用变量（如 `{address}`、`{key}`、`{model}`）进行灵活替换，以便在 New API 等平台中无缝集成分享。
+> 推荐先在项目内完成配置生成与导入：
+>
+> **设置 - API 配置 - 服务商类型 - 创建自定义服务商 - AI 一键生成与导入**
+>
+> 完成后可在 **API 配置 - 当前配置** 使用右侧快捷按钮：
+>
+> - **链接按钮**：复制可导入配置的 URL。复制时可选择不包含 API Key，并使用 `{address}`、`{key}`、`{model}` 等变量，便于在 New API 等平台中集成分享。
+> - **复制按钮**：将当前配置复制一份到配置列表底部，新配置名称会追加“（复制）”。
 
 JSON 结构示例：
 
@@ -315,10 +357,16 @@ JSON 结构示例：
 
 ## 💻 技术栈
 
-- **前端框架**：[React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
-- **构建工具**：[Vite](https://vite.dev/)
-- **样式方案**：[Tailwind CSS 3](https://tailwindcss.com/)
-- **状态管理**：[Zustand](https://zustand.docs.pmnd.rs/)
+<div align="center">
+  <br>
+  <a href="https://react.dev/"><img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React 19" /></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" /></a>
+  <a href="https://vite.dev/"><img src="https://img.shields.io/badge/Vite-B73BFE?style=for-the-badge&logo=vite&logoColor=FFD62E" alt="Vite" /></a>
+  <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS_3-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind CSS 3" /></a>
+  <a href="https://zustand.docs.pmnd.rs/"><img src="https://img.shields.io/badge/Zustand-764ABC?style=for-the-badge&logo=react&logoColor=white" alt="Zustand" /></a>
+  <br>
+  <br>
+</div>
 
 ## 📄 许可证 & 致谢
 
@@ -326,12 +374,32 @@ JSON 结构示例：
 
 特别致谢：[LINUX DO](https://linux.do)
 
+## 💜 赞助支持
+
+<div align="center">
+
+如果这个项目对你有帮助，欢迎通过爱发电赞助支持，你的每一份鼓励都是持续更新的动力！
+
+<br>
+<br>
+
+<a href="https://www.ifdian.net/a/cooksleep">
+  <img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E8%B5%9E%E5%8A%A9%E4%BD%9C%E8%80%85-946ce6?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyMS4zNWwtMS40NS0xLjMyQzUuNCAxNS4zNiAyIDEyLjI4IDIgOC41IDIgNS40MiA0LjQyIDMgNy41IDNjMS43NCAwIDMuNDEuODEgNC41IDIuMDlDMTMuMDkgMy44MSAxNC43NiAzIDE2LjUgMyAxOS41OCAzIDIyIDUuNDIgMjIgOC41YzAgMy43OC0zLjQgNi44Ni04LjU1IDExLjU0TDEyIDIxLjM1eiIvPjwvc3ZnPg==&logoColor=white" alt="爱发电赞助" />
+</a>
+
+<br>
+<br>
+
+</div>
+
 ## ⭐ Star History
 
-<a href="https://www.star-history.com/#CookSleep/gpt_image_playground&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=CookSleep/gpt_image_playground&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=CookSleep/gpt_image_playground&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=CookSleep/gpt_image_playground&type=Date" />
-  </picture>
-</a>
+<div align="center">
+  <a href="https://www.star-history.com/#CookSleep/gpt_image_playground&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=CookSleep/gpt_image_playground&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=CookSleep/gpt_image_playground&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=CookSleep/gpt_image_playground&type=Date" />
+    </picture>
+  </a>
+</div>

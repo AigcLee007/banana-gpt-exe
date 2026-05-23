@@ -6,6 +6,7 @@ import { useDockerApiUrlMigrationNotice } from './hooks/useDockerApiUrlMigration
 import Header from './components/Header'
 import SearchBar from './components/SearchBar'
 import TaskGrid from './components/TaskGrid'
+import AgentWorkspace from './components/AgentWorkspace'
 import InputBar from './components/InputBar'
 import DetailModal from './components/DetailModal'
 import Lightbox from './components/Lightbox'
@@ -14,10 +15,15 @@ import ConfirmDialog from './components/ConfirmDialog'
 import Toast from './components/Toast'
 import MaskEditorModal from './components/MaskEditorModal'
 import ImageContextMenu from './components/ImageContextMenu'
+import SupportPromptModal from './components/SupportPromptModal'
+import { useGlobalClickSuppression } from './lib/clickSuppression'
 
 export default function App() {
   const setSettings = useStore((s) => s.setSettings)
+  const appMode = useStore((s) => s.appMode)
+  const theme = useStore((s) => s.settings.theme ?? 'dark')
   useDockerApiUrlMigrationNotice()
+  useGlobalClickSuppression()
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
@@ -46,30 +52,30 @@ export default function App() {
     document.addEventListener('dragstart', preventPageImageDrag)
     return () => document.removeEventListener('dragstart', preventPageImageDrag)
   }, [])
-  
-  const theme = useStore((s) => s.settings.theme)
+
   useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
+    document.documentElement.classList.toggle('dark', theme === 'dark')
   }, [theme])
 
   return (
     <>
       <Header />
-      <main data-home-main data-drag-select-surface className="pb-64 sm:pb-48 min-h-dvh">
-        <div className="safe-area-x max-w-7xl mx-auto pt-4">
-          <SearchBar />
-          <TaskGrid />
-        </div>
-      </main>
+      {appMode === 'agent' ? (
+        <AgentWorkspace />
+      ) : (
+        <main data-home-main data-drag-select-surface className="pb-48">
+          <div className="safe-area-x max-w-7xl mx-auto">
+            <SearchBar />
+            <TaskGrid />
+          </div>
+        </main>
+      )}
       <InputBar />
       <DetailModal />
       <Lightbox />
       <SettingsModal />
       <ConfirmDialog />
+      <SupportPromptModal />
       <Toast />
       <MaskEditorModal />
       <ImageContextMenu />
