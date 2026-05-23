@@ -13,7 +13,7 @@ describe('URL settings params', () => {
     const current = normalizeSettings(DEFAULT_SETTINGS)
     const next = normalizeSettings({
       ...current,
-      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiUrl=https://api.example.com/v1&apiKey=test-key')),
+      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiKey=test-key')),
     })
 
     expect(next.profiles).toHaveLength(2)
@@ -21,7 +21,7 @@ describe('URL settings params', () => {
     expect(next.profiles.find((profile) => profile.id === next.activeProfileId)).toMatchObject({
       name: 'URL 参数配置',
       provider: 'openai',
-      baseUrl: 'https://api.example.com/v1',
+      baseUrl: DEFAULT_SETTINGS.baseUrl,
       apiKey: 'test-key',
       model: DEFAULT_IMAGES_MODEL,
     })
@@ -31,12 +31,12 @@ describe('URL settings params', () => {
     const current = normalizeSettings(DEFAULT_SETTINGS)
     const next = normalizeSettings({
       ...current,
-      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiUrl=https://api.example.com/v1&apiKey=test-key&model=custom-image-model')),
+      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiKey=test-key&model=custom-image-model')),
     })
 
     expect(next.profiles.find((profile) => profile.id === next.activeProfileId)).toMatchObject({
       provider: 'openai',
-      baseUrl: 'https://api.example.com/v1',
+      baseUrl: DEFAULT_SETTINGS.baseUrl,
       apiKey: 'test-key',
       model: 'custom-image-model',
       apiMode: 'images',
@@ -47,7 +47,7 @@ describe('URL settings params', () => {
     const existingProfile = createDefaultOpenAIProfile({
       id: 'existing-openai',
       name: 'Existing OpenAI',
-      baseUrl: 'https://api.example.com/v1',
+      baseUrl: DEFAULT_SETTINGS.baseUrl,
       apiKey: 'test-key',
     })
     const current = normalizeSettings({
@@ -57,7 +57,7 @@ describe('URL settings params', () => {
     })
     const next = normalizeSettings({
       ...current,
-      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiUrl=https://api.example.com/v1/&apiKey=test-key')),
+      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiKey=test-key')),
     })
 
     expect(next.profiles).toHaveLength(2)
@@ -80,7 +80,7 @@ describe('URL settings params', () => {
     })
     const next = normalizeSettings({
       ...current,
-      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiUrl=https://api.example.com/v1/&apiKey=test-key&streamImages=true&streamPartialImages=3')),
+      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiKey=test-key&streamImages=true&streamPartialImages=3')),
     })
     const activeProfile = next.profiles.find((profile) => profile.id === next.activeProfileId)
 
@@ -88,7 +88,7 @@ describe('URL settings params', () => {
     expect(next.activeProfileId).not.toBe(existingProfile.id)
     expect(activeProfile).toMatchObject({
       provider: 'openai',
-      baseUrl: 'https://api.example.com/v1',
+      baseUrl: DEFAULT_SETTINGS.baseUrl,
       apiKey: 'test-key',
       streamImages: true,
       streamPartialImages: 3,
@@ -104,19 +104,19 @@ describe('URL settings params', () => {
     })
     const next = normalizeSettings({
       ...current,
-      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiUrl=https://api.example.com/v1&apiKey=openai-key')),
+      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiKey=openai-key')),
     })
 
     expect(next.profiles).toHaveLength(2)
     expect(next.profiles.find((profile) => profile.id === next.activeProfileId)).toMatchObject({
       provider: 'openai',
-      baseUrl: 'https://api.example.com/v1',
+      baseUrl: DEFAULT_SETTINGS.baseUrl,
       apiKey: 'openai-key',
     })
   })
 
   it('clears known URL setting params without touching unrelated params', () => {
-    const params = new URLSearchParams('apiUrl=https://api.example.com/v1&apiKey=test-key&model=test-model&streamImages=false&streamPartialImages=3&foo=bar')
+    const params = new URLSearchParams('apiKey=test-key&model=test-model&streamImages=false&streamPartialImages=3&foo=bar')
 
     expect(hasUrlSettingParams(params)).toBe(true)
     clearUrlSettingParams(params)

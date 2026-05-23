@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { normalizeBaseUrl } from '../lib/api'
 import { isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig } from '../lib/devProxy'
 import { useStore, exportData, importData, clearData, type SettingsTab } from '../store'
 import {
@@ -46,6 +45,9 @@ const DEFAULT_COPY_IMPORT_URL_OPTIONS = {
   useNewApiKey: true,
   useNewApiModel: false,
 }
+
+const FIXED_OPENAI_BASE_URL = DEFAULT_SETTINGS.baseUrl
+const APP_BRAND_NAME = '艾特智绘'
 
 type CopyImportUrlOptions = typeof DEFAULT_COPY_IMPORT_URL_OPTIONS
 
@@ -485,7 +487,7 @@ export default function SettingsModal() {
     const normalizedProfiles = nextDraft.profiles.map((profile) => {
       const normalizedBaseUrl = profile.provider === 'fal'
         ? profile.baseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL
-        : normalizeBaseUrl(profile.baseUrl.trim() || DEFAULT_SETTINGS.baseUrl)
+        : FIXED_OPENAI_BASE_URL
       const defaultModel = profile.provider === 'fal' ? DEFAULT_FAL_MODEL : getDefaultModelForMode(profile.apiMode)
       return {
         ...profile,
@@ -525,8 +527,6 @@ export default function SettingsModal() {
     url.hash = ''
 
     if (profile.provider === 'openai') {
-      const baseUrl = profile.baseUrl.trim() || DEFAULT_SETTINGS.baseUrl
-      url.searchParams.set('apiUrl', options.useNewApiAddress && !options.includeApiKey ? '{address}' : normalizeBaseUrl(baseUrl))
       if (options.includeApiKey && profile.apiKey.trim()) {
         url.searchParams.set('apiKey', profile.apiKey.trim())
       } else if (!options.includeApiKey && options.useNewApiKey) {
@@ -541,7 +541,6 @@ export default function SettingsModal() {
 
       let result = url.toString()
       if (!options.includeApiKey) {
-        if (options.useNewApiAddress) result = result.replace('%7Baddress%7D', '{address}')
         if (options.useNewApiKey) result = result.replace('%7Bkey%7D', '{key}')
         if (options.useNewApiModel) result = result.replace('%7Bmodel%7D', '{model}')
       }
@@ -554,7 +553,6 @@ export default function SettingsModal() {
       apiKey: options.includeApiKey ? profile.apiKey : '',
     }
     if (!options.includeApiKey) {
-      if (options.useNewApiAddress) importProfile.baseUrl = '{address}'
       if (options.useNewApiKey) importProfile.apiKey = '{key}'
       if (options.useNewApiModel) importProfile.model = '{model}'
     }
@@ -565,7 +563,6 @@ export default function SettingsModal() {
 
     let result = url.toString()
     if (!options.includeApiKey) {
-      if (options.useNewApiAddress) result = result.replace(/%7Baddress%7D/g, '{address}')
       if (options.useNewApiKey) result = result.replace(/%7Bkey%7D/g, '{key}')
       if (options.useNewApiModel) result = result.replace(/%7Bmodel%7D/g, '{model}')
     }
@@ -1147,7 +1144,7 @@ export default function SettingsModal() {
                     </div>
                   </div>
                   <div data-selectable-text className="text-xs text-gray-500 dark:text-gray-500">
-                    选择 Banana GPT 默认使用的界面主题。
+                    选择 {APP_BRAND_NAME} 默认使用的界面主题。
                   </div>
                 </div>
                 <div className="hidden sm:block">
@@ -1534,7 +1531,7 @@ export default function SettingsModal() {
               </div>
 
               {/* 3. API URL */}
-              {activeProviderUsesApiUrl && (
+              {activeProviderUsesApiUrl && activeProfile.provider === 'fal' ? (
                 <label className="block">
                   <div className="mb-1.5 flex items-center justify-between">
                     <span className="block text-sm text-gray-600 dark:text-gray-300">API URL</span>
@@ -1558,7 +1555,19 @@ export default function SettingsModal() {
                     )}
                   </div>
                 </label>
-              )}
+              ) : activeProviderUsesApiUrl ? (
+                <div className="block">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="block text-sm text-gray-600 dark:text-gray-300">服务地址</span>
+                  </div>
+                  <div className="w-full rounded-xl border border-gray-200/70 bg-gray-50/90 px-3 py-2.5 text-sm text-gray-700 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200">
+                    {FIXED_OPENAI_BASE_URL}
+                  </div>
+                  <div data-selectable-text className="mt-1.5 min-h-[22px] flex items-center text-xs text-gray-500 dark:text-gray-500">
+                    <span>当前桌面版已内置固定服务地址，用户无需填写，也不能修改为其他 API。</span>
+                  </div>
+                </div>
+              ) : null}
 
               {/* 4. API 代理（紧跟 URL） */}
               {apiProxyAvailable && activeProfile.provider === 'openai' && (
@@ -1937,7 +1946,7 @@ export default function SettingsModal() {
                   <div className="mb-5 flex h-[88px] w-[88px] items-center justify-center rounded-full border border-gray-200/80 bg-gray-50/50 text-gray-800 transition-colors group-hover:bg-gray-100 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-gray-100 dark:group-hover:bg-white/[0.06]">
                     <GithubIcon className="h-11 w-11" />
                   </div>
-                  <h4 className="text-[17px] font-bold text-gray-800 dark:text-gray-100">Banana GPT</h4>
+                  <h4 className="text-[17px] font-bold text-gray-800 dark:text-gray-100">{APP_BRAND_NAME}</h4>
                   <p className="mt-1.5 text-[13px] text-gray-500 transition-colors group-hover:text-gray-700 dark:text-gray-400 dark:group-hover:text-gray-300">
                     @CookSleep
                   </p>

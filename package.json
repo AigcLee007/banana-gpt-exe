@@ -34,7 +34,7 @@
   },
   "build": {
     "appId": "com.aigclee007.bananagpt",
-    "productName": "Banana GPT",
+    "productName": "艾特智绘",
     "directories": {
       "output": "release"
     },
