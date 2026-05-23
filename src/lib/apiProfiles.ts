@@ -16,9 +16,9 @@ import type {
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES } from '../types'
 import { readRuntimeEnv } from './runtimeEnv'
 
-const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://api.openai.com/v1'
+const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://vip.aittco.com'
 const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true'
-export const DEFAULT_IMAGES_MODEL = 'gpt-image-2'
+export const DEFAULT_IMAGES_MODEL = 'gemini-3-pro-image-preview'
 export const DEFAULT_RESPONSES_MODEL = 'gpt-5.5'
 export const DEFAULT_FAL_BASE_URL = 'https://fal.run'
 export const DEFAULT_FAL_MODEL = 'openai/gpt-image-2'
@@ -69,6 +69,10 @@ export function normalizeAgentMaxToolRounds(value: unknown, fallback: number | u
 
 function normalizeReferenceImageEditAction(value: unknown): ReferenceImageEditAction {
   return value === 'replace-reference' || value === 'add-mask' ? value : 'ask'
+}
+
+function normalizeOpenAIBaseUrl(baseUrl: string) {
+  return baseUrl.trim().replace(/\/+$/, '') || DEFAULT_BASE_URL
 }
 
 function isCustomProviderTemplate(value: unknown): value is CustomProviderTemplate {
@@ -348,7 +352,9 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
     return {
       ...profile,
       provider: customProvider.id,
-      baseUrl: savedDraft?.baseUrl ?? (shouldUseOpenAIDefaults ? DEFAULT_BASE_URL : profile.baseUrl || DEFAULT_BASE_URL),
+      baseUrl: savedDraft?.baseUrl
+        ? normalizeOpenAIBaseUrl(savedDraft.baseUrl)
+        : normalizeOpenAIBaseUrl(shouldUseOpenAIDefaults ? DEFAULT_BASE_URL : profile.baseUrl || DEFAULT_BASE_URL),
       model: savedDraft?.model ?? (shouldUseOpenAIDefaults ? DEFAULT_IMAGES_MODEL : profile.model || DEFAULT_IMAGES_MODEL),
       apiMode: savedDraft?.apiMode ?? 'images',
       codexCli: false,
@@ -363,7 +369,7 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
   return {
     ...profile,
     provider,
-    baseUrl: savedDraft?.baseUrl ?? DEFAULT_BASE_URL,
+    baseUrl: savedDraft?.baseUrl ? normalizeOpenAIBaseUrl(savedDraft.baseUrl) : DEFAULT_BASE_URL,
     model: savedDraft?.model ?? DEFAULT_IMAGES_MODEL,
     apiMode: savedDraft?.apiMode ?? profile.apiMode,
     codexCli: savedDraft?.codexCli ?? profile.codexCli,
@@ -387,7 +393,7 @@ function normalizeProviderDraft(input: unknown, provider: ApiProvider, customPro
   return {
     baseUrl: provider === 'fal'
       ? baseUrl?.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL
-      : baseUrl,
+      : baseUrl ? normalizeOpenAIBaseUrl(baseUrl) : undefined,
     model,
     apiMode,
     codexCli: typeof input.codexCli === 'boolean' ? input.codexCli : fallback.codexCli,
@@ -420,7 +426,7 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
     id: typeof record.id === 'string' && record.id.trim() ? record.id : defaults.id,
     name: typeof record.name === 'string' && record.name.trim() ? record.name : defaults.name,
     provider,
-    baseUrl: provider === 'fal' ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL : rawBaseUrl,
+    baseUrl: provider === 'fal' ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL : normalizeOpenAIBaseUrl(rawBaseUrl),
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : defaults.apiKey,
     model: typeof record.model === 'string' && record.model.trim() ? record.model : defaults.model,
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : defaults.timeout,
@@ -452,7 +458,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
   const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
   const customProviderIds = new Set(customProviders.map((provider) => provider.id))
   const legacyProfile = createDefaultOpenAIProfile({
-    baseUrl: typeof record.baseUrl === 'string' ? record.baseUrl : DEFAULT_BASE_URL,
+    baseUrl: typeof record.baseUrl === 'string' ? normalizeOpenAIBaseUrl(record.baseUrl) : DEFAULT_BASE_URL,
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : '',
     model: typeof record.model === 'string' && record.model.trim() ? record.model : DEFAULT_IMAGES_MODEL,
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : DEFAULT_API_TIMEOUT,
@@ -494,6 +500,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     agentWebSearch: typeof record.agentWebSearch === 'boolean' ? record.agentWebSearch : false,
     profiles,
     activeProfileId,
+    theme: record.theme === 'light' ? 'light' : 'dark',
   }
 }
 
@@ -579,7 +586,11 @@ export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): A
 
   return {
     ...profile,
-    baseUrl: typeof record.baseUrl === 'string' ? record.baseUrl : profile.baseUrl,
+    baseUrl: typeof record.baseUrl === 'string'
+      ? profile.provider === 'fal'
+        ? record.baseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL
+        : normalizeOpenAIBaseUrl(record.baseUrl)
+      : profile.baseUrl,
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : profile.apiKey,
     model: typeof record.model === 'string' && record.model.trim() ? record.model : profile.model,
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : profile.timeout,
@@ -778,4 +789,5 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   agentScrollToBottomAfterSubmit: true,
   agentMaxToolRounds: DEFAULT_AGENT_MAX_TOOL_ROUNDS,
   agentWebSearch: false,
+  theme: 'dark',
 })

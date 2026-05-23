@@ -21,6 +21,7 @@ import { useGlobalClickSuppression } from './lib/clickSuppression'
 export default function App() {
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
+  const theme = useStore((s) => s.settings.theme ?? 'dark')
   useDockerApiUrlMigrationNotice()
   useGlobalClickSuppression()
 
@@ -51,6 +52,10 @@ export default function App() {
     document.addEventListener('dragstart', preventPageImageDrag)
     return () => document.removeEventListener('dragstart', preventPageImageDrag)
   }, [])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+  }, [theme])
 
   return (
     <>
