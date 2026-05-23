@@ -10,6 +10,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
+import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import Select from './Select'
@@ -635,6 +636,9 @@ export default function InputBar() {
   const displaySize = isFalTextToImage && params.size === 'auto'
     ? DEFAULT_FAL_IMAGE_SIZE
     : normalizeImageSize(params.size) || DEFAULT_PARAMS.size
+  const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === activeProfile.model)
+    ? activeProfile.model
+    : DEFAULT_GALLERY_MODEL
 
   const qualityOptions = isFalProvider
     ? [
@@ -1739,6 +1743,20 @@ export default function InputBar() {
 
   const renderParams = (cols: string) => (
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
+      {appMode === 'gallery' && (
+        <label className="flex flex-col gap-0.5">
+          <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
+          <Select
+            value={galleryModel}
+            onChange={(model) => setSettings({ model: String(model), apiMode: 'images' })}
+            options={BANANA_GALLERY_MODELS.map((item) => ({
+              label: item.displayName,
+              value: item.model,
+            }))}
+            className={selectClass}
+          />
+        </label>
+      )}
       <label
         className="relative flex flex-col gap-0.5"
         onMouseEnter={sizeHint.show}
@@ -2156,7 +2174,7 @@ export default function InputBar() {
           <div className="mt-3">
             {/* 桌面端布局 */}
             <div className="hidden sm:flex items-end justify-between gap-3">
-              {renderParams('grid-cols-6')}
+              {renderParams(appMode === 'gallery' ? 'grid-cols-7' : 'grid-cols-6')}
 
               <div className="flex gap-2 flex-shrink-0 mb-0.5">
                 <div
