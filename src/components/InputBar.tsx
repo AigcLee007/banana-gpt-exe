@@ -814,7 +814,8 @@ export default function InputBar() {
   }, [params.output_compression])
 
   useEffect(() => {
-    setNInput(agentAutoImageCount ? 'auto' : String(params.n))
+    if (agentAutoImageCount) return
+    setNInput(String(params.n))
   }, [agentAutoImageCount, params.n])
 
   useEffect(() => {
@@ -872,7 +873,6 @@ export default function InputBar() {
   const commitN = useCallback(() => {
     nLimitHint.hide()
     if (agentAutoImageCount) {
-      setNInput('auto')
       return
     }
     const nextValue = Number(nInput)
@@ -906,7 +906,6 @@ export default function InputBar() {
 
   const handleNInputChange = useCallback((value: string) => {
     if (agentAutoImageCount) {
-      setNInput('auto')
       return
     }
     setNInput(value)
@@ -1969,7 +1968,7 @@ export default function InputBar() {
       >
         <span className="text-gray-400 dark:text-gray-500 ml-1">数量</span>
         <input
-          value={nInput}
+          value={agentAutoImageCount ? 'auto' : nInput}
           onChange={(e) => handleNInputChange(e.target.value)}
           onFocus={() => setNInputFocused(true)}
           onBlur={() => {
