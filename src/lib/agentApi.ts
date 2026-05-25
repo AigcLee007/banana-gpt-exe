@@ -1,4 +1,5 @@
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
+import { AGENT_FIXED_MODEL } from './bananaModels'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getApiErrorMessage, MIME_MAP, normalizeBase64Image, pickActualParams } from './imageApiShared'
 
@@ -626,7 +627,7 @@ export async function callAgentResponsesApi(opts: {
 
   try {
     const body: Record<string, unknown> = {
-      model: profile.model || settings.model,
+      model: AGENT_FIXED_MODEL,
       instructions: createAgentInstructions(settings),
       input,
       tools: createAgentTools(params, profile, settings, maskDataUrl),
@@ -695,7 +696,7 @@ export async function callAgentConversationTitleApi(opts: {
       headers: createHeaders(profile),
       cache: 'no-store',
       body: JSON.stringify({
-        model: profile.model || settings.model,
+        model: AGENT_FIXED_MODEL,
         instructions: AGENT_TITLE_INSTRUCTIONS,
         input: [{ role: 'user', content }],
         max_output_tokens: 32,
@@ -798,7 +799,7 @@ export async function callBatchImageSingle(opts: {
     }
 
     const body: Record<string, unknown> = {
-      model: profile.model,
+      model: AGENT_FIXED_MODEL,
       input,
       tools: [tool],
       tool_choice: 'required',

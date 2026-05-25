@@ -97,6 +97,7 @@ vi.mock('./lib/agentApi', () => ({
 }))
 import { clearAgentConversations, clearImages, getAllAgentConversations, getAllTasks, putAgentConversation, putImage, putTask as putDbTask } from './lib/db'
 import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
+import { getGeminiOutputPixels } from './lib/geminiImageSizing'
 import { cleanStaleAgentInputDrafts, deleteAgentRoundFromConversation, editOutputs, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, migratePersistedState, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
@@ -207,6 +208,33 @@ describe('mask draft lifecycle in store actions', () => {
     const state = useStore.getState()
     expect(state.tasks).toHaveLength(1)
     expect(state.showToast).toHaveBeenCalledWith('任务已提交', 'success')
+  })
+
+  it('stores independent Gemini request parameters when creating a gallery task', async () => {
+    useStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        model: 'gemini-3-pro-image-preview',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          model: 'gemini-3-pro-image-preview',
+        })),
+      },
+      params: {
+        ...DEFAULT_PARAMS,
+        size: '2480x3312',
+      },
+    })
+
+    await submitTask()
+
+    const createdTask = useStore.getState().tasks[0]
+    expect(createdTask.params.geminiAspectRatio).toBe('3:4')
+    expect(createdTask.params.geminiImageSize).toBe('2K')
+    expect(createdTask.params.geminiOutputPixels).toBe(getGeminiOutputPixels('3:4', '2K'))
+    expect(createdTask.params.size).toBe(getGeminiOutputPixels('3:4', '2K'))
   })
 
   it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {
@@ -1740,7 +1768,7 @@ describe('reused task API profile', () => {
     const state = useStore.getState()
     expect(state.settings.activeProfileId).toBe(openaiProfile.id)
     expect(state.reusedTaskApiProfileId).toBeNull()
-    expect(state.params).toMatchObject({ n: 8, size: 'auto', quality: 'auto' })
+    expect(state.params).toMatchObject({ n: 8, size: '2048x2048', quality: 'auto' })
   })
 
   it('asks whether to submit with current API profile when the reused API profile is missing', async () => {

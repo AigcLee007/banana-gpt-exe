@@ -1,6 +1,8 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
+import { isGeminiNativeModel } from './bananaModels'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import {
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
@@ -19,6 +21,14 @@ import {
 } from './imageApiShared'
 
 const PROMPT_REWRITE_GUARD_PREFIX = 'Use the following text as the complete prompt. Do not rewrite it:'
+
+function getDebugPathname(url: string): string {
+  try {
+    return new URL(url, 'https://local.invalid').pathname
+  } catch {
+    return url
+  }
+}
 
 function getStreamPartialImages(profile: ApiProfile): number {
   return profile.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES
@@ -72,6 +82,164 @@ function getAllByPath(source: unknown, path: string | undefined): unknown[] {
   }
 
   return current.flatMap((item) => Array.isArray(item) ? item : [item]).filter((item) => item != null)
+}
+
+function getGeminiApiBaseUrl(profile: ApiProfile, proxyConfig: ReturnType<typeof readClientDevProxyConfig>, useApiProxy: boolean) {
+  if (useApiProxy) return proxyConfig?.prefix ?? '/api-proxy'
+  const raw = profile.baseUrl.trim() || 'https://vip.aittco.com'
+  const withProtocol = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(raw) ? raw : `https://${raw}`
+  try {
+    const url = new URL(withProtocol)
+    const segments = url.pathname.split('/').filter(Boolean)
+    const v1Index = segments.findIndex((segment) => segment === 'v1' || segment === 'v1beta')
+    const keptSegments = v1Index >= 0 ? segments.slice(0, v1Index) : segments
+    const pathname = keptSegments.length ? `/${keptSegments.join('/')}` : ''
+    return `${url.origin}${pathname}`.replace(/\/+$/, '')
+  } catch {
+    return raw.replace(/\/(?:v1|v1beta)\/?$/, '').replace(/\/+$/, '')
+  }
+}
+
+function resolveGeminiRequestSpec(params: TaskParams) {
+  const aspectRatio = normalizeGeminiAspectRatio(params.geminiAspectRatio ?? params.size)
+  const imageSize = normalizeGeminiImageSize(params.geminiImageSize)
+  return {
+    aspectRatio,
+    imageSize,
+    outputPixels: getGeminiOutputPixels(aspectRatio, imageSize),
+  }
+}
+
+function buildGeminiGenerateContentPayload(opts: CallApiOptions, _profile: ApiProfile): Record<string, unknown> {
+  const parts: Array<Record<string, unknown>> = [{ text: opts.prompt }]
+  for (const dataUrl of opts.inputImageDataUrls) {
+    const [meta, data] = dataUrl.split(',')
+    if (!data) continue
+    const mimeType = meta.match(/data:([^;]+);base64/i)?.[1] || 'image/png'
+    parts.push({
+      inlineData: { mimeType, data },
+    })
+  }
+
+  const imageConfig = resolveGeminiRequestSpec(opts.params)
+  return {
+    contents: [{ parts }],
+    generationConfig: {
+      responseModalities: ['IMAGE'],
+      imageConfig: {
+        aspectRatio: imageConfig.aspectRatio,
+        imageSize: imageConfig.imageSize,
+      },
+    },
+  }
+}
+
+function collectGeminiImageResults(source: unknown, output: string[] = [], seen = new Set<unknown>()) {
+  if (source == null) return output
+  if (typeof source === 'string') {
+    if (isDataUrl(source) || isHttpUrl(source)) output.push(source)
+    return output
+  }
+  if (typeof source !== 'object') return output
+  if (seen.has(source)) return output
+  seen.add(source)
+
+  const record = source as Record<string, unknown>
+  const inlineData = (record.inlineData ?? record.inline_data) as Record<string, unknown> | undefined
+  if (inlineData && typeof inlineData === 'object' && typeof inlineData.data === 'string') {
+    const mimeType = typeof inlineData.mimeType === 'string'
+      ? inlineData.mimeType
+      : typeof inlineData.mime_type === 'string'
+        ? inlineData.mime_type
+        : 'image/png'
+    output.push(normalizeBase64Image(inlineData.data, mimeType))
+  }
+
+  const fileData = (record.fileData ?? record.file_data) as Record<string, unknown> | undefined
+  const fileUri = fileData && typeof (fileData.fileUri ?? fileData.file_uri) === 'string'
+    ? String(fileData.fileUri ?? fileData.file_uri)
+    : ''
+  if (fileUri && (isHttpUrl(fileUri) || isDataUrl(fileUri))) output.push(fileUri)
+
+  for (const value of Object.values(record)) {
+    if (Array.isArray(value)) value.forEach((item) => collectGeminiImageResults(item, output, seen))
+    else collectGeminiImageResults(value, output, seen)
+  }
+  return output
+}
+
+function normalizeGeminiImageResult(payload: unknown): CallApiResult {
+  const images = Array.from(new Set(collectGeminiImageResults(payload)))
+  if (!images.length) {
+    const err = new Error('Gemini 接口没有返回可识别的图片数据')
+    ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
+    throw err
+  }
+  const rawImageUrls = images.filter(isHttpUrl)
+  const actualParams = mergeActualParams(pickActualParams(payload))
+  return {
+    images,
+    actualParams,
+    actualParamsList: images.map(() => actualParams),
+    revisedPrompts: images.map(() => undefined),
+    ...(rawImageUrls.length ? { rawImageUrls } : {}),
+  }
+}
+
+async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
+  const proxyConfig = readClientDevProxyConfig()
+  const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
+  const endpointUrl = `${getGeminiApiBaseUrl(profile, proxyConfig, useApiProxy)}/v1beta/models/${encodeURIComponent(profile.model)}:generateContent`
+  const urlWithKey = appendQuery(endpointUrl, { key: profile.apiKey })
+  const requestSpec = resolveGeminiRequestSpec(opts.params)
+
+  try {
+    if (import.meta.env.DEV) {
+      console.debug('[gemini payload]', {
+        model: profile.model,
+        'imageConfig.aspectRatio': requestSpec.aspectRatio,
+        'imageConfig.imageSize': requestSpec.imageSize,
+        expectedPixels: requestSpec.outputPixels,
+        pathname: getDebugPathname(urlWithKey),
+        hasInputImages: opts.inputImageDataUrls.length > 0,
+      })
+    }
+    assertImageInputPayloadSize(
+      opts.inputImageDataUrls.reduce((sum, dataUrl) => sum + getDataUrlEncodedByteSize(dataUrl), 0) +
+        (opts.maskDataUrl ? getDataUrlEncodedByteSize(opts.maskDataUrl) : 0),
+    )
+
+    const response = await fetch(urlWithKey, {
+      method: 'POST',
+      headers: {
+        ...createRequestHeaders(profile),
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+      body: JSON.stringify(buildGeminiGenerateContentPayload(opts, profile)),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response))
+    }
+
+    const result = normalizeGeminiImageResult(await response.json())
+    const actualParams = mergeActualParams(result.actualParams, {
+      geminiAspectRatio: requestSpec.aspectRatio,
+      geminiImageSize: requestSpec.imageSize,
+      geminiOutputPixels: requestSpec.outputPixels,
+    })
+    return {
+      ...result,
+      actualParams,
+      actualParamsList: result.images.map(() => actualParams),
+    }
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 function normalizeImageApiPayload(value: unknown): ImageApiResponse {
@@ -460,6 +628,10 @@ async function parseResponsesApiStreamResponse(
 export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   if (customProvider) {
     return callCustomHttpImageApi(opts, profile, customProvider)
+  }
+
+  if (profile.apiMode !== 'responses' && isGeminiNativeModel(profile.model)) {
+    return callGeminiNativeGenerateContent(opts, profile)
   }
 
   return profile.apiMode === 'responses'

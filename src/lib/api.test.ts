@@ -3,6 +3,36 @@ import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi } from './api'
 
+function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...overrides,
+    apiKey: 'test-key',
+    model: 'gpt-image-2',
+    profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+      ...profile,
+      apiKey: 'test-key',
+      model: 'gpt-image-2',
+      ...(overrides as Record<string, unknown>),
+    })),
+  }
+}
+
+function createGeminiSettings(model: 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-image-preview', overrides: Record<string, unknown> = {}) {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...overrides,
+    apiKey: 'test-key',
+    model,
+    profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+      ...profile,
+      apiKey: 'test-key',
+      model,
+      ...(overrides as Record<string, unknown>),
+    })),
+  }
+}
+
 describe('callImageApi', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -36,6 +66,115 @@ describe('callImageApi', () => {
     },
   )
 
+  it('sends Gemini gallery payload with responseModalities and imageConfig fields', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] } }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createGeminiSettings('gemini-3-pro-image-preview'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        geminiAspectRatio: '16:9',
+        geminiImageSize: '4K',
+        geminiOutputPixels: '5504x3072',
+      },
+      inputImageDataUrls: ['data:image/png;base64,aW5wdXQ='],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1beta/models/gemini-3-pro-image-preview:generateContent')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.generationConfig?.responseModalities).toEqual(['IMAGE'])
+    expect(body.generationConfig?.imageConfig).toEqual({
+      aspectRatio: '16:9',
+      imageSize: '4K',
+    })
+    expect(body.contents?.[0]?.parts).toEqual([
+      { text: 'prompt' },
+      { inlineData: { mimeType: 'image/png', data: 'aW5wdXQ=' } },
+    ])
+    expect(body.generationConfig?.responseFormat).toBeUndefined()
+    expect(body.size).toBeUndefined()
+    expect(body.quality).toBeUndefined()
+    expect(body.output_format).toBeUndefined()
+    expect(body.outputFormat).toBeUndefined()
+    expect(body.format).toBeUndefined()
+    expect(body.compression).toBeUndefined()
+    expect(body.moderation).toBeUndefined()
+  })
+
+  it('sends the selected 1:1 1K Gemini request spec without pixel size params', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] } }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createGeminiSettings('gemini-3.1-flash-image-preview'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        geminiAspectRatio: '1:1',
+        geminiImageSize: '1K',
+        geminiOutputPixels: '1024x1024',
+      },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.generationConfig?.responseModalities).toEqual(['IMAGE'])
+    expect(body.generationConfig?.imageConfig).toEqual({
+      aspectRatio: '1:1',
+      imageSize: '1K',
+    })
+    expect(body.generationConfig?.responseFormat).toBeUndefined()
+    expect(body.size).toBeUndefined()
+  })
+
+  it('keeps GPT-Image-2 text-to-image on images generations', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIImagesSettings(),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/images/generations')
+  })
+
+  it('keeps GPT-Image-2 reference images on images edits', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIImagesSettings(),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: ['data:image/png;base64,aW5wdXQ='],
+    })
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/images/edits'))).toBe(true)
+  })
+
   it('records actual params returned on Images API responses in Codex CLI mode', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       output_format: 'png',
@@ -51,7 +190,7 @@ describe('callImageApi', () => {
     }))
 
     const result = await callImageApi({
-      settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key', codexCli: true },
+      settings: createOpenAIImagesSettings({ codexCli: true }),
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],
@@ -82,7 +221,7 @@ describe('callImageApi', () => {
     }))
 
     const result = await callImageApi({
-      settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key', codexCli: true },
+      settings: createOpenAIImagesSettings({ codexCli: true }),
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],
@@ -115,18 +254,10 @@ describe('callImageApi', () => {
     const partialImages: string[] = []
 
     const result = await callImageApi({
-      settings: {
-        ...DEFAULT_SETTINGS,
-        apiKey: 'test-key',
+      settings: createOpenAIImagesSettings({
         streamImages: true,
         streamPartialImages: 3,
-        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
-          ...profile,
-          apiKey: 'test-key',
-          streamImages: true,
-          streamPartialImages: 3,
-        })),
-      },
+      }),
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],
@@ -168,16 +299,9 @@ describe('callImageApi', () => {
     }))
 
     const result = await callImageApi({
-      settings: {
-        ...DEFAULT_SETTINGS,
-        apiKey: 'test-key',
+      settings: createOpenAIImagesSettings({
         streamImages: true,
-        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
-          ...profile,
-          apiKey: 'test-key',
-          streamImages: true,
-        })),
-      },
+      }),
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],
@@ -212,18 +336,10 @@ describe('callImageApi', () => {
     const partials: Array<{ image: string; requestIndex?: number }> = []
 
     const result = await callImageApi({
-      settings: {
-        ...DEFAULT_SETTINGS,
-        apiKey: 'test-key',
+      settings: createOpenAIImagesSettings({
         streamImages: true,
         streamPartialImages: 1,
-        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
-          ...profile,
-          apiKey: 'test-key',
-          streamImages: true,
-          streamPartialImages: 1,
-        })),
-      },
+      }),
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS, n: 2 },
       inputImageDataUrls: [],
@@ -373,12 +489,10 @@ describe('callImageApi', () => {
     }))
 
     await callImageApi({
-      settings: {
-        ...DEFAULT_SETTINGS,
-        apiKey: 'test-key',
+      settings: createOpenAIImagesSettings({
         apiProxy: true,
         baseUrl: 'http://api.example.com/v1',
-      },
+      }),
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],
@@ -401,12 +515,10 @@ describe('callImageApi', () => {
     }))
 
     await callImageApi({
-      settings: {
-        ...DEFAULT_SETTINGS,
-        apiKey: 'test-key',
+      settings: createOpenAIImagesSettings({
         apiProxy: false,
         baseUrl: 'http://api.example.com/v1',
-      },
+      }),
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],
@@ -427,7 +539,7 @@ describe('callImageApi', () => {
     }))
 
     await callImageApi({
-      settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key' },
+      settings: createOpenAIImagesSettings(),
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],
@@ -450,12 +562,10 @@ describe('callImageApi', () => {
     }))
 
     await callImageApi({
-      settings: {
-        ...DEFAULT_SETTINGS,
-        apiKey: 'test-key',
+      settings: createOpenAIImagesSettings({
         apiProxy: true,
         baseUrl: 'http://api.example.com/v1',
-      },
+      }),
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],

@@ -49,6 +49,7 @@ import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
+import { AGENT_FIXED_MODEL } from './lib/bananaModels'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
 // ===== Image cache =====
@@ -1065,7 +1066,7 @@ export const useStore = create<AppState>()(
 
         const state = get()
         const settings = normalizeSettings(state.settings)
-        const activeProfile = getActiveApiProfile(settings)
+        const activeProfile = createFixedAgentProfile(getActiveApiProfile(settings))
 
         if (activeProfile.provider === 'openai' && activeProfile.apiMode === 'responses') {
           const galleryInputDraft = saveGalleryInputDraft(state)
@@ -1663,6 +1664,15 @@ function createSettingsForApiProfile(settings: AppSettings, profile: ApiProfile)
     profiles: normalized.profiles.map((item) => item.id === profile.id ? profile : item),
     activeProfileId: profile.id,
   })
+}
+
+function createFixedAgentProfile(profile: ApiProfile): ApiProfile {
+  return {
+    ...profile,
+    provider: 'openai',
+    model: AGENT_FIXED_MODEL,
+    apiMode: 'responses',
+  }
 }
 
 function getReusedTaskApiProfile(settings: AppSettings, profileId: string | null): ApiProfile | null {
@@ -2904,7 +2914,7 @@ export async function submitAgentMessage() {
   const state = useStore.getState()
   const { settings, prompt, inputImages, maskDraft, params, showToast } = state
   const normalizedSettings = normalizeSettings(settings)
-  const activeProfile = getActiveApiProfile(normalizedSettings)
+  const activeProfile = createFixedAgentProfile(getActiveApiProfile(normalizedSettings))
 
   if (activeProfile.provider !== 'openai' || activeProfile.apiMode !== 'responses') {
     state.setAppMode('agent')
@@ -3054,7 +3064,7 @@ export async function regenerateAgentAssistantMessage(conversationId: string, ro
   const state = useStore.getState()
   const { settings, params, showToast } = state
   const normalizedSettings = normalizeSettings(settings)
-  const activeProfile = getActiveApiProfile(normalizedSettings)
+  const activeProfile = createFixedAgentProfile(getActiveApiProfile(normalizedSettings))
 
   if (activeProfile.provider !== 'openai' || activeProfile.apiMode !== 'responses') {
     state.setAppMode('agent')

@@ -8,6 +8,8 @@ import HelpModal from './HelpModal'
 import HistoryModal from './HistoryModal'
 import { EditIcon, HelpCircleIcon, HistoryIcon, InstallIcon, SettingsIcon } from './icons'
 
+const APP_BRAND_NAME = '艾特智绘'
+
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
@@ -152,9 +154,14 @@ export default function Header() {
                 href="https://github.com/CookSleep/gpt_image_playground"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[17px] sm:text-lg font-bold tracking-tight text-gray-800 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                className="inline-flex items-center gap-3 text-[17px] sm:text-lg font-bold tracking-tight text-gray-800 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               >
-                Banana GPT
+                <img
+                  src="/aittco-icon.png"
+                  alt={APP_BRAND_NAME}
+                  className="h-9 w-9 rounded-full object-cover shadow-sm ring-1 ring-black/5 dark:ring-white/10"
+                />
+                <span>{APP_BRAND_NAME}</span>
               </a>
               {hasUpdate && latestRelease && (
                 <a
