@@ -1133,10 +1133,9 @@ export default function SettingsModal() {
                     <span className="block text-sm text-gray-600 dark:text-gray-300">主题</span>
                     <div className="w-32">
                       <Select
-                        value={draft.theme ?? 'dark'}
+                        value={(draft.theme === 'cream' ? 'sepia' : (draft.theme ?? 'light'))}
                         onChange={(val) => commitSettings({ ...draft, theme: val as NonNullable<AppSettings['theme']> })}
                         options={[
-                          { label: '深色', value: 'dark' },
                           { label: '浅色', value: 'light' },
                         ]}
                         className="w-full px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] text-xs transition-all duration-200 shadow-sm text-gray-700 dark:text-gray-200 outline-none"
@@ -1723,6 +1722,8 @@ export default function SettingsModal() {
                 </div>
               </label>
 
+              </div>
+
               {/* 8. 流式传输 + 中间步骤图像数 */}
               {activeProfile.provider === 'openai' && (
                 <div className="block space-y-3">
@@ -1824,7 +1825,6 @@ export default function SettingsModal() {
                   />
                 </label>
               )}
-              </div>
             </div>
             )}
             

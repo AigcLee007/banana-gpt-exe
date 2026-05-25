@@ -8,12 +8,12 @@ import HistoryModal from './HistoryModal'
 import { EditIcon, HelpCircleIcon, HistoryIcon, SettingsIcon } from './icons'
 
 const APP_BRAND_NAME = '艾特智绘'
-type ThemeMode = 'dark' | 'light' | 'cream'
+type ThemeMode = 'dark' | 'light' | 'sepia'
 
 const THEME_OPTIONS: Array<{ label: string; value: ThemeMode }> = [
   { label: '暗夜', value: 'dark' },
   { label: '白昼', value: 'light' },
-  { label: '米黄', value: 'cream' },
+  { label: '米黄', value: 'sepia' },
 ]
 
 export default function Header() {
@@ -29,7 +29,7 @@ export default function Header() {
 
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
-  const theme = (settings.theme ?? 'dark') as ThemeMode
+  const theme = (settings.theme ?? 'light') as ThemeMode
 
   const [showHelp, setShowHelp] = useState(false)
   const [showThemeMenu, setShowThemeMenu] = useState(false)

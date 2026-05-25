@@ -97,7 +97,7 @@ export interface AppSettings {
   agentWebSearch: boolean
   profiles: ApiProfile[]
   activeProfileId: string
-  theme?: 'light' | 'dark' | 'cream'
+  theme?: 'light' | 'dark' | 'sepia' | 'cream'
 }
 
 // ===== 任务参数 =====
