@@ -501,7 +501,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     agentWebSearch: typeof record.agentWebSearch === 'boolean' ? record.agentWebSearch : false,
     profiles,
     activeProfileId,
-    theme: record.theme === 'light' ? 'light' : 'dark',
+    theme: record.theme === 'light' || record.theme === 'cream' ? record.theme : 'dark',
   }
 }
 

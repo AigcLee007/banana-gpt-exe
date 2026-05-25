@@ -33,6 +33,44 @@ body {
   padding: 0;
   -webkit-user-select: none;
   user-select: none;
+  background: #ffffff;
+  color: #111827;
+}
+
+:root[data-theme="dark"] body {
+  background: #030712;
+  color: #f3f4f6;
+}
+
+:root[data-theme="light"] body {
+  background: #f8fafc;
+  color: #111827;
+}
+
+:root[data-theme="cream"] body {
+  background: #f6f0e1;
+  color: #3b3228;
+}
+
+:root[data-theme="cream"] header,
+:root[data-theme="cream"] [data-input-bar] > div > div,
+:root[data-theme="cream"] [data-home-main] > div,
+:root[data-theme="cream"] [data-no-drag-select] .bg-white\/90,
+:root[data-theme="cream"] [data-no-drag-select] .bg-white\/95,
+:root[data-theme="cream"] [data-no-drag-select] .bg-white\/70 {
+  background-color: rgba(255, 250, 240, 0.92) !important;
+}
+
+:root[data-theme="cream"] .border-gray-200,
+:root[data-theme="cream"] .border-gray-200\/60,
+:root[data-theme="cream"] .border-gray-200\/70 {
+  border-color: rgba(176, 153, 120, 0.35) !important;
+}
+
+:root[data-theme="cream"] .text-gray-700,
+:root[data-theme="cream"] .text-gray-800,
+:root[data-theme="cream"] .text-gray-900 {
+  color: #3b3228 !important;
 }
 
 input,

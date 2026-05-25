@@ -871,7 +871,7 @@ export default function DetailModal() {
             )}
             <div className="grid grid-cols-2 gap-2 text-xs mb-4">
               <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                <span className="text-gray-400 dark:text-gray-500">{isGeminiTask ? 'Request Spec' : 'Size'}</span>
+                <span className="text-gray-400 dark:text-gray-500">{isGeminiTask ? '请求规格' : '尺寸'}</span>
                 <br />
                 {isGeminiTask && geminiRequestSpec ? (
                   <span className="font-medium text-gray-700 dark:text-gray-300">{geminiRequestSpec}</span>
@@ -880,30 +880,30 @@ export default function DetailModal() {
                 )}
               </div>
               {!isGeminiTask && <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                <span className="text-gray-400 dark:text-gray-500">Quality</span>
+                <span className="text-gray-400 dark:text-gray-500">质量</span>
                 <br />
                 <DetailParamValue task={task} paramKey="quality" className="font-medium" actualParams={currentActualParams} />
               </div>}
               {!isGeminiTask && <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                <span className="text-gray-400 dark:text-gray-500">Format</span>
+                <span className="text-gray-400 dark:text-gray-500">格式</span>
                 <br />
                 <DetailParamValue task={task} paramKey="output_format" className="font-medium" actualParams={currentActualParams} />
               </div>}
               {!isGeminiTask && <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                <span className="text-gray-400 dark:text-gray-500">Moderation</span>
+                <span className="text-gray-400 dark:text-gray-500">审核</span>
                 <br />
                 <DetailParamValue task={task} paramKey="moderation" className="font-medium" actualParams={currentActualParams} />
               </div>}
               {!isAgentTask && (
                 <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                  <span className="text-gray-400 dark:text-gray-500">Count</span>
+                  <span className="text-gray-400 dark:text-gray-500">数量</span>
                   <br />
                   <DetailParamValue task={task} paramKey="n" className="font-medium" />
                 </div>
               )}
               {!isGeminiTask && task.params.output_compression != null && (
                 <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                  <span className="text-gray-400 dark:text-gray-500">Compression</span>
+                  <span className="text-gray-400 dark:text-gray-500">压缩率</span>
                   <br />
                   <DetailParamValue task={task} paramKey="output_compression" className="font-medium" actualParams={currentActualParams} />
                 </div>

@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
 import { ChevronDownIcon, EditIcon, PlusIcon, TrashIcon, DragHandleIcon } from './icons'
 
 interface Option {
-  label: string
+  label: ReactNode
   value: string | number
   variant?: 'action' | 'danger'
   draggable?: boolean
@@ -17,7 +17,7 @@ interface Option {
 
 interface SelectProps {
   value: string | number
-  onChange: (value: any) => void
+  onChange: (value: string | number) => void
   onReorder?: (sourceValue: string | number, targetValue: string | number, position: 'before' | 'after' | null) => void
   options: Option[]
   disabled?: boolean
@@ -239,7 +239,7 @@ export default function Select({ value, onChange, onReorder, options, disabled, 
                 touchDragRef.current = { value: option.value, startX: touch.clientX, startY: touch.clientY, moved: false }
                 setDraggedValue(option.value)
                 setTouchDragPreview({
-                  label: option.label,
+                  label: typeof option.label === 'string' ? option.label : String(option.value),
                   x: touch.clientX,
                   y: touch.clientY,
                   width: rect.width,

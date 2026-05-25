@@ -643,7 +643,28 @@ export default function InputBar() {
   const isGeminiGalleryModel = appMode === 'gallery' && isGeminiNativeModel(galleryModel)
   const geminiAspectRatio = normalizeGeminiAspectRatio(params.geminiAspectRatio ?? params.size)
   const geminiImageSize = normalizeGeminiImageSize(params.geminiImageSize ?? '2K')
-  const geminiOutputPixels = getGeminiOutputPixels(geminiAspectRatio, geminiImageSize)
+  const geminiRatioOptions = GEMINI_ASPECT_RATIOS.map((ratio) => ({
+    label: (
+      <span className="inline-flex items-center gap-2">
+        <span
+          className="inline-block rounded-sm border border-gray-300/80 dark:border-white/30 bg-gray-100/80 dark:bg-white/[0.08]"
+          style={(() => {
+            const [wText, hText] = ratio.split(':')
+            const w = Number(wText)
+            const h = Number(hText)
+            const maxSide = 16
+            const scale = maxSide / Math.max(w, h)
+            return {
+              width: `${Math.max(6, Math.round(w * scale))}px`,
+              height: `${Math.max(6, Math.round(h * scale))}px`,
+            }
+          })()}
+        />
+        <span>{ratio}</span>
+      </span>
+    ),
+    value: ratio,
+  }))
   const geminiImageSizeOptions = GEMINI_IMAGE_SIZES.map((imageSize) => ({
     label: `${imageSize} / ${getGeminiOutputPixels(geminiAspectRatio, imageSize)}`,
     value: imageSize,
@@ -1754,7 +1775,7 @@ export default function InputBar() {
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
       {appMode === 'gallery' && (
         <label className="flex flex-col gap-0.5">
-          <span className="text-gray-400 dark:text-gray-500 ml-1">Model</span>
+          <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
           <Select
             value={galleryModel}
             onChange={(model) => {
@@ -1776,7 +1797,7 @@ export default function InputBar() {
       {isGeminiGalleryModel ? (
         <>
           <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Aspect Ratio</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">比例</span>
             <Select
               value={geminiAspectRatio}
               onChange={(val) => {
@@ -1789,15 +1810,12 @@ export default function InputBar() {
                   geminiOutputPixels: nextOutputPixels,
                 })
               }}
-              options={GEMINI_ASPECT_RATIOS.map((ratio) => ({
-                label: ratio,
-                value: ratio,
-              }))}
+              options={geminiRatioOptions}
               className={selectClass}
             />
           </label>
           <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Image Size</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">图片尺寸</span>
             <Select
               value={geminiImageSize}
               onChange={(val) => {
@@ -1814,12 +1832,6 @@ export default function InputBar() {
               className={selectClass}
             />
           </label>
-          <div className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Output Pixels</span>
-            <div className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] text-xs font-mono text-gray-700 dark:text-gray-300 shadow-sm">
-              {geminiOutputPixels}
-            </div>
-          </div>
         </>
       ) : (
         <>
@@ -1832,7 +1844,7 @@ export default function InputBar() {
             onTouchCancel={sizeHint.hide}
             onClick={sizeHint.show}
           >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Size</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">尺寸</span>
             <button
               type="button"
               onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
@@ -1855,7 +1867,7 @@ export default function InputBar() {
             onTouchCancel={qualityHint.hide}
             onClick={qualityHint.show}
           >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Quality</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
             <Select
               value={settings.codexCli ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality}
               onChange={(val) => {
@@ -1873,7 +1885,7 @@ export default function InputBar() {
             />
           </label>
           <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Format</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">格式</span>
             <Select
               value={params.output_format}
               onChange={(val) => setParams({ output_format: val as any })}
@@ -1894,7 +1906,7 @@ export default function InputBar() {
             onTouchCancel={compressionHint.hide}
             onClick={compressionHint.show}
           >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Compression</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">压缩率</span>
             <input
               value={outputCompressionInput}
               onChange={(e) => setOutputCompressionInput(e.target.value)}
@@ -1924,7 +1936,7 @@ export default function InputBar() {
             onTouchCancel={moderationHint.hide}
             onClick={moderationHint.show}
           >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Moderation</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">审核</span>
             <Select
               value={moderationDisabled ? 'auto' : params.moderation}
               onChange={(val) => {
@@ -1955,7 +1967,7 @@ export default function InputBar() {
         }}
         onClick={showAgentNHint}
       >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">Count</span>
+        <span className="text-gray-400 dark:text-gray-500 ml-1">数量</span>
         <input
           value={nInput}
           onChange={(e) => handleNInputChange(e.target.value)}
