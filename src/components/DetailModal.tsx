@@ -3,6 +3,8 @@ import { useStore, getCachedImage, ensureImageCached, reuseConfig, editOutputs, 
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { useTooltip } from '../hooks/useTooltip'
+import { isGeminiNativeModel } from '../lib/bananaModels'
+import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from '../lib/geminiImageSizing'
 import { formatImageRatio } from '../lib/size'
 import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
 import { copyImageSourceToClipboard, copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
@@ -216,6 +218,32 @@ export default function DetailModal() {
   const taskProviderName = taskProvider === 'fal' ? 'fal.ai' : taskProvider ? 'OpenAI' : '未知'
   const taskProfileName = task.apiProfileName || '未知'
   const taskModel = task.apiModel || '未知'
+  const isGeminiTask = isGeminiNativeModel(taskModel)
+  const geminiAspectRatioValue = isGeminiTask
+    ? normalizeGeminiAspectRatio(
+        task.params.geminiAspectRatio
+          ?? currentActualParams?.geminiAspectRatio
+          ?? task.actualParams?.geminiAspectRatio
+          ?? task.params.size,
+      )
+    : null
+  const geminiImageSizeValue = isGeminiTask
+    ? normalizeGeminiImageSize(
+        task.params.geminiImageSize
+          ?? currentActualParams?.geminiImageSize
+          ?? task.actualParams?.geminiImageSize
+          ?? null,
+      )
+    : null
+  const geminiOutputPixelsValue = isGeminiTask && geminiAspectRatioValue && geminiImageSizeValue
+    ? (task.params.geminiOutputPixels
+        ?? currentActualParams?.geminiOutputPixels
+        ?? task.actualParams?.geminiOutputPixels
+        ?? getGeminiOutputPixels(geminiAspectRatioValue, geminiImageSizeValue))
+    : null
+  const geminiRequestSpec = isGeminiTask && geminiAspectRatioValue && geminiImageSizeValue && geminiOutputPixelsValue
+    ? `${geminiAspectRatioValue} / ${geminiImageSizeValue} / ${geminiOutputPixelsValue}`
+    : null
   const showSourceInfo = Boolean(task.apiProvider || task.apiProfileName || task.apiModel)
   const isFalReconnecting = task.status === 'error' && task.falRecoverable
   const isCustomReconnecting = task.status === 'error' && task.customRecoverable
@@ -843,35 +871,39 @@ export default function DetailModal() {
             )}
             <div className="grid grid-cols-2 gap-2 text-xs mb-4">
               <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                <span className="text-gray-400 dark:text-gray-500">尺寸</span>
+                <span className="text-gray-400 dark:text-gray-500">{isGeminiTask ? 'Request Spec' : 'Size'}</span>
                 <br />
-                <DetailParamValue task={task} paramKey="size" className="font-medium" actualParams={currentActualParams} />
+                {isGeminiTask && geminiRequestSpec ? (
+                  <span className="font-medium text-gray-700 dark:text-gray-300">{geminiRequestSpec}</span>
+                ) : (
+                  <DetailParamValue task={task} paramKey="size" className="font-medium" actualParams={currentActualParams} />
+                )}
               </div>
-              <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                <span className="text-gray-400 dark:text-gray-500">质量</span>
+              {!isGeminiTask && <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
+                <span className="text-gray-400 dark:text-gray-500">Quality</span>
                 <br />
                 <DetailParamValue task={task} paramKey="quality" className="font-medium" actualParams={currentActualParams} />
-              </div>
-              <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                <span className="text-gray-400 dark:text-gray-500">格式</span>
+              </div>}
+              {!isGeminiTask && <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
+                <span className="text-gray-400 dark:text-gray-500">Format</span>
                 <br />
                 <DetailParamValue task={task} paramKey="output_format" className="font-medium" actualParams={currentActualParams} />
-              </div>
-              <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                <span className="text-gray-400 dark:text-gray-500">审核</span>
+              </div>}
+              {!isGeminiTask && <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
+                <span className="text-gray-400 dark:text-gray-500">Moderation</span>
                 <br />
                 <DetailParamValue task={task} paramKey="moderation" className="font-medium" actualParams={currentActualParams} />
-              </div>
+              </div>}
               {!isAgentTask && (
                 <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                  <span className="text-gray-400 dark:text-gray-500">数量</span>
+                  <span className="text-gray-400 dark:text-gray-500">Count</span>
                   <br />
                   <DetailParamValue task={task} paramKey="n" className="font-medium" />
                 </div>
               )}
-              {task.params.output_compression != null && (
+              {!isGeminiTask && task.params.output_compression != null && (
                 <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
-                  <span className="text-gray-400 dark:text-gray-500">压缩率</span>
+                  <span className="text-gray-400 dark:text-gray-500">Compression</span>
                   <br />
                   <DetailParamValue task={task} paramKey="output_compression" className="font-medium" actualParams={currentActualParams} />
                 </div>

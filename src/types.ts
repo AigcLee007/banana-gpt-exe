@@ -104,6 +104,9 @@ export interface AppSettings {
 
 export interface TaskParams {
   size: string
+  geminiAspectRatio?: GeminiAspectRatio
+  geminiImageSize?: GeminiImageSize
+  geminiOutputPixels?: string
   quality: 'auto' | 'low' | 'medium' | 'high'
   output_format: 'png' | 'jpeg' | 'webp'
   output_compression: number | null
@@ -416,3 +419,4 @@ export interface ExportData {
     thumbnailVersion?: number
   }>
 }
+import type { GeminiAspectRatio, GeminiImageSize } from './lib/geminiImageSizing'

@@ -4,13 +4,14 @@ import { useStore, submitTask, submitAgentMessage, stopAgentResponse, addImageFr
 import { DEFAULT_PARAMS } from '../types'
 import { getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
 import { DEFAULT_FAL_IMAGE_SIZE, getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
+import { GEMINI_ASPECT_RATIOS, GEMINI_IMAGE_SIZES, getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize, type GeminiAspectRatio, type GeminiImageSize } from '../lib/geminiImageSizing'
 import { getAtImageQuery, getImageMentionLabel, getPromptIndexFromVisibleIndex, getPromptMentionParts, getSelectedImageMentionLabel, getSelectedTextMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, insertTextMentionAtVisibleRange, isCursorInSelectedImageMention, stripImageMentionMarkers } from '../lib/promptImageMentions'
 import { normalizeImageSize } from '../lib/size'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL } from '../lib/bananaModels'
+import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, isGeminiNativeModel } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import Select from './Select'
@@ -639,6 +640,14 @@ export default function InputBar() {
   const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === activeProfile.model)
     ? activeProfile.model
     : DEFAULT_GALLERY_MODEL
+  const isGeminiGalleryModel = appMode === 'gallery' && isGeminiNativeModel(galleryModel)
+  const geminiAspectRatio = normalizeGeminiAspectRatio(params.geminiAspectRatio ?? params.size)
+  const geminiImageSize = normalizeGeminiImageSize(params.geminiImageSize ?? '2K')
+  const geminiOutputPixels = getGeminiOutputPixels(geminiAspectRatio, geminiImageSize)
+  const geminiImageSizeOptions = GEMINI_IMAGE_SIZES.map((imageSize) => ({
+    label: `${imageSize} / ${getGeminiOutputPixels(geminiAspectRatio, imageSize)}`,
+    value: imageSize,
+  }))
 
   const qualityOptions = isFalProvider
     ? [
@@ -1745,10 +1754,17 @@ export default function InputBar() {
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
       {appMode === 'gallery' && (
         <label className="flex flex-col gap-0.5">
-          <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
+          <span className="text-gray-400 dark:text-gray-500 ml-1">Model</span>
           <Select
             value={galleryModel}
-            onChange={(model) => setSettings({ model: String(model), apiMode: 'images' })}
+            onChange={(model) => {
+              const nextModel = String(model)
+              const nextSettings = normalizeSettings({ ...settings, model: nextModel, apiMode: 'images' })
+              const nextParams = normalizeParamsForSettings(params, nextSettings, { hasInputImages: inputImages.length > 0 })
+              setSettings({ model: nextModel, apiMode: 'images' })
+              const patch = getChangedParams(params, nextParams)
+              if (Object.keys(patch).length) setParams(patch)
+            }}
             options={BANANA_GALLERY_MODELS.map((item) => ({
               label: item.displayName,
               value: item.model,
@@ -1757,127 +1773,176 @@ export default function InputBar() {
           />
         </label>
       )}
-      <label
-        className="relative flex flex-col gap-0.5"
-        onMouseEnter={sizeHint.show}
-        onMouseLeave={sizeHint.hide}
-        onTouchStart={sizeHint.startTouch}
-        onTouchEnd={sizeHint.clearTimer}
-        onTouchCancel={sizeHint.hide}
-        onClick={sizeHint.show}
-      >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">尺寸</span>
-        <button
-          type="button"
-          onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
-          className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] focus:outline-none text-xs text-left transition-all duration-200 shadow-sm font-mono"
-          title="选择尺寸"
-        >
-          {displaySize}
-        </button>
-        <ButtonTooltip
-          visible={isFalTextToImage && sizeHint.visible}
-          text={<>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>}
-        />
-      </label>
-      <label
-        className="relative flex flex-col gap-0.5"
-        onMouseEnter={qualityHint.show}
-        onMouseLeave={qualityHint.hide}
-        onTouchStart={qualityHint.startTouch}
-        onTouchEnd={qualityHint.clearTimer}
-        onTouchCancel={qualityHint.hide}
-        onClick={qualityHint.show}
-      >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
-        <Select
-          value={settings.codexCli ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality}
-          onChange={(val) => {
-            if (!settings.codexCli) setParams({ quality: val as any })
-          }}
-          options={qualityOptions}
-          disabled={settings.codexCli}
-          className={settings.codexCli
-            ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
-            : selectClass}
-        />
-        <ButtonTooltip
-          visible={(settings.codexCli || isFalProvider) && qualityHint.visible}
-          text={isFalProvider ? <>fal.ai 不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 质量参数</> : 'Codex CLI 不支持质量参数'}
-        />
-      </label>
-      <label className="flex flex-col gap-0.5">
-        <span className="text-gray-400 dark:text-gray-500 ml-1">格式</span>
-        <Select
-          value={params.output_format}
-          onChange={(val) => setParams({ output_format: val as any })}
-          options={[
-            { label: 'PNG', value: 'png' },
-            { label: 'JPEG', value: 'jpeg' },
-            { label: 'WebP', value: 'webp' },
-          ]}
-          className={selectClass}
-        />
-      </label>
-      <label
-        className="relative flex flex-col gap-0.5"
-        onMouseEnter={compressionHint.show}
-        onMouseLeave={compressionHint.hide}
-        onTouchStart={compressionHint.startTouch}
-        onTouchEnd={compressionHint.clearTimer}
-        onTouchCancel={compressionHint.hide}
-        onClick={compressionHint.show}
-      >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">压缩率</span>
-        <input
-          value={outputCompressionInput}
-          onChange={(e) => setOutputCompressionInput(e.target.value)}
-          onBlur={commitOutputCompression}
-          disabled={compressionDisabled}
-          type="number"
-          min={0}
-          max={100}
-          placeholder="0-100"
-          className={`px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] focus:outline-none text-xs transition-all duration-200 shadow-sm ${
-            compressionDisabled
-              ? 'bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed'
-              : 'bg-white/50 dark:bg-white/[0.03]'
-            }`}
-        />
-        <ButtonTooltip
-          visible={compressionHint.visible}
-          text={isFalProvider ? 'fal.ai 不支持压缩率参数' : '仅 JPEG 和 WebP 支持压缩率'}
-        />
-      </label>
-      <label
-        className="relative flex flex-col gap-0.5"
-        onMouseEnter={moderationHint.show}
-        onMouseLeave={moderationHint.hide}
-        onTouchStart={moderationHint.startTouch}
-        onTouchEnd={moderationHint.clearTimer}
-        onTouchCancel={moderationHint.hide}
-        onClick={moderationHint.show}
-      >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">审核</span>
-        <Select
-          value={moderationDisabled ? 'auto' : params.moderation}
-          onChange={(val) => {
-            if (!moderationDisabled) setParams({ moderation: val as any })
-          }}
-          options={[
-            { label: 'auto', value: 'auto' },
-            { label: 'low', value: 'low' },
-          ]}
-          disabled={moderationDisabled}
-          className={moderationDisabled
-            ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
-            : selectClass}
-        />
-        <ButtonTooltip
-          visible={moderationDisabled && moderationHint.visible}
-          text="fal.ai 不支持审核参数"
-        />
-      </label>
+      {isGeminiGalleryModel ? (
+        <>
+          <label className="flex flex-col gap-0.5">
+            <span className="text-gray-400 dark:text-gray-500 ml-1">Aspect Ratio</span>
+            <Select
+              value={geminiAspectRatio}
+              onChange={(val) => {
+                const nextAspectRatio = String(val) as GeminiAspectRatio
+                const nextOutputPixels = getGeminiOutputPixels(nextAspectRatio, geminiImageSize)
+                setParams({
+                  size: nextOutputPixels,
+                  geminiAspectRatio: nextAspectRatio,
+                  geminiImageSize,
+                  geminiOutputPixels: nextOutputPixels,
+                })
+              }}
+              options={GEMINI_ASPECT_RATIOS.map((ratio) => ({
+                label: ratio,
+                value: ratio,
+              }))}
+              className={selectClass}
+            />
+          </label>
+          <label className="flex flex-col gap-0.5">
+            <span className="text-gray-400 dark:text-gray-500 ml-1">Image Size</span>
+            <Select
+              value={geminiImageSize}
+              onChange={(val) => {
+                const nextImageSize = String(val) as GeminiImageSize
+                const nextOutputPixels = getGeminiOutputPixels(geminiAspectRatio, nextImageSize)
+                setParams({
+                  size: nextOutputPixels,
+                  geminiAspectRatio,
+                  geminiImageSize: nextImageSize,
+                  geminiOutputPixels: nextOutputPixels,
+                })
+              }}
+              options={geminiImageSizeOptions}
+              className={selectClass}
+            />
+          </label>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-gray-400 dark:text-gray-500 ml-1">Output Pixels</span>
+            <div className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] text-xs font-mono text-gray-700 dark:text-gray-300 shadow-sm">
+              {geminiOutputPixels}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <label
+            className="relative flex flex-col gap-0.5"
+            onMouseEnter={sizeHint.show}
+            onMouseLeave={sizeHint.hide}
+            onTouchStart={sizeHint.startTouch}
+            onTouchEnd={sizeHint.clearTimer}
+            onTouchCancel={sizeHint.hide}
+            onClick={sizeHint.show}
+          >
+            <span className="text-gray-400 dark:text-gray-500 ml-1">Size</span>
+            <button
+              type="button"
+              onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
+              className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] focus:outline-none text-xs text-left transition-all duration-200 shadow-sm font-mono"
+              title="Select size"
+            >
+              {displaySize}
+            </button>
+            <ButtonTooltip
+              visible={isFalTextToImage && sizeHint.visible}
+              text={<>fal.ai text-to-image does not support <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code></>}
+            />
+          </label>
+          <label
+            className="relative flex flex-col gap-0.5"
+            onMouseEnter={qualityHint.show}
+            onMouseLeave={qualityHint.hide}
+            onTouchStart={qualityHint.startTouch}
+            onTouchEnd={qualityHint.clearTimer}
+            onTouchCancel={qualityHint.hide}
+            onClick={qualityHint.show}
+          >
+            <span className="text-gray-400 dark:text-gray-500 ml-1">Quality</span>
+            <Select
+              value={settings.codexCli ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality}
+              onChange={(val) => {
+                if (!settings.codexCli) setParams({ quality: val as any })
+              }}
+              options={qualityOptions}
+              disabled={settings.codexCli}
+              className={settings.codexCli
+                ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
+                : selectClass}
+            />
+            <ButtonTooltip
+              visible={(settings.codexCli || isFalProvider) && qualityHint.visible}
+              text={isFalProvider ? <>fal.ai does not support <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> quality</> : 'Codex CLI does not support quality'}
+            />
+          </label>
+          <label className="flex flex-col gap-0.5">
+            <span className="text-gray-400 dark:text-gray-500 ml-1">Format</span>
+            <Select
+              value={params.output_format}
+              onChange={(val) => setParams({ output_format: val as any })}
+              options={[
+                { label: 'PNG', value: 'png' },
+                { label: 'JPEG', value: 'jpeg' },
+                { label: 'WebP', value: 'webp' },
+              ]}
+              className={selectClass}
+            />
+          </label>
+          <label
+            className="relative flex flex-col gap-0.5"
+            onMouseEnter={compressionHint.show}
+            onMouseLeave={compressionHint.hide}
+            onTouchStart={compressionHint.startTouch}
+            onTouchEnd={compressionHint.clearTimer}
+            onTouchCancel={compressionHint.hide}
+            onClick={compressionHint.show}
+          >
+            <span className="text-gray-400 dark:text-gray-500 ml-1">Compression</span>
+            <input
+              value={outputCompressionInput}
+              onChange={(e) => setOutputCompressionInput(e.target.value)}
+              onBlur={commitOutputCompression}
+              disabled={compressionDisabled}
+              type="number"
+              min={0}
+              max={100}
+              placeholder="0-100"
+              className={`px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] focus:outline-none text-xs transition-all duration-200 shadow-sm ${
+                compressionDisabled
+                  ? 'bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed'
+                  : 'bg-white/50 dark:bg-white/[0.03]'
+              }`}
+            />
+            <ButtonTooltip
+              visible={compressionHint.visible}
+              text={isFalProvider ? 'fal.ai does not support compression' : 'Only JPEG and WebP support compression'}
+            />
+          </label>
+          <label
+            className="relative flex flex-col gap-0.5"
+            onMouseEnter={moderationHint.show}
+            onMouseLeave={moderationHint.hide}
+            onTouchStart={moderationHint.startTouch}
+            onTouchEnd={moderationHint.clearTimer}
+            onTouchCancel={moderationHint.hide}
+            onClick={moderationHint.show}
+          >
+            <span className="text-gray-400 dark:text-gray-500 ml-1">Moderation</span>
+            <Select
+              value={moderationDisabled ? 'auto' : params.moderation}
+              onChange={(val) => {
+                if (!moderationDisabled) setParams({ moderation: val as any })
+              }}
+              options={[
+                { label: 'auto', value: 'auto' },
+                { label: 'low', value: 'low' },
+              ]}
+              disabled={moderationDisabled}
+              className={moderationDisabled
+                ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
+                : selectClass}
+            />
+            <ButtonTooltip visible={moderationDisabled && moderationHint.visible} text="fal.ai does not support moderation" />
+          </label>
+        </>
+      )}
       <label
         className="relative flex flex-col gap-0.5"
         onMouseEnter={showAgentNHint}
@@ -1890,7 +1955,7 @@ export default function InputBar() {
         }}
         onClick={showAgentNHint}
       >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">数量</span>
+        <span className="text-gray-400 dark:text-gray-500 ml-1">Count</span>
         <input
           value={nInput}
           onChange={(e) => handleNInputChange(e.target.value)}
@@ -1920,7 +1985,7 @@ export default function InputBar() {
           }`}
         />
         <ButtonTooltip visible={nLimitHint.visible} text={nLimitHintText} />
-        <ButtonTooltip visible={streamConcurrentByN && !nLimitHint.visible} text="数量大于 1 时会将多图生成拆分为并发单图" />
+        <ButtonTooltip visible={streamConcurrentByN && !nLimitHint.visible} text="When count is greater than 1, generation is split into parallel single-image requests." />
       </label>
     </div>
   )
@@ -1961,7 +2026,7 @@ export default function InputBar() {
         </div>
       )}
 
-      {showSizePicker && (
+      {showSizePicker && !isGeminiGalleryModel && (
         <SizePickerModal
           currentSize={isFalTextToImage && params.size === 'auto' ? DEFAULT_FAL_IMAGE_SIZE : params.size}
           onSelect={(size) => setParams({ size })}
@@ -2174,7 +2239,7 @@ export default function InputBar() {
           <div className="mt-3">
             {/* 桌面端布局 */}
             <div className="hidden sm:flex items-end justify-between gap-3">
-              {renderParams(appMode === 'gallery' ? 'grid-cols-7' : 'grid-cols-6')}
+              {renderParams(appMode === 'gallery' ? (isGeminiGalleryModel ? 'grid-cols-4' : 'grid-cols-7') : 'grid-cols-6')}
 
               <div className="flex gap-2 flex-shrink-0 mb-0.5">
                 <div

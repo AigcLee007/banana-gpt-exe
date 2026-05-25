@@ -1,5 +1,7 @@
 import { DEFAULT_PARAMS, type AppSettings, type TaskParams } from '../types'
 import { getActiveApiProfile } from './apiProfiles'
+import { isGeminiNativeModel } from './bananaModels'
+import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import { normalizeImageSize } from './size'
 
 export const DEFAULT_FAL_IMAGE_SIZE = '1360x1024'
@@ -21,6 +23,24 @@ export function normalizeParamsForSettings(
     ...params,
     size: normalizeImageSize(params.size) || DEFAULT_PARAMS.size,
     n: Math.min(outputImageLimit, Math.max(1, params.n || DEFAULT_PARAMS.n)),
+  }
+
+  if (isGeminiNativeModel(activeProfile.model)) {
+    const geminiAspectRatio = params.geminiAspectRatio
+      ? normalizeGeminiAspectRatio(params.geminiAspectRatio)
+      : normalizeGeminiAspectRatio(params.size)
+    const geminiImageSize = params.geminiImageSize
+      ? normalizeGeminiImageSize(params.geminiImageSize)
+      : '2K'
+    const geminiOutputPixels = getGeminiOutputPixels(geminiAspectRatio, geminiImageSize)
+    nextParams.size = geminiOutputPixels
+    nextParams.geminiAspectRatio = geminiAspectRatio
+    nextParams.geminiImageSize = geminiImageSize
+    nextParams.geminiOutputPixels = geminiOutputPixels
+  } else {
+    nextParams.geminiAspectRatio = undefined
+    nextParams.geminiImageSize = undefined
+    nextParams.geminiOutputPixels = undefined
   }
 
   if (activeProfile.provider === 'openai' && activeProfile.codexCli) {
