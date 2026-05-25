@@ -621,7 +621,7 @@ export default function InputBar() {
   }, [setPrompt])
   const activeProvider = activeProfile.provider
   const isFalProvider = activeProvider === 'fal'
-  const agentAutoImageCount = appMode === 'agent' && activeProfile.provider === 'openai' && activeProfile.apiMode === 'responses'
+  const agentAutoImageCount = appMode === 'agent'
   const moderationDisabled = isFalProvider
   const compressionDisabled = params.output_format === 'png' || isFalProvider
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
