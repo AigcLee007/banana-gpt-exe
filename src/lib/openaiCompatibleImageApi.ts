@@ -242,6 +242,43 @@ async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: Ap
   }
 }
 
+async function callGeminiNativeGenerateContentConcurrent(opts: CallApiOptions, profile: ApiProfile, n: number): Promise<CallApiResult> {
+  const singleOpts = {
+    ...opts,
+    params: {
+      ...opts.params,
+      n: 1,
+    },
+  }
+  const results = await Promise.allSettled(
+    Array.from({ length: n }).map(() => callGeminiNativeGenerateContent(singleOpts, profile)),
+  )
+  const successfulResults = results
+    .filter((result): result is PromiseFulfilledResult<CallApiResult> => result.status === 'fulfilled')
+    .map((result) => result.value)
+
+  if (successfulResults.length === 0) {
+    const firstError = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (firstError) throw firstError.reason
+    throw new Error('所有并发请求均失败')
+  }
+
+  const images = successfulResults.flatMap((result) => result.images)
+  const actualParamsList = successfulResults.flatMap((result) =>
+    result.actualParamsList?.length ? result.actualParamsList : result.images.map(() => result.actualParams),
+  )
+  const revisedPrompts = successfulResults.flatMap((result) =>
+    result.revisedPrompts?.length ? result.revisedPrompts : result.images.map(() => undefined),
+  )
+  const rawImageUrls = successfulResults.flatMap((result) => result.rawImageUrls ?? [])
+  const actualParams = mergeActualParams(
+    successfulResults[0]?.actualParams ?? {},
+    { n: images.length },
+  )
+
+  return { images, actualParams, actualParamsList, revisedPrompts, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
+}
+
 function normalizeImageApiPayload(value: unknown): ImageApiResponse {
   if (Array.isArray(value)) return { data: value as ImageApiResponse['data'] }
   if (value && typeof value === 'object') return value as ImageApiResponse
@@ -631,7 +668,10 @@ export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile
   }
 
   if (profile.apiMode !== 'responses' && isGeminiNativeModel(profile.model)) {
-    return callGeminiNativeGenerateContent(opts, profile)
+    const n = opts.params.n > 0 ? opts.params.n : 1
+    return n > 1
+      ? callGeminiNativeGenerateContentConcurrent(opts, profile, n)
+      : callGeminiNativeGenerateContent(opts, profile)
   }
 
   return profile.apiMode === 'responses'
@@ -641,7 +681,7 @@ export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile
 
 async function callImagesApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   const n = opts.params.n > 0 ? opts.params.n : 1
-  if ((profile.codexCli || (profile.streamImages && n > 1)) && n > 1) {
+  if (n > 1) {
     return callImagesApiConcurrent(opts, profile, n, customProvider)
   }
 

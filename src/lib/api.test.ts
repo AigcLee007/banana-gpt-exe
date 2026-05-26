@@ -139,6 +139,41 @@ describe('callImageApi', () => {
     expect(body.size).toBeUndefined()
   })
 
+  it('splits Gemini native multi-image generation into parallel single-image requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] } }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const result = await callImageApi({
+      settings: createGeminiSettings('gemini-3-pro-image-preview'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        n: 2,
+        geminiAspectRatio: '16:9',
+        geminiImageSize: '1K',
+        geminiOutputPixels: '1376x768',
+      },
+      inputImageDataUrls: [],
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.every(([url]) => String(url).includes('/v1beta/models/gemini-3-pro-image-preview:generateContent'))).toBe(true)
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse(String((init as RequestInit).body))
+      expect(body.generationConfig?.imageConfig).toEqual({
+        aspectRatio: '16:9',
+        imageSize: '1K',
+      })
+      expect(body.n).toBeUndefined()
+    }
+    expect(result.images).toHaveLength(2)
+    expect(result.actualParams?.n).toBe(2)
+  })
+
   it('keeps GPT-Image-2 text-to-image on images generations', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
@@ -157,6 +192,31 @@ describe('callImageApi', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/images/generations')
   })
 
+  it('splits GPT-Image-2 multi-image text generation into parallel single-image requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const result = await callImageApi({
+      settings: createOpenAIImagesSettings({ streamImages: false, codexCli: false }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, n: 3 },
+      inputImageDataUrls: [],
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls.every(([url]) => String(url).includes('/v1/images/generations'))).toBe(true)
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse(String((init as RequestInit).body))
+      expect(body.n).toBeUndefined()
+    }
+    expect(result.images).toHaveLength(3)
+    expect(result.actualParams?.n).toBe(3)
+  })
+
   it('keeps GPT-Image-2 reference images on images edits', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
@@ -173,6 +233,32 @@ describe('callImageApi', () => {
     })
 
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/images/edits'))).toBe(true)
+  })
+
+  it('splits GPT-Image-2 multi-image edits into parallel single-image requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const result = await callImageApi({
+      settings: createOpenAIImagesSettings({ streamImages: false, codexCli: false }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, n: 2 },
+      inputImageDataUrls: ['data:image/png;base64,aW5wdXQ='],
+    })
+
+    const editCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes('/v1/images/edits'))
+    expect(editCalls).toHaveLength(2)
+    for (const [, init] of editCalls) {
+      const body = (init as RequestInit).body
+      expect(body).toBeInstanceOf(FormData)
+      expect((body as FormData).get('n')).toBeNull()
+    }
+    expect(result.images).toHaveLength(2)
+    expect(result.actualParams?.n).toBe(2)
   })
 
   it('records actual params returned on Images API responses in Codex CLI mode', async () => {
