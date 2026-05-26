@@ -222,6 +222,9 @@ describe('callImageApi', () => {
     })
 
     expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/images/generations')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.size).toBe('auto')
   })
 
   it('splits GPT-Image-2 multi-image text generation into parallel single-image requests', async () => {
@@ -265,6 +268,9 @@ describe('callImageApi', () => {
     })
 
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/images/edits'))).toBe(true)
+    const editCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/v1/images/edits'))
+    const formData = editCall?.[1] && (editCall[1] as RequestInit).body as FormData
+    expect(formData?.get('size')).toBe('auto')
   })
 
   it('splits GPT-Image-2 multi-image edits into parallel single-image requests', async () => {

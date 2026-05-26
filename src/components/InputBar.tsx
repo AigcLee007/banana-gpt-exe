@@ -11,7 +11,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, isGeminiNativeModel, normalizeBananaModelId } from '../lib/bananaModels'
+import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, isGeminiNativeModel, normalizeBananaModelId } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import Select from './Select'
@@ -591,6 +591,28 @@ export default function InputBar() {
       ? settings
       : normalizeSettings({ ...settings, activeProfileId: activeProfile.id })
   ), [activeProfile.id, currentActiveProfile.id, settings])
+  const paramsNormalizationSettings = useMemo(() => {
+    if (appMode !== 'agent') return effectiveSettings
+    const normalized = normalizeSettings(effectiveSettings)
+    const nextProfiles = normalized.profiles.map((profile) =>
+      profile.id === activeProfile.id
+        ? {
+            ...profile,
+            provider: 'openai',
+            apiMode: 'responses',
+            model: AGENT_FIXED_MODEL,
+          }
+        : profile,
+    )
+    return normalizeSettings({
+      ...normalized,
+      provider: 'openai',
+      apiMode: 'responses',
+      model: AGENT_FIXED_MODEL,
+      profiles: nextProfiles,
+      activeProfileId: activeProfile.id,
+    })
+  }, [appMode, effectiveSettings, activeProfile.id])
   const hasSubmitApiConfig = Boolean(activeProfile.apiKey)
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !activeAgentIsRunning)
   const submitButtonAriaLabel = activeAgentIsRunning
@@ -624,7 +646,7 @@ export default function InputBar() {
   const agentAutoImageCount = appMode === 'agent'
   const moderationDisabled = isFalProvider
   const compressionDisabled = params.output_format === 'png' || isFalProvider
-  const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
+  const outputImageLimit = getOutputImageLimitForSettings(paramsNormalizationSettings)
   const isFalTextToImage = isFalProvider && inputImages.length === 0
   const nDraftValue = Number(nInput)
   const effectiveNValue = Number.isNaN(nDraftValue) ? params.n : nDraftValue
@@ -648,7 +670,7 @@ export default function InputBar() {
     label: (
       <span className="inline-flex items-center gap-2">
         <span
-          className="inline-block rounded-sm border border-gray-300/80 dark:border-white/30 bg-gray-100/80 dark:bg-white/[0.08]"
+          className="inline-block rounded-sm border border-[color:var(--app-border-strong)] bg-[color:var(--app-bg-soft)]"
           style={(() => {
             const [wText, hText] = ratio.split(':')
             const w = Number(wText)
@@ -820,12 +842,12 @@ export default function InputBar() {
   }, [agentAutoImageCount, params.n])
 
   useEffect(() => {
-    const normalizedParams = normalizeParamsForSettings(params, effectiveSettings, { hasInputImages: inputImages.length > 0 })
+    const normalizedParams = normalizeParamsForSettings(params, paramsNormalizationSettings, { hasInputImages: inputImages.length > 0 })
     const patch = getChangedParams(params, normalizedParams)
     if (Object.keys(patch).length) {
       setParams(patch)
     }
-  }, [inputImages.length, params, effectiveSettings, setParams])
+  }, [inputImages.length, params, paramsNormalizationSettings, setParams])
 
   useEffect(() => () => {
     if (imageHintTimerRef.current != null) {

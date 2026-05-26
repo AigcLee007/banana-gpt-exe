@@ -93,6 +93,8 @@ body {
 }
 
 :root[data-theme] .bg-white,
+:root[data-theme] .bg-white\/90,
+:root[data-theme] .bg-white\/95,
 :root[data-theme] .bg-gray-50,
 :root[data-theme] .bg-gray-100,
 :root[data-theme] .bg-white\/50,
@@ -109,6 +111,7 @@ body {
 :root[data-theme] .border-gray-200,
 :root[data-theme] .border-gray-200\/60,
 :root[data-theme] .border-gray-200\/70,
+:root[data-theme] .border-gray-200\/80,
 :root[data-theme] .border-gray-300 {
   border-color: var(--app-border) !important;
 }
@@ -135,6 +138,14 @@ body {
 :root[data-theme] .shadow-xl,
 :root[data-theme] .shadow-2xl {
   box-shadow: var(--app-shadow) !important;
+}
+
+:root[data-theme] [class*="ring-black"] {
+  --tw-ring-color: var(--app-border) !important;
+}
+
+:root[data-theme] [class*="dark:ring-white"] {
+  --tw-ring-color: var(--app-border) !important;
 }
 
 :root[data-theme] input,
