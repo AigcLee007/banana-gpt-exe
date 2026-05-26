@@ -1,4 +1,4 @@
-export type BananaModelRoute = 'gemini-native' | 'openai-images'
+export type BananaModelRoute = 'gemini-native' | 'openai-images' | 'openai-responses'
 
 export interface BananaGalleryModel {
   displayName: string
@@ -28,6 +28,12 @@ export const BANANA_GALLERY_MODELS = [
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
   },
+  {
+    displayName: 'GPT-Image-2(VIP)',
+    model: 'gpt-5.5',
+    providerRoute: 'openai-responses',
+    supportsReferenceImages: true,
+  },
 ] as const satisfies readonly BananaGalleryModel[]
 
 export const DEFAULT_GALLERY_MODEL = 'gemini-3-pro-image-preview'
@@ -50,6 +56,7 @@ export function normalizeBananaModelId(model: string): string {
   if (lookup === 'nanobananapro') return 'gemini-3-pro-image-preview'
   if (lookup === 'nanobanana2') return 'gemini-3.1-flash-image-preview'
   if (lookup === 'gptimage2') return 'gpt-image-2'
+  if (lookup === 'gptimage2vip' || lookup === 'gpt55') return 'gpt-5.5'
 
   return trimmed
 }
@@ -74,4 +81,8 @@ export function isGeminiNativeModel(model: string): boolean {
 
 export function isOpenAIImagesModel(model: string): boolean {
   return getBananaModelRoute(model) === 'openai-images'
+}
+
+export function isOpenAIResponsesModel(model: string): boolean {
+  return getBananaModelRoute(model) === 'openai-responses'
 }

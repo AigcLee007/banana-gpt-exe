@@ -3,7 +3,7 @@ import { useStore, getCachedImage, ensureImageCached, reuseConfig, editOutputs, 
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { useTooltip } from '../hooks/useTooltip'
-import { isGeminiNativeModel } from '../lib/bananaModels'
+import { getBananaModelById, isGeminiNativeModel } from '../lib/bananaModels'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from '../lib/geminiImageSizing'
 import { formatImageRatio } from '../lib/size'
 import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
@@ -218,6 +218,8 @@ export default function DetailModal() {
   const taskProviderName = taskProvider === 'fal' ? 'fal.ai' : taskProvider ? 'OpenAI' : '未知'
   const taskProfileName = task.apiProfileName || '未知'
   const taskModel = task.apiModel || '未知'
+  const taskGalleryModel = task.apiModel ? getBananaModelById(task.apiModel) : undefined
+  const taskModelDisplayName = taskGalleryModel?.displayName ?? taskModel
   const isGeminiTask = isGeminiNativeModel(taskModel)
   const geminiAspectRatioValue = isGeminiTask
     ? normalizeGeminiAspectRatio(
@@ -866,7 +868,10 @@ export default function DetailModal() {
                 <span className="text-gray-400 dark:text-gray-500">来源</span>
                 <br />
                 <span className="font-medium text-gray-700 dark:text-gray-200">{taskProviderName}</span>
-                <span className="text-gray-400 dark:text-gray-500"> · {taskProfileName} · {taskModel}</span>
+                <span className="text-gray-400 dark:text-gray-500"> · {taskProfileName} · {taskModelDisplayName}</span>
+                {taskModelDisplayName !== taskModel && (
+                  <span className="text-gray-400 dark:text-gray-500"> ({taskModel})</span>
+                )}
               </div>
             )}
             <div className="grid grid-cols-2 gap-2 text-xs mb-4">

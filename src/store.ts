@@ -2186,6 +2186,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   const now = Date.now()
   const tasksToCreate: TaskRecord[] = Array.from({ length: requestCount }, (_, index) => ({
     id: genId(),
+    sourceMode: 'gallery',
     prompt: prompt.trim(),
     params: { ...singleTaskParams },
     apiProvider: activeProfile.provider,
@@ -3846,6 +3847,7 @@ async function executeTask(taskId: string) {
 
     const result = await callImageApi({
       settings: requestSettings,
+      sourceMode: task.sourceMode ?? 'gallery',
       prompt: replaceImageMentionsForApi(task.prompt, inputDataUrls.length),
       params: task.params,
       inputImageDataUrls: inputDataUrls,

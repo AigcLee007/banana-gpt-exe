@@ -1,4 +1,4 @@
-import type { AppSettings, TaskParams } from '../types'
+import type { AppMode, AppSettings, TaskParams } from '../types'
 
 export const MIME_MAP: Record<string, string> = {
   png: 'image/png',
@@ -11,6 +11,7 @@ export const MAX_IMAGE_INPUT_PAYLOAD_BYTES = 512 * 1024 * 1024
 
 export interface CallApiOptions {
   settings: AppSettings
+  sourceMode?: AppMode
   prompt: string
   params: TaskParams
   /** 输入图片的 data URL 列表 */
