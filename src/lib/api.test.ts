@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi, queryApiKeyBalance } from './api'
+import { getBananaModelByDisplayName, getBananaModelRoute, normalizeBananaModelId } from './bananaModels'
 
 function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   return {
@@ -27,6 +28,23 @@ function createOpenAIImagesSettingsWithModel(model: string, overrides: Record<st
     profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
       ...profile,
       apiKey: 'test-key',
+      model,
+      ...(overrides as Record<string, unknown>),
+    })),
+  }
+}
+
+function createOpenAIResponsesSettingsWithModel(model: string, overrides: Record<string, unknown> = {}) {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...overrides,
+    apiKey: 'test-key',
+    apiMode: 'responses' as const,
+    model,
+    profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+      ...profile,
+      apiKey: 'test-key',
+      apiMode: 'responses' as const,
       model,
       ...(overrides as Record<string, unknown>),
     })),
@@ -556,6 +574,65 @@ describe('callImageApi', () => {
     expect(body.partial_images).toBeUndefined()
   })
 
+  it('routes Gallery GPT-Image-2(VIP) to responses endpoint with gpt-5.5 and image_generation tool', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      output: [{ type: 'image_generation_call', result: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIResponsesSettingsWithModel('gpt-5.5'),
+      sourceMode: 'gallery',
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, size: 'auto', output_format: 'png' },
+      inputImageDataUrls: [],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/responses')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.model).toBe('gpt-5.5')
+    expect(body.stream).toBeUndefined()
+    expect(body.tools?.[0]?.type).toBe('image_generation')
+    expect(body.tools?.[0]?.size).toBe('auto')
+    expect(body.tools?.[0]?.output_format).toBe('png')
+    expect(body.generationConfig).toBeUndefined()
+    expect(body.responseModalities).toBeUndefined()
+    expect(body.imageConfig).toBeUndefined()
+  })
+
+  it('routes Gallery GPT-Image-2(VIP) image edit to responses endpoint with input_image', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      output: [{ type: 'image_generation_call', result: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIResponsesSettingsWithModel('gpt-5.5'),
+      sourceMode: 'gallery',
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, size: 'auto', output_format: 'png' },
+      inputImageDataUrls: ['data:image/png;base64,aW5wdXQ='],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/responses')
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('/v1/images/edits')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    const content = body.input?.[0]?.content
+    expect(Array.isArray(content)).toBe(true)
+    expect(content.some((item: any) => item.type === 'input_image')).toBe(true)
+    expect(body.tools?.[0]?.type).toBe('image_generation')
+    expect(body.tools?.[0]?.output_format).toBe('png')
+    expect(body.generationConfig).toBeUndefined()
+    expect(body.responseModalities).toBeUndefined()
+    expect(body.imageConfig).toBeUndefined()
+  })
+
   it('streams Responses API partial images and resolves the completed response image', async () => {
     const streamBody = [
       'data: {"type":"response.image_generation_call.partial_image","partial_image_index":0,"partial_image_b64":"cGFydGlhbA=="}',
@@ -1060,5 +1137,20 @@ describe('callImageApi', () => {
         apiKey: 'sk-secret-123',
       },
     })).rejects.not.toThrow('sk-secret-123')
+  })
+})
+
+describe('bananaModels', () => {
+  it('maps GPT-Image-2(VIP) display name to gpt-5.5 with responses route', () => {
+    const model = getBananaModelByDisplayName('GPT-Image-2(VIP)')
+    expect(model?.model).toBe('gpt-5.5')
+    expect(model?.providerRoute).toBe('openai-responses')
+    expect(getBananaModelRoute('gpt-5.5')).toBe('openai-responses')
+    expect(normalizeBananaModelId('GPT-Image-2(VIP)')).toBe('gpt-5.5')
+  })
+
+  it('keeps normal GPT-Image-2 mapped to images route', () => {
+    expect(normalizeBananaModelId('GPT-Image-2')).toBe('gpt-image-2')
+    expect(getBananaModelRoute('gpt-image-2')).toBe('openai-images')
   })
 })

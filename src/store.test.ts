@@ -250,6 +250,42 @@ describe('mask draft lifecycle in store actions', () => {
     expect(vi.mocked(callImageApi)).toHaveBeenCalledTimes(2)
   })
 
+  it('splits gallery GPT-Image-2(VIP) n > 1 into independent responses tasks', async () => {
+    vi.mocked(callImageApi).mockClear()
+    useStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        model: 'gpt-5.5',
+        apiMode: 'responses',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          model: 'gpt-5.5',
+          apiMode: 'responses',
+        })),
+      },
+      params: { ...DEFAULT_PARAMS, n: 2 },
+    })
+
+    await submitTask()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const createdTasks = useStore.getState().tasks.slice(0, 2)
+    expect(createdTasks).toHaveLength(2)
+    expect(createdTasks.every((task) => task.params.n === 1)).toBe(true)
+    expect(createdTasks.every((task) => task.apiMode === 'responses')).toBe(true)
+    expect(createdTasks.every((task) => task.apiModel === 'gpt-5.5')).toBe(true)
+    expect(vi.mocked(callImageApi)).toHaveBeenCalledTimes(2)
+    expect(
+      vi.mocked(callImageApi).mock.calls.every((call) =>
+        call[0]?.sourceMode === 'gallery' &&
+        call[0]?.settings.apiMode === 'responses' &&
+        call[0]?.settings.model === 'gpt-5.5',
+      ),
+    ).toBe(true)
+  })
+
   it('stores independent Gemini request parameters when creating a gallery task', async () => {
     useStore.setState({
       settings: {

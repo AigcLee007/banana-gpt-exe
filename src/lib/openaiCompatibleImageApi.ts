@@ -1,6 +1,6 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
-import { isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
+import { getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import {
@@ -401,6 +401,7 @@ function createResponsesImageTool(
   params: TaskParams,
   isEdit: boolean,
   profile: ApiProfile,
+  includePartialImages: boolean,
   maskDataUrl?: string,
 ): Record<string, unknown> {
   const tool: Record<string, unknown> = {
@@ -411,7 +412,7 @@ function createResponsesImageTool(
     moderation: params.moderation,
   }
 
-  if (profile.streamImages) {
+  if (includePartialImages) {
     tool.partial_images = getStreamPartialImages(profile)
   }
 
@@ -1272,6 +1273,11 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const requestHeaders = createRequestHeaders(profile)
+  const isGalleryVipResponses = opts.sourceMode === 'gallery' &&
+    normalizeBananaModelId(profile.model) === 'gpt-5.5' &&
+    getBananaModelRoute(profile.model) === 'openai-responses'
+  // Gallery VIP uses non-stream responses for compatibility with vip.aittco.com.
+  const shouldStreamResponses = Boolean(profile.streamImages) && !isGalleryVipResponses
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
 
@@ -1288,11 +1294,27 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
     const body: Record<string, unknown> = {
       model: profile.model,
       input: createResponsesInput(prompt, inputImageDataUrls),
-      tools: [createResponsesImageTool(params, inputImageDataUrls.length > 0, profile, opts.maskDataUrl)],
+      tools: [createResponsesImageTool(params, inputImageDataUrls.length > 0, profile, shouldStreamResponses, opts.maskDataUrl)],
       tool_choice: 'required',
     }
-    if (profile.streamImages) {
+    if (shouldStreamResponses) {
       body.stream = true
+    }
+
+    if (import.meta.env.DEV && opts.sourceMode === 'gallery') {
+      console.debug('[gallery request]', {
+        mode: 'gallery',
+        route: 'responses',
+        model: profile.model,
+        pathname: getDebugPathname(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy)),
+        size: params.size,
+        quality: profile.codexCli ? undefined : params.quality,
+        moderation: params.moderation,
+        output_format: params.output_format,
+        n: params.n > 1 ? params.n : 1,
+        hasInputImages: inputImageDataUrls.length > 0,
+        stream: shouldStreamResponses,
+      })
     }
 
     const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
@@ -1307,10 +1329,20 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
     })
 
     if (!response.ok) {
-      throw new Error(await getApiErrorMessage(response))
+      const debugResponseText = await response.clone().text().catch(() => '')
+      const errorMessage = await getApiErrorMessage(response)
+      if (import.meta.env.DEV && opts.sourceMode === 'gallery') {
+        console.debug('[gallery request failed]', {
+          route: 'responses',
+          status: response.status,
+          message: errorMessage,
+          responseTextPreview: debugResponseText.slice(0, 500),
+        })
+      }
+      throw new Error(errorMessage)
     }
 
-    if (profile.streamImages && isEventStreamResponse(response)) {
+    if (shouldStreamResponses && isEventStreamResponse(response)) {
       return parseResponsesApiStreamResponse(response, mime, opts.onPartialImage)
     }
 

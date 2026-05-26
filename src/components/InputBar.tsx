@@ -11,7 +11,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, isGeminiNativeModel, normalizeBananaModelId } from '../lib/bananaModels'
+import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import Select from './Select'
@@ -1802,9 +1802,11 @@ export default function InputBar() {
             value={galleryModel}
             onChange={(model) => {
               const nextModel = String(model)
-              const nextSettings = normalizeSettings({ ...settings, model: nextModel, apiMode: 'images' })
+              const nextRoute = getBananaModelRoute(nextModel)
+              const nextApiMode = nextRoute === 'openai-responses' ? 'responses' : 'images'
+              const nextSettings = normalizeSettings({ ...settings, model: nextModel, apiMode: nextApiMode })
               const nextParams = normalizeParamsForSettings(params, nextSettings, { hasInputImages: inputImages.length > 0 })
-              setSettings({ model: nextModel, apiMode: 'images' })
+              setSettings({ model: nextModel, apiMode: nextApiMode })
               const patch = getChangedParams(params, nextParams)
               if (Object.keys(patch).length) setParams(patch)
             }}
@@ -1813,6 +1815,9 @@ export default function InputBar() {
               value: item.model,
             }))}
             className={selectClass}
+            menuClassName="min-w-max"
+            triggerTitle={BANANA_GALLERY_MODELS.find((item) => item.model === galleryModel)?.displayName ?? String(galleryModel)}
+            truncateOptionLabel={false}
           />
         </label>
       )}
