@@ -24,6 +24,7 @@ import {
 } from '../lib/apiProfiles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type CustomProviderDefinition } from '../types'
+import { queryApiKeyBalance, type ApiKeyBalanceInfo } from '../lib/api'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
@@ -330,6 +331,10 @@ export default function SettingsModal() {
   const profileTouchDragRef = useRef<{ id: string, startX: number, startY: number, moved: boolean } | null>(null)
   const [copyImportUrlProfile, setCopyImportUrlProfile] = useState<ApiProfile | null>(null)
   const [copyImportUrlOptions, setCopyImportUrlOptions] = useState<CopyImportUrlOptions>(readCopyImportUrlOptions)
+  const [isQueryingBalance, setIsQueryingBalance] = useState(false)
+  const [balanceInfo, setBalanceInfo] = useState<ApiKeyBalanceInfo | null>(null)
+  const [balanceError, setBalanceError] = useState<string | null>(null)
+  const [balanceUpdatedAt, setBalanceUpdatedAt] = useState<number | null>(null)
 
   const apiProxyConfig = readClientDevProxyConfig()
   const apiProxyAvailable = isApiProxyAvailable(apiProxyConfig)
@@ -406,6 +411,12 @@ export default function SettingsModal() {
   useEffect(() => {
     setTimeoutInput(String(activeProfile.timeout))
   }, [activeProfile.id, activeProfile.timeout])
+
+  useEffect(() => {
+    setBalanceInfo(null)
+    setBalanceError(null)
+    setBalanceUpdatedAt(null)
+  }, [activeProfile.id])
 
   useEffect(() => {
     if (showSettings && settingsTabRequest) setActiveTab(settingsTabRequest)
@@ -641,6 +652,45 @@ export default function SettingsModal() {
     setAgentMaxToolRoundsInput(String(value))
     if (value !== draft.agentMaxToolRounds) commitSettings({ ...draft, agentMaxToolRounds: value })
   }, [agentMaxToolRoundsInput, draft])
+
+  const handleQueryBalance = useCallback(async () => {
+    const apiKeyForQuery = activeProfile.apiKey.trim()
+    if (!apiKeyForQuery) {
+      setBalanceInfo(null)
+      setBalanceUpdatedAt(null)
+      setBalanceError('请先填写 API Key。')
+      return
+    }
+
+    setIsQueryingBalance(true)
+    setBalanceError(null)
+    try {
+      const result = await queryApiKeyBalance({
+        settings: draft,
+        apiKey: apiKeyForQuery,
+      })
+      setBalanceInfo(result)
+      setBalanceUpdatedAt(Date.now())
+      showToast('额度查询成功', 'success')
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error)
+      const message = /Failed to fetch|NetworkError|network request failed/i.test(rawMessage)
+        ? '查询失败：网络请求失败，请检查 VPN / 代理 / 防火墙，或稍后重试。'
+        : (rawMessage || '查询失败：API Key 无效或网络不可用。')
+      setBalanceInfo(null)
+      setBalanceUpdatedAt(null)
+      setBalanceError(message)
+      showToast(message, 'error')
+    } finally {
+      setIsQueryingBalance(false)
+    }
+  }, [activeProfile.apiKey, draft, showToast])
+
+  const formatBalanceUpdatedAt = useCallback((timestamp: number) => {
+    const date = new Date(timestamp)
+    const pad = (value: number) => String(value).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  }, [])
 
   useCloseOnEscape(showSettings, handleClose)
   usePreventBackgroundScroll(showSettings, showCustomProviderImport ? customProviderScrollBoundaryRef : settingsScrollBoundaryRef)
@@ -1666,6 +1716,39 @@ export default function SettingsModal() {
                   支持通过查询参数覆盖：<code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">?apiKey=</code>
                 </div>
               </div>
+
+              {activeProviderIsOpenAICompatible && (
+                <div className="block rounded-xl border border-gray-200/70 bg-white/50 p-3 dark:border-white/[0.08] dark:bg-white/[0.03]">
+                  <div className="mb-1 text-sm text-gray-600 dark:text-gray-300">API Key 额度查询</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-500">可查询当前 API Key 的总积分、已用积分和剩余积分。</div>
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={handleQueryBalance}
+                      disabled={isQueryingBalance}
+                      className="rounded-xl bg-blue-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isQueryingBalance ? '查询中...' : '查询当前 API Key 额度'}
+                    </button>
+                  </div>
+                  {balanceError && (
+                    <div className="mt-2 rounded-lg bg-red-50 px-2.5 py-2 text-xs text-red-600 dark:bg-red-500/10 dark:text-red-300">
+                      {balanceError}
+                    </div>
+                  )}
+                  {balanceInfo && (
+                    <div className="mt-3 rounded-xl border border-gray-200/70 bg-white/70 p-3 dark:border-white/[0.08] dark:bg-white/[0.04]">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">剩余积分</div>
+                      <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{balanceInfo.remaining_points}</div>
+                      <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">总积分：{balanceInfo.total_points}</div>
+                      <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">已用积分：{balanceInfo.used_points}</div>
+                      {balanceUpdatedAt && (
+                        <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">更新时间：{formatBalanceUpdatedAt(balanceUpdatedAt)}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* 6. API 接口（Images/Responses） */}
               {activeProfile.provider === 'openai' && (

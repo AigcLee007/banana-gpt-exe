@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
-import { callImageApi } from './api'
+import { callImageApi, queryApiKeyBalance } from './api'
 
 function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   return {
@@ -847,5 +847,145 @@ describe('callImageApi', () => {
     await expect(promise).resolves.toEqual({
       images: ['data:image/png;base64,aW1hZ2U='],
     })
+  })
+
+  it('queries billing endpoints and converts usd to points', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        hard_limit_usd: 100,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        total_usage: 4321,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    const result = await queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+      },
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const [subscriptionUrl, usageUrl] = fetchMock.mock.calls.map((call) => String(call[0]))
+    expect(subscriptionUrl).toContain('/v1/dashboard/billing/subscription')
+    expect(usageUrl).toContain('/v1/dashboard/billing/usage?start_date=2023-01-01&end_date=')
+    expect(subscriptionUrl).not.toContain('/v1/v1/')
+    expect(usageUrl).not.toContain('/v1/v1/')
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const yyyy = tomorrow.getFullYear()
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0')
+    const dd = String(tomorrow.getDate()).padStart(2, '0')
+    expect(usageUrl).toContain(`end_date=${yyyy}-${mm}-${dd}`)
+
+    const firstInit = fetchMock.mock.calls[0][1] as RequestInit
+    expect((firstInit.headers as Record<string, string>).Authorization).toBe('Bearer test-key')
+    expect(result).toEqual({
+      success: true,
+      total_points: 1250,
+      used_points: 540,
+      remaining_points: 710,
+    })
+  })
+
+  it('keeps remaining points at least zero', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        hard_limit_usd: 1,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        total_usage_usd: 5,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    const result = await queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+      },
+    })
+
+    expect(result).toEqual({
+      success: true,
+      total_points: 12,
+      used_points: 62,
+      remaining_points: 0,
+    })
+  })
+
+  it('throws a clear error when subscription request fails', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'invalid key' },
+      }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        total_usage: 100,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    await expect(queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+      },
+    })).rejects.toThrow(/查询总额度失败/)
+  })
+
+  it('throws a clear error when usage request fails', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        hard_limit_usd: 2,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'usage denied' },
+      }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    await expect(queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+      },
+    })).rejects.toThrow(/查询已用额度失败/)
+  })
+
+  it('redacts api key in thrown errors', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('request failed for sk-secret-123'))
+
+    await expect(queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'sk-secret-123',
+      },
+    })).rejects.toThrow('[REDACTED]')
+
+    await expect(queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'sk-secret-123',
+      },
+    })).rejects.not.toThrow('sk-secret-123')
   })
 })
