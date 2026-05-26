@@ -1409,6 +1409,38 @@ export default function SettingsModal() {
                     </div>
                   </label>
                 </div>
+                {activeProviderIsOpenAICompatible && (
+                  <div className="rounded-2xl border border-gray-200/70 bg-white/70 p-4 dark:border-white/[0.08] dark:bg-white/[0.03]">
+                    <div className="mb-1 text-sm text-gray-600 dark:text-gray-300">API Key 额度查询</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-500">可查询当前 API Key 的总积分、已用积分和剩余积分。</div>
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={handleQueryBalance}
+                        disabled={isQueryingBalance}
+                        className="rounded-xl bg-blue-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isQueryingBalance ? '查询中...' : '查询当前 API Key 额度'}
+                      </button>
+                    </div>
+                    {balanceError && (
+                      <div className="mt-2 rounded-lg bg-red-50 px-2.5 py-2 text-xs text-red-600 dark:bg-red-500/10 dark:text-red-300">
+                        {balanceError}
+                      </div>
+                    )}
+                    {balanceInfo && (
+                      <div className="mt-3 rounded-xl border border-gray-200/70 bg-white/70 p-3 dark:border-white/[0.08] dark:bg-white/[0.04]">
+                        <div className="text-xs text-gray-500 dark:text-gray-400">剩余积分</div>
+                        <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{balanceInfo.remaining_points}</div>
+                        <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">总积分：{balanceInfo.total_points}</div>
+                        <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">已用积分：{balanceInfo.used_points}</div>
+                        {balanceUpdatedAt && (
+                          <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">更新时间：{formatBalanceUpdatedAt(balanceUpdatedAt)}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="hidden">
                 <div>
                   <div className="mb-1.5 flex items-center gap-1.5">
