@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
-import { callImageApi } from './api'
+import { callImageApi, queryApiKeyBalance } from './api'
 
 function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   return {
@@ -139,6 +139,73 @@ describe('callImageApi', () => {
     expect(body.size).toBeUndefined()
   })
 
+  it('normalizes Nano_Banana_Pro to gemini-3-pro-image-preview before calling Gemini endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] } }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createGeminiSettings('gemini-3-pro-image-preview', {
+        model: 'Nano_Banana_Pro',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          model: 'Nano_Banana_Pro',
+        })),
+      }),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        geminiAspectRatio: '16:9',
+        geminiImageSize: '1K',
+      },
+      inputImageDataUrls: [],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1beta/models/gemini-3-pro-image-preview:generateContent')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.model).toBeUndefined()
+  })
+
+  it('splits Gemini native multi-image generation into parallel single-image requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] } }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const result = await callImageApi({
+      settings: createGeminiSettings('gemini-3-pro-image-preview'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        n: 2,
+        geminiAspectRatio: '16:9',
+        geminiImageSize: '1K',
+        geminiOutputPixels: '1376x768',
+      },
+      inputImageDataUrls: [],
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.every(([url]) => String(url).includes('/v1beta/models/gemini-3-pro-image-preview:generateContent'))).toBe(true)
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse(String((init as RequestInit).body))
+      expect(body.generationConfig?.imageConfig).toEqual({
+        aspectRatio: '16:9',
+        imageSize: '1K',
+      })
+      expect(body.n).toBeUndefined()
+    }
+    expect(result.images).toHaveLength(2)
+    expect(result.actualParams?.n).toBe(2)
+  })
+
   it('keeps GPT-Image-2 text-to-image on images generations', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
@@ -155,6 +222,34 @@ describe('callImageApi', () => {
     })
 
     expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/images/generations')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.size).toBe('auto')
+  })
+
+  it('splits GPT-Image-2 multi-image text generation into parallel single-image requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const result = await callImageApi({
+      settings: createOpenAIImagesSettings({ streamImages: false, codexCli: false }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, n: 3 },
+      inputImageDataUrls: [],
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls.every(([url]) => String(url).includes('/v1/images/generations'))).toBe(true)
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse(String((init as RequestInit).body))
+      expect(body.n).toBeUndefined()
+    }
+    expect(result.images).toHaveLength(3)
+    expect(result.actualParams?.n).toBe(3)
   })
 
   it('keeps GPT-Image-2 reference images on images edits', async () => {
@@ -173,6 +268,35 @@ describe('callImageApi', () => {
     })
 
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/images/edits'))).toBe(true)
+    const editCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/v1/images/edits'))
+    const formData = editCall?.[1] && (editCall[1] as RequestInit).body as FormData
+    expect(formData?.get('size')).toBe('auto')
+  })
+
+  it('splits GPT-Image-2 multi-image edits into parallel single-image requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const result = await callImageApi({
+      settings: createOpenAIImagesSettings({ streamImages: false, codexCli: false }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, n: 2 },
+      inputImageDataUrls: ['data:image/png;base64,aW5wdXQ='],
+    })
+
+    const editCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes('/v1/images/edits'))
+    expect(editCalls).toHaveLength(2)
+    for (const [, init] of editCalls) {
+      const body = (init as RequestInit).body
+      expect(body).toBeInstanceOf(FormData)
+      expect((body as FormData).get('n')).toBeNull()
+    }
+    expect(result.images).toHaveLength(2)
+    expect(result.actualParams?.n).toBe(2)
   })
 
   it('records actual params returned on Images API responses in Codex CLI mode', async () => {
@@ -729,5 +853,145 @@ describe('callImageApi', () => {
     await expect(promise).resolves.toEqual({
       images: ['data:image/png;base64,aW1hZ2U='],
     })
+  })
+
+  it('queries billing endpoints and converts usd to points', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        hard_limit_usd: 100,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        total_usage: 4321,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    const result = await queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+      },
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const [subscriptionUrl, usageUrl] = fetchMock.mock.calls.map((call) => String(call[0]))
+    expect(subscriptionUrl).toContain('/v1/dashboard/billing/subscription')
+    expect(usageUrl).toContain('/v1/dashboard/billing/usage?start_date=2023-01-01&end_date=')
+    expect(subscriptionUrl).not.toContain('/v1/v1/')
+    expect(usageUrl).not.toContain('/v1/v1/')
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const yyyy = tomorrow.getFullYear()
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0')
+    const dd = String(tomorrow.getDate()).padStart(2, '0')
+    expect(usageUrl).toContain(`end_date=${yyyy}-${mm}-${dd}`)
+
+    const firstInit = fetchMock.mock.calls[0][1] as RequestInit
+    expect((firstInit.headers as Record<string, string>).Authorization).toBe('Bearer test-key')
+    expect(result).toEqual({
+      success: true,
+      total_points: 1250,
+      used_points: 540,
+      remaining_points: 710,
+    })
+  })
+
+  it('keeps remaining points at least zero', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        hard_limit_usd: 1,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        total_usage_usd: 5,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    const result = await queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+      },
+    })
+
+    expect(result).toEqual({
+      success: true,
+      total_points: 12,
+      used_points: 62,
+      remaining_points: 0,
+    })
+  })
+
+  it('throws a clear error when subscription request fails', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'invalid key' },
+      }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        total_usage: 100,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    await expect(queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+      },
+    })).rejects.toThrow(/查询总额度失败/)
+  })
+
+  it('throws a clear error when usage request fails', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        hard_limit_usd: 2,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'usage denied' },
+      }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    await expect(queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+      },
+    })).rejects.toThrow(/查询已用额度失败/)
+  })
+
+  it('redacts api key in thrown errors', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('request failed for sk-secret-123'))
+
+    await expect(queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'sk-secret-123',
+      },
+    })).rejects.toThrow('[REDACTED]')
+
+    await expect(queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'sk-secret-123',
+      },
+    })).rejects.not.toThrow('sk-secret-123')
   })
 })

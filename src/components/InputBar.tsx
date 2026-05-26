@@ -11,7 +11,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, isGeminiNativeModel } from '../lib/bananaModels'
+import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, isGeminiNativeModel, normalizeBananaModelId } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import Select from './Select'
@@ -591,6 +591,28 @@ export default function InputBar() {
       ? settings
       : normalizeSettings({ ...settings, activeProfileId: activeProfile.id })
   ), [activeProfile.id, currentActiveProfile.id, settings])
+  const paramsNormalizationSettings = useMemo(() => {
+    if (appMode !== 'agent') return effectiveSettings
+    const normalized = normalizeSettings(effectiveSettings)
+    const nextProfiles = normalized.profiles.map((profile) =>
+      profile.id === activeProfile.id
+        ? {
+            ...profile,
+            provider: 'openai',
+            apiMode: 'responses',
+            model: AGENT_FIXED_MODEL,
+          }
+        : profile,
+    )
+    return normalizeSettings({
+      ...normalized,
+      provider: 'openai',
+      apiMode: 'responses',
+      model: AGENT_FIXED_MODEL,
+      profiles: nextProfiles,
+      activeProfileId: activeProfile.id,
+    })
+  }, [appMode, effectiveSettings, activeProfile.id])
   const hasSubmitApiConfig = Boolean(activeProfile.apiKey)
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !activeAgentIsRunning)
   const submitButtonAriaLabel = activeAgentIsRunning
@@ -621,10 +643,10 @@ export default function InputBar() {
   }, [setPrompt])
   const activeProvider = activeProfile.provider
   const isFalProvider = activeProvider === 'fal'
-  const agentAutoImageCount = appMode === 'agent' && activeProfile.provider === 'openai' && activeProfile.apiMode === 'responses'
+  const agentAutoImageCount = appMode === 'agent'
   const moderationDisabled = isFalProvider
   const compressionDisabled = params.output_format === 'png' || isFalProvider
-  const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
+  const outputImageLimit = getOutputImageLimitForSettings(paramsNormalizationSettings)
   const isFalTextToImage = isFalProvider && inputImages.length === 0
   const nDraftValue = Number(nInput)
   const effectiveNValue = Number.isNaN(nDraftValue) ? params.n : nDraftValue
@@ -637,13 +659,35 @@ export default function InputBar() {
   const displaySize = isFalTextToImage && params.size === 'auto'
     ? DEFAULT_FAL_IMAGE_SIZE
     : normalizeImageSize(params.size) || DEFAULT_PARAMS.size
-  const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === activeProfile.model)
-    ? activeProfile.model
+  const resolvedGalleryModel = normalizeBananaModelId(activeProfile.model)
+  const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === resolvedGalleryModel)
+    ? resolvedGalleryModel
     : DEFAULT_GALLERY_MODEL
   const isGeminiGalleryModel = appMode === 'gallery' && isGeminiNativeModel(galleryModel)
   const geminiAspectRatio = normalizeGeminiAspectRatio(params.geminiAspectRatio ?? params.size)
   const geminiImageSize = normalizeGeminiImageSize(params.geminiImageSize ?? '2K')
-  const geminiOutputPixels = getGeminiOutputPixels(geminiAspectRatio, geminiImageSize)
+  const geminiRatioOptions = GEMINI_ASPECT_RATIOS.map((ratio) => ({
+    label: (
+      <span className="inline-flex items-center gap-2">
+        <span
+          className="inline-block rounded-sm border border-[color:var(--app-border-strong)] bg-[color:var(--app-bg-soft)]"
+          style={(() => {
+            const [wText, hText] = ratio.split(':')
+            const w = Number(wText)
+            const h = Number(hText)
+            const maxSide = 16
+            const scale = maxSide / Math.max(w, h)
+            return {
+              width: `${Math.max(6, Math.round(w * scale))}px`,
+              height: `${Math.max(6, Math.round(h * scale))}px`,
+            }
+          })()}
+        />
+        <span>{ratio}</span>
+      </span>
+    ),
+    value: ratio,
+  }))
   const geminiImageSizeOptions = GEMINI_IMAGE_SIZES.map((imageSize) => ({
     label: `${imageSize} / ${getGeminiOutputPixels(geminiAspectRatio, imageSize)}`,
     value: imageSize,
@@ -793,16 +837,17 @@ export default function InputBar() {
   }, [params.output_compression])
 
   useEffect(() => {
-    setNInput(agentAutoImageCount ? 'auto' : String(params.n))
+    if (agentAutoImageCount) return
+    setNInput(String(params.n))
   }, [agentAutoImageCount, params.n])
 
   useEffect(() => {
-    const normalizedParams = normalizeParamsForSettings(params, effectiveSettings, { hasInputImages: inputImages.length > 0 })
+    const normalizedParams = normalizeParamsForSettings(params, paramsNormalizationSettings, { hasInputImages: inputImages.length > 0 })
     const patch = getChangedParams(params, normalizedParams)
     if (Object.keys(patch).length) {
       setParams(patch)
     }
-  }, [inputImages.length, params, effectiveSettings, setParams])
+  }, [inputImages.length, params, paramsNormalizationSettings, setParams])
 
   useEffect(() => () => {
     if (imageHintTimerRef.current != null) {
@@ -851,7 +896,6 @@ export default function InputBar() {
   const commitN = useCallback(() => {
     nLimitHint.hide()
     if (agentAutoImageCount) {
-      setNInput('auto')
       return
     }
     const nextValue = Number(nInput)
@@ -885,7 +929,6 @@ export default function InputBar() {
 
   const handleNInputChange = useCallback((value: string) => {
     if (agentAutoImageCount) {
-      setNInput('auto')
       return
     }
     setNInput(value)
@@ -1754,7 +1797,7 @@ export default function InputBar() {
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
       {appMode === 'gallery' && (
         <label className="flex flex-col gap-0.5">
-          <span className="text-gray-400 dark:text-gray-500 ml-1">Model</span>
+          <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
           <Select
             value={galleryModel}
             onChange={(model) => {
@@ -1776,7 +1819,7 @@ export default function InputBar() {
       {isGeminiGalleryModel ? (
         <>
           <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Aspect Ratio</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">比例</span>
             <Select
               value={geminiAspectRatio}
               onChange={(val) => {
@@ -1789,15 +1832,12 @@ export default function InputBar() {
                   geminiOutputPixels: nextOutputPixels,
                 })
               }}
-              options={GEMINI_ASPECT_RATIOS.map((ratio) => ({
-                label: ratio,
-                value: ratio,
-              }))}
+              options={geminiRatioOptions}
               className={selectClass}
             />
           </label>
           <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Image Size</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">图片尺寸</span>
             <Select
               value={geminiImageSize}
               onChange={(val) => {
@@ -1814,12 +1854,6 @@ export default function InputBar() {
               className={selectClass}
             />
           </label>
-          <div className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Output Pixels</span>
-            <div className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] text-xs font-mono text-gray-700 dark:text-gray-300 shadow-sm">
-              {geminiOutputPixels}
-            </div>
-          </div>
         </>
       ) : (
         <>
@@ -1832,7 +1866,7 @@ export default function InputBar() {
             onTouchCancel={sizeHint.hide}
             onClick={sizeHint.show}
           >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Size</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">尺寸</span>
             <button
               type="button"
               onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
@@ -1855,7 +1889,7 @@ export default function InputBar() {
             onTouchCancel={qualityHint.hide}
             onClick={qualityHint.show}
           >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Quality</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
             <Select
               value={settings.codexCli ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality}
               onChange={(val) => {
@@ -1873,7 +1907,7 @@ export default function InputBar() {
             />
           </label>
           <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Format</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">格式</span>
             <Select
               value={params.output_format}
               onChange={(val) => setParams({ output_format: val as any })}
@@ -1894,7 +1928,7 @@ export default function InputBar() {
             onTouchCancel={compressionHint.hide}
             onClick={compressionHint.show}
           >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Compression</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">压缩率</span>
             <input
               value={outputCompressionInput}
               onChange={(e) => setOutputCompressionInput(e.target.value)}
@@ -1924,7 +1958,7 @@ export default function InputBar() {
             onTouchCancel={moderationHint.hide}
             onClick={moderationHint.show}
           >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">Moderation</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">审核</span>
             <Select
               value={moderationDisabled ? 'auto' : params.moderation}
               onChange={(val) => {
@@ -1955,9 +1989,9 @@ export default function InputBar() {
         }}
         onClick={showAgentNHint}
       >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">Count</span>
+        <span className="text-gray-400 dark:text-gray-500 ml-1">数量</span>
         <input
-          value={nInput}
+          value={agentAutoImageCount ? 'auto' : nInput}
           onChange={(e) => handleNInputChange(e.target.value)}
           onFocus={() => setNInputFocused(true)}
           onBlur={() => {

@@ -501,7 +501,9 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     agentWebSearch: typeof record.agentWebSearch === 'boolean' ? record.agentWebSearch : false,
     profiles,
     activeProfileId,
-    theme: record.theme === 'light' ? 'light' : 'dark',
+    theme: record.theme === 'light' || record.theme === 'dark'
+      ? record.theme
+      : (record.theme === 'cream' || record.theme === 'sepia' ? 'sepia' : 'light'),
   }
 }
 
@@ -790,5 +792,5 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   agentScrollToBottomAfterSubmit: true,
   agentMaxToolRounds: DEFAULT_AGENT_MAX_TOOL_ROUNDS,
   agentWebSearch: false,
-  theme: 'dark',
+  theme: 'light',
 })

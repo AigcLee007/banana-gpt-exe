@@ -32,14 +32,36 @@ export const BANANA_GALLERY_MODELS = [
 
 export const DEFAULT_GALLERY_MODEL = 'gemini-3-pro-image-preview'
 
+function normalizeModelLookupKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[_\s-]+/g, '')
+}
+
+export function normalizeBananaModelId(model: string): string {
+  const trimmed = model.trim()
+  if (!trimmed) return trimmed
+
+  const byId = BANANA_GALLERY_MODELS.find((item) => item.model === trimmed)
+  if (byId) return byId.model
+
+  const lookup = normalizeModelLookupKey(trimmed)
+  const byDisplayName = BANANA_GALLERY_MODELS.find((item) => normalizeModelLookupKey(item.displayName) === lookup)
+  if (byDisplayName) return byDisplayName.model
+
+  if (lookup === 'nanobananapro') return 'gemini-3-pro-image-preview'
+  if (lookup === 'nanobanana2') return 'gemini-3.1-flash-image-preview'
+  if (lookup === 'gptimage2') return 'gpt-image-2'
+
+  return trimmed
+}
+
 export function getBananaModelById(model: string): BananaGalleryModel | undefined {
-  const normalized = model.trim()
+  const normalized = normalizeBananaModelId(model)
   return BANANA_GALLERY_MODELS.find((item) => item.model === normalized)
 }
 
 export function getBananaModelByDisplayName(displayName: string): BananaGalleryModel | undefined {
-  const normalized = displayName.trim().toLowerCase()
-  return BANANA_GALLERY_MODELS.find((item) => item.displayName.toLowerCase() === normalized)
+  const normalized = normalizeModelLookupKey(displayName)
+  return BANANA_GALLERY_MODELS.find((item) => normalizeModelLookupKey(item.displayName) === normalized)
 }
 
 export function getBananaModelRoute(model: string): BananaModelRoute | undefined {

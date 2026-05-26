@@ -1,6 +1,6 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
-import { isGeminiNativeModel } from './bananaModels'
+import { isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import {
@@ -240,6 +240,43 @@ async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: Ap
   } finally {
     clearTimeout(timeoutId)
   }
+}
+
+async function callGeminiNativeGenerateContentConcurrent(opts: CallApiOptions, profile: ApiProfile, n: number): Promise<CallApiResult> {
+  const singleOpts = {
+    ...opts,
+    params: {
+      ...opts.params,
+      n: 1,
+    },
+  }
+  const results = await Promise.allSettled(
+    Array.from({ length: n }).map(() => callGeminiNativeGenerateContent(singleOpts, profile)),
+  )
+  const successfulResults = results
+    .filter((result): result is PromiseFulfilledResult<CallApiResult> => result.status === 'fulfilled')
+    .map((result) => result.value)
+
+  if (successfulResults.length === 0) {
+    const firstError = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (firstError) throw firstError.reason
+    throw new Error('所有并发请求均失败')
+  }
+
+  const images = successfulResults.flatMap((result) => result.images)
+  const actualParamsList = successfulResults.flatMap((result) =>
+    result.actualParamsList?.length ? result.actualParamsList : result.images.map(() => result.actualParams),
+  )
+  const revisedPrompts = successfulResults.flatMap((result) =>
+    result.revisedPrompts?.length ? result.revisedPrompts : result.images.map(() => undefined),
+  )
+  const rawImageUrls = successfulResults.flatMap((result) => result.rawImageUrls ?? [])
+  const actualParams = mergeActualParams(
+    successfulResults[0]?.actualParams ?? {},
+    { n: images.length },
+  )
+
+  return { images, actualParams, actualParamsList, revisedPrompts, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
 }
 
 function normalizeImageApiPayload(value: unknown): ImageApiResponse {
@@ -626,22 +663,28 @@ async function parseResponsesApiStreamResponse(
 }
 
 export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+  const resolvedModel = normalizeBananaModelId(profile.model)
+  const resolvedProfile = resolvedModel === profile.model ? profile : { ...profile, model: resolvedModel }
+
   if (customProvider) {
-    return callCustomHttpImageApi(opts, profile, customProvider)
+    return callCustomHttpImageApi(opts, resolvedProfile, customProvider)
   }
 
-  if (profile.apiMode !== 'responses' && isGeminiNativeModel(profile.model)) {
-    return callGeminiNativeGenerateContent(opts, profile)
+  if (resolvedProfile.apiMode !== 'responses' && isGeminiNativeModel(resolvedProfile.model)) {
+    const n = opts.params.n > 0 ? opts.params.n : 1
+    return n > 1
+      ? callGeminiNativeGenerateContentConcurrent(opts, resolvedProfile, n)
+      : callGeminiNativeGenerateContent(opts, resolvedProfile)
   }
 
-  return profile.apiMode === 'responses'
-    ? callResponsesImageApi(opts, profile)
-    : callImagesApi(opts, profile)
+  return resolvedProfile.apiMode === 'responses'
+    ? callResponsesImageApi(opts, resolvedProfile)
+    : callImagesApi(opts, resolvedProfile)
 }
 
 async function callImagesApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   const n = opts.params.n > 0 ? opts.params.n : 1
-  if ((profile.codexCli || (profile.streamImages && n > 1)) && n > 1) {
+  if (n > 1) {
     return callImagesApiConcurrent(opts, profile, n, customProvider)
   }
 

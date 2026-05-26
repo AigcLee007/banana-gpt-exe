@@ -26,6 +26,8 @@ export default defineConfig(({ command }) => {
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
       __DEV_PROXY_CONFIG__: JSON.stringify(devProxyConfig),
+      __UPSTREAM_URL__: JSON.stringify(process.env.UPSTREAM_URL || ''),
+      __AITTCO_UPSTREAM_URL__: JSON.stringify(process.env.AITTCO_UPSTREAM_URL || ''),
     },
     server: {
       host: true,

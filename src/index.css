@@ -33,6 +33,145 @@ body {
   padding: 0;
   -webkit-user-select: none;
   user-select: none;
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+:root[data-theme="light"] {
+  --app-bg: #f8fafc;
+  --app-bg-soft: #f1f5f9;
+  --app-surface: rgba(255, 255, 255, 0.88);
+  --app-surface-elevated: rgba(255, 255, 255, 0.95);
+  --app-card: rgba(255, 255, 255, 0.92);
+  --app-input: rgba(255, 255, 255, 0.8);
+  --app-border: rgba(148, 163, 184, 0.35);
+  --app-border-strong: rgba(148, 163, 184, 0.5);
+  --app-text: #111827;
+  --app-text-muted: #4b5563;
+  --app-text-subtle: #6b7280;
+  --app-shadow: 0 8px 30px rgb(0 0 0 / 0.1);
+}
+
+:root[data-theme="dark"] {
+  --app-bg: #0f1117;
+  --app-bg-soft: #151821;
+  --app-surface: rgba(27, 31, 42, 0.9);
+  --app-surface-elevated: rgba(27, 31, 42, 0.96);
+  --app-card: rgba(32, 36, 49, 0.9);
+  --app-input: rgba(36, 42, 56, 0.9);
+  --app-border: rgba(77, 88, 112, 0.45);
+  --app-border-strong: rgba(99, 113, 140, 0.6);
+  --app-text: #f4f6fb;
+  --app-text-muted: #d3d8e2;
+  --app-text-subtle: #9ca3af;
+  --app-shadow: 0 10px 34px rgb(0 0 0 / 0.45);
+}
+
+:root[data-theme="sepia"],
+:root[data-theme="cream"] {
+  --app-bg: #f6efe3;
+  --app-bg-soft: #fbf6ed;
+  --app-surface: rgba(255, 250, 241, 0.94);
+  --app-surface-elevated: rgba(255, 251, 244, 0.97);
+  --app-card: rgba(255, 247, 234, 0.95);
+  --app-input: rgba(255, 247, 234, 0.95);
+  --app-border: rgba(234, 220, 200, 0.95);
+  --app-border-strong: rgba(216, 196, 171, 0.95);
+  --app-text: #3f3428;
+  --app-text-muted: #5c4d3c;
+  --app-text-subtle: #83715f;
+  --app-shadow: 0 10px 28px rgb(101 79 49 / 0.14);
+}
+
+:root[data-theme] header,
+:root[data-theme] [data-input-bar] > div > div,
+:root[data-theme] [data-home-main] > div,
+:root[data-theme] [data-no-drag-select] .bg-white\/90,
+:root[data-theme] [data-no-drag-select] .bg-white\/95,
+:root[data-theme] [data-no-drag-select] .bg-white\/70 {
+  background-color: var(--app-surface-elevated) !important;
+}
+
+:root[data-theme] .bg-white,
+:root[data-theme] .bg-white\/90,
+:root[data-theme] .bg-white\/95,
+:root[data-theme] .bg-gray-50,
+:root[data-theme] .bg-gray-100,
+:root[data-theme] .bg-white\/50,
+:root[data-theme] .bg-white\/60,
+:root[data-theme] .bg-white\/70,
+:root[data-theme] .bg-gray-50\/80,
+:root[data-theme] .bg-gray-50\/90,
+:root[data-theme] .bg-gray-100\/70,
+:root[data-theme] .bg-gray-100\/80 {
+  background-color: var(--app-card) !important;
+}
+
+:root[data-theme] .border-gray-100,
+:root[data-theme] .border-gray-200,
+:root[data-theme] .border-gray-200\/60,
+:root[data-theme] .border-gray-200\/70,
+:root[data-theme] .border-gray-200\/80,
+:root[data-theme] .border-gray-300 {
+  border-color: var(--app-border) !important;
+}
+
+:root[data-theme] .text-gray-900,
+:root[data-theme] .text-gray-800,
+:root[data-theme] .text-gray-700,
+:root[data-theme] .text-gray-600 {
+  color: var(--app-text-muted) !important;
+}
+
+:root[data-theme] .text-gray-500,
+:root[data-theme] .text-gray-400 {
+  color: var(--app-text-subtle) !important;
+}
+
+:root[data-theme="light"] .text-gray-900,
+:root[data-theme="light"] .text-gray-800,
+:root[data-theme="light"] .text-gray-700 {
+  color: #111827 !important;
+}
+
+:root[data-theme] .shadow-sm,
+:root[data-theme] .shadow-xl,
+:root[data-theme] .shadow-2xl {
+  box-shadow: var(--app-shadow) !important;
+}
+
+:root[data-theme] [class*="ring-black"] {
+  --tw-ring-color: var(--app-border) !important;
+}
+
+:root[data-theme] [class*="dark:ring-white"] {
+  --tw-ring-color: var(--app-border) !important;
+}
+
+:root[data-theme] input,
+:root[data-theme] textarea,
+:root[data-theme] select {
+  background-color: var(--app-input);
+  border-color: var(--app-border);
+  color: var(--app-text);
+}
+
+:root[data-theme="dark"] .bg-black\/20 {
+  background-color: rgba(8, 10, 14, 0.65) !important;
+}
+
+:root[data-theme="sepia"] .bg-black\/20,
+:root[data-theme="cream"] .bg-black\/20 {
+  background-color: rgba(230, 216, 194, 0.45) !important;
+}
+
+:root[data-theme="dark"] * {
+  scrollbar-color: #4b556b transparent;
+}
+
+:root[data-theme="sepia"] *,
+:root[data-theme="cream"] * {
+  scrollbar-color: #cdb89a transparent;
 }
 
 input,

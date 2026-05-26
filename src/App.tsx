@@ -21,7 +21,7 @@ import { useGlobalClickSuppression } from './lib/clickSuppression'
 export default function App() {
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
-  const theme = useStore((s) => s.settings.theme ?? 'dark')
+  const theme = useStore((s) => s.settings.theme ?? 'light')
   useDockerApiUrlMigrationNotice()
   useGlobalClickSuppression()
 
@@ -54,7 +54,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
+    const normalizedTheme = theme === 'cream' ? 'sepia' : theme
+    document.documentElement.classList.toggle('dark', normalizedTheme === 'dark')
+    document.documentElement.setAttribute('data-theme', normalizedTheme)
   }, [theme])
 
   return (

@@ -1,0 +1,85 @@
+name: Desktop Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/ui-polish-gemini-settings-theme
+
+permissions:
+  contents: read
+
+env:
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+  ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
+
+jobs:
+  build-windows:
+    name: Build desktop Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Build Windows desktop
+        run: npx electron-builder --win nsis portable --publish never
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            release/**
+          if-no-files-found: error
+          retention-days: 14
+
+  build-macos:
+    name: Build desktop macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Build macOS desktop
+        run: npx electron-builder --mac dmg zip --publish never
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: |
+            release/**
+          if-no-files-found: error
+          retention-days: 14
