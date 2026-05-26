@@ -48,6 +48,22 @@ function createOpenAICompatiblePaths(customProvider?: CustomProviderDefinition |
   }
 }
 
+function normalizeOutputFormat(format: string): 'png' | 'jpeg' | 'webp' {
+  const normalized = format.toLowerCase()
+  if (normalized === 'jpeg' || normalized === 'webp') return normalized
+  return 'png'
+}
+
+function isGptImage2Model(model: string): boolean {
+  return normalizeBananaModelId(model) === 'gpt-image-2'
+}
+
+function shouldEnableImagesStreaming(profile: ApiProfile): boolean {
+  // GPT-Image-2 on many OpenAI-compatible relays expects non-streaming JSON responses
+  // for Images API; forcing stream can return SSE content that proxy layers fail to parse.
+  return Boolean(profile.streamImages) && !isGptImage2Model(profile.model)
+}
+
 function getByPath(source: unknown, path: string | undefined): unknown {
   if (!path) return source
   return path.split('.').filter(Boolean).reduce<unknown>((current, key) => {
@@ -741,11 +757,13 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
     ? `${PROMPT_REWRITE_GUARD_PREFIX}\n${originalPrompt}`
     : originalPrompt
   const isEdit = inputImageDataUrls.length > 0
-  const mime = MIME_MAP[params.output_format] || 'image/png'
+  const outputFormat = normalizeOutputFormat(params.output_format)
+  const mime = MIME_MAP[outputFormat] || 'image/png'
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const requestHeaders = createRequestHeaders(profile)
   const paths = createOpenAICompatiblePaths(customProvider)
+  const streamEnabled = shouldEnableImagesStreaming(profile)
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
@@ -758,14 +776,14 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       formData.append('model', profile.model)
       formData.append('prompt', prompt)
       formData.append('size', params.size)
-      formData.append('output_format', params.output_format)
+      formData.append('output_format', outputFormat)
       formData.append('moderation', params.moderation)
 
       if (!profile.codexCli) {
         formData.append('quality', params.quality)
       }
 
-      if (params.output_format !== 'png' && params.output_compression != null) {
+      if (outputFormat !== 'png' && params.output_compression != null) {
         formData.append('output_compression', String(params.output_compression))
       }
       if (params.n > 1) {
@@ -774,7 +792,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       if (profile.responseFormatB64Json) {
         formData.append('response_format', 'b64_json')
       }
-      if (profile.streamImages) {
+      if (streamEnabled) {
         formData.append('stream', 'true')
         formData.append('partial_images', String(getStreamPartialImages(profile)))
       }
@@ -807,6 +825,25 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         formData.append('mask', maskBlob, 'mask.png')
       }
 
+      if (import.meta.env.DEV) {
+        console.debug('[gallery request]', {
+          mode: 'gallery',
+          route: 'images/edits',
+          model: profile.model,
+          pathname: getDebugPathname(buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy)),
+          size: params.size,
+          quality: profile.codexCli ? undefined : params.quality,
+          moderation: params.moderation,
+          output_format: outputFormat,
+          response_format: profile.responseFormatB64Json ? 'b64_json' : undefined,
+          n: params.n > 1 ? params.n : 1,
+          imageCount: inputImageDataUrls.length,
+          hasMask: Boolean(opts.maskDataUrl),
+          hasInputImages: inputImageDataUrls.length > 0,
+          stream: streamEnabled,
+        })
+      }
+
       response = await fetch(buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy), {
         method: 'POST',
         headers: requestHeaders,
@@ -819,7 +856,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         model: profile.model,
         prompt,
         size: params.size,
-        output_format: params.output_format,
+        output_format: outputFormat,
         moderation: params.moderation,
       }
 
@@ -827,7 +864,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         body.quality = params.quality
       }
 
-      if (params.output_format !== 'png' && params.output_compression != null) {
+      if (outputFormat !== 'png' && params.output_compression != null) {
         body.output_compression = params.output_compression
       }
       if (params.n > 1) {
@@ -836,9 +873,26 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       if (profile.responseFormatB64Json) {
         body.response_format = 'b64_json'
       }
-      if (profile.streamImages) {
+      if (streamEnabled) {
         body.stream = true
         body.partial_images = getStreamPartialImages(profile)
+      }
+
+      if (import.meta.env.DEV) {
+        console.debug('[gallery request]', {
+          mode: 'gallery',
+          route: 'images/generations',
+          model: profile.model,
+          pathname: getDebugPathname(buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy)),
+          size: params.size,
+          quality: profile.codexCli ? undefined : params.quality,
+          moderation: params.moderation,
+          output_format: outputFormat,
+          response_format: profile.responseFormatB64Json ? 'b64_json' : undefined,
+          n: params.n > 1 ? params.n : 1,
+          hasInputImages: false,
+          stream: streamEnabled,
+        })
       }
 
       response = await fetch(buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy), {
@@ -854,10 +908,20 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
     }
 
     if (!response.ok) {
-      throw new Error(await getApiErrorMessage(response))
+      const debugResponseText = await response.clone().text().catch(() => '')
+      const errorMessage = await getApiErrorMessage(response)
+      if (import.meta.env.DEV) {
+        console.debug('[gallery request failed]', {
+          route: isEdit ? 'images/edits' : 'images/generations',
+          status: response.status,
+          message: errorMessage,
+          responseTextPreview: debugResponseText.slice(0, 500),
+        })
+      }
+      throw new Error(errorMessage)
     }
 
-    if (profile.streamImages && isEventStreamResponse(response)) {
+    if (streamEnabled && isEventStreamResponse(response)) {
       return parseImagesApiStreamResponse(response, mime, opts.onPartialImage)
     }
 
