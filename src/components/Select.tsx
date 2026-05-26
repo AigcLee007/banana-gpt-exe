@@ -22,9 +22,24 @@ interface SelectProps {
   options: Option[]
   disabled?: boolean
   className?: string
+  menuClassName?: string
+  optionClassName?: string
+  triggerTitle?: string
+  truncateOptionLabel?: boolean
 }
 
-export default function Select({ value, onChange, onReorder, options, disabled, className }: SelectProps) {
+export default function Select({
+  value,
+  onChange,
+  onReorder,
+  options,
+  disabled,
+  className,
+  menuClassName,
+  optionClassName,
+  triggerTitle,
+  truncateOptionLabel = true,
+}: SelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [menuMaxHeight, setMenuMaxHeight] = useState(DEFAULT_DROPDOWN_MAX_HEIGHT)
   const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom')
@@ -157,6 +172,7 @@ export default function Select({ value, onChange, onReorder, options, disabled, 
       <div
         ref={triggerRef}
         onClick={handleToggle}
+        title={triggerTitle ?? (typeof selectedOption?.label === 'string' ? selectedOption.label : undefined)}
         className={`flex items-center justify-between gap-1 w-full cursor-pointer select-none ${className ?? ''} ${
           disabled
             ? `!opacity-50 !cursor-not-allowed ${triggerThemeClass}`
@@ -169,7 +185,7 @@ export default function Select({ value, onChange, onReorder, options, disabled, 
 
       {isOpen && (
         <div
-          className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 backdrop-blur-xl custom-scrollbar ${dropdownThemeClass} ${
+          className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 backdrop-blur-xl custom-scrollbar ${dropdownThemeClass} ${menuClassName ?? ''} ${
             placement === 'top' ? 'bottom-full mb-1.5 animate-dropdown-up' : 'top-full mt-1.5 animate-dropdown-down'
           }`}
           style={{ maxHeight: menuMaxHeight }}
@@ -340,9 +356,9 @@ export default function Select({ value, onChange, onReorder, options, disabled, 
                   : option.variant === 'danger'
                   ? 'font-semibold text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10'
                   : option.value === value
-                  ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium'
+                  ? 'bg-[color:var(--app-bg-soft)] text-[color:var(--app-text)] font-medium ring-1 ring-[color:var(--app-border)]'
                   : 'text-[color:var(--app-text)] hover:bg-[color:var(--app-bg-soft)]'
-              }`}
+              } ${optionClassName ?? ''}`}
             >
               {dragOverValue === option.value && dragDropPosition === 'before' && draggedValue !== option.value && (
                 <div className="absolute -top-[1px] left-0 right-0 h-[2px] bg-blue-500 rounded-full z-40 shadow-sm pointer-events-none" />
@@ -361,7 +377,7 @@ export default function Select({ value, onChange, onReorder, options, disabled, 
                     <DragHandleIcon className="h-3.5 w-3.5" />
                   </div>
                 )}
-                <span className="min-w-0 truncate">{option.label}</span>
+                <span className={`min-w-0 ${truncateOptionLabel ? 'truncate' : 'whitespace-nowrap'}`}>{option.label}</span>
               </div>
               {option.actions?.length ? (
                 <span className="ml-auto flex shrink-0 items-center gap-1">

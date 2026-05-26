@@ -335,6 +335,7 @@ export default function SettingsModal() {
   const [balanceInfo, setBalanceInfo] = useState<ApiKeyBalanceInfo | null>(null)
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [balanceUpdatedAt, setBalanceUpdatedAt] = useState<number | null>(null)
+  const [isManualCheckingUpdate, setIsManualCheckingUpdate] = useState(false)
 
   const apiProxyConfig = readClientDevProxyConfig()
   const apiProxyAvailable = isApiProxyAvailable(apiProxyConfig)
@@ -685,6 +686,12 @@ export default function SettingsModal() {
       setIsQueryingBalance(false)
     }
   }, [activeProfile.apiKey, draft, showToast])
+
+  const handleManualCheckUpdate = useCallback(() => {
+    setIsManualCheckingUpdate(true)
+    window.dispatchEvent(new CustomEvent('app:check-update', { detail: { manual: true } }))
+    window.setTimeout(() => setIsManualCheckingUpdate(false), 1200)
+  }, [])
 
   const formatBalanceUpdatedAt = useCallback((timestamp: number) => {
     const date = new Date(timestamp)
@@ -2063,6 +2070,22 @@ export default function SettingsModal() {
               <>
               <div className="flex h-full min-h-[300px] flex-col items-center justify-center pb-8 px-6">
                 <div className="w-full max-w-[520px] space-y-4">
+                  <section className="rounded-2xl border border-gray-200/70 bg-white/70 p-5 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.03]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-base font-bold text-gray-800 dark:text-gray-100">版本信息</h4>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">当前版本：{__APP_VERSION__}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleManualCheckUpdate}
+                        disabled={isManualCheckingUpdate}
+                        className="rounded-xl bg-blue-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isManualCheckingUpdate ? '检查中...' : '检查更新'}
+                      </button>
+                    </div>
+                  </section>
                   <section className="rounded-2xl border border-gray-200/70 bg-white/70 p-5 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.03]">
                     <h4 className="text-base font-bold text-gray-800 dark:text-gray-100">合规声明</h4>
                     <p className="mt-3 text-sm leading-relaxed text-gray-600 dark:text-gray-300">

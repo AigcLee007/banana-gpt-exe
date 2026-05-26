@@ -1815,6 +1815,9 @@ export default function InputBar() {
               value: item.model,
             }))}
             className={selectClass}
+            menuClassName="min-w-max"
+            triggerTitle={BANANA_GALLERY_MODELS.find((item) => item.model === galleryModel)?.displayName ?? String(galleryModel)}
+            truncateOptionLabel={false}
           />
         </label>
       )}
