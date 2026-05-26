@@ -1,6 +1,6 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
-import { isGeminiNativeModel } from './bananaModels'
+import { isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import {
@@ -663,20 +663,23 @@ async function parseResponsesApiStreamResponse(
 }
 
 export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+  const resolvedModel = normalizeBananaModelId(profile.model)
+  const resolvedProfile = resolvedModel === profile.model ? profile : { ...profile, model: resolvedModel }
+
   if (customProvider) {
-    return callCustomHttpImageApi(opts, profile, customProvider)
+    return callCustomHttpImageApi(opts, resolvedProfile, customProvider)
   }
 
-  if (profile.apiMode !== 'responses' && isGeminiNativeModel(profile.model)) {
+  if (resolvedProfile.apiMode !== 'responses' && isGeminiNativeModel(resolvedProfile.model)) {
     const n = opts.params.n > 0 ? opts.params.n : 1
     return n > 1
-      ? callGeminiNativeGenerateContentConcurrent(opts, profile, n)
-      : callGeminiNativeGenerateContent(opts, profile)
+      ? callGeminiNativeGenerateContentConcurrent(opts, resolvedProfile, n)
+      : callGeminiNativeGenerateContent(opts, resolvedProfile)
   }
 
-  return profile.apiMode === 'responses'
-    ? callResponsesImageApi(opts, profile)
-    : callImagesApi(opts, profile)
+  return resolvedProfile.apiMode === 'responses'
+    ? callResponsesImageApi(opts, resolvedProfile)
+    : callImagesApi(opts, resolvedProfile)
 }
 
 async function callImagesApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {

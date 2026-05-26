@@ -97,6 +97,7 @@ vi.mock('./lib/agentApi', () => ({
 }))
 import { clearAgentConversations, clearImages, getAllAgentConversations, getAllTasks, putAgentConversation, putImage, putTask as putDbTask } from './lib/db'
 import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
+import { callImageApi } from './lib/api'
 import { getGeminiOutputPixels } from './lib/geminiImageSizing'
 import { cleanStaleAgentInputDrafts, deleteAgentRoundFromConversation, editOutputs, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, migratePersistedState, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
 
@@ -208,6 +209,45 @@ describe('mask draft lifecycle in store actions', () => {
     const state = useStore.getState()
     expect(state.tasks).toHaveLength(1)
     expect(state.showToast).toHaveBeenCalledWith('任务已提交', 'success')
+  })
+
+  it('normalizes Nano Banana Pro aliases to gemini-3-pro-image-preview before request', async () => {
+    vi.mocked(callImageApi).mockClear()
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        model: 'Nano_Banana_Pro',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          model: 'Nano_Banana_Pro',
+        })),
+      }),
+    })
+
+    await submitTask()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const createdTask = useStore.getState().tasks[0]
+    expect(createdTask.apiModel).toBe('gemini-3-pro-image-preview')
+    const firstCallSettings = vi.mocked(callImageApi).mock.calls[0]?.[0]?.settings
+    expect(firstCallSettings?.model).toBe('gemini-3-pro-image-preview')
+  })
+
+  it('splits gallery n > 1 into multiple independent single-image tasks', async () => {
+    vi.mocked(callImageApi).mockClear()
+    useStore.setState({
+      params: { ...DEFAULT_PARAMS, n: 2 },
+    })
+
+    await submitTask()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const createdTasks = useStore.getState().tasks.slice(0, 2)
+    expect(createdTasks).toHaveLength(2)
+    expect(createdTasks.every((task) => task.params.n === 1)).toBe(true)
+    expect(vi.mocked(callImageApi)).toHaveBeenCalledTimes(2)
   })
 
   it('stores independent Gemini request parameters when creating a gallery task', async () => {

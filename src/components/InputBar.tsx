@@ -11,7 +11,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, isGeminiNativeModel } from '../lib/bananaModels'
+import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, isGeminiNativeModel, normalizeBananaModelId } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import Select from './Select'
@@ -637,8 +637,9 @@ export default function InputBar() {
   const displaySize = isFalTextToImage && params.size === 'auto'
     ? DEFAULT_FAL_IMAGE_SIZE
     : normalizeImageSize(params.size) || DEFAULT_PARAMS.size
-  const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === activeProfile.model)
-    ? activeProfile.model
+  const resolvedGalleryModel = normalizeBananaModelId(activeProfile.model)
+  const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === resolvedGalleryModel)
+    ? resolvedGalleryModel
     : DEFAULT_GALLERY_MODEL
   const isGeminiGalleryModel = appMode === 'gallery' && isGeminiNativeModel(galleryModel)
   const geminiAspectRatio = normalizeGeminiAspectRatio(params.geminiAspectRatio ?? params.size)

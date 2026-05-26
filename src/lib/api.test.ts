@@ -139,6 +139,38 @@ describe('callImageApi', () => {
     expect(body.size).toBeUndefined()
   })
 
+  it('normalizes Nano_Banana_Pro to gemini-3-pro-image-preview before calling Gemini endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] } }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createGeminiSettings('gemini-3-pro-image-preview', {
+        model: 'Nano_Banana_Pro',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          model: 'Nano_Banana_Pro',
+        })),
+      }),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        geminiAspectRatio: '16:9',
+        geminiImageSize: '1K',
+      },
+      inputImageDataUrls: [],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1beta/models/gemini-3-pro-image-preview:generateContent')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.model).toBeUndefined()
+  })
+
   it('splits Gemini native multi-image generation into parallel single-image requests', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] } }],

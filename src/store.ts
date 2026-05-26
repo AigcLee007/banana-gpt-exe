@@ -49,7 +49,7 @@ import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
-import { AGENT_FIXED_MODEL } from './lib/bananaModels'
+import { AGENT_FIXED_MODEL, normalizeBananaModelId } from './lib/bananaModels'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
 // ===== Image cache =====
@@ -2090,7 +2090,7 @@ export async function initStore() {
 
 /** 提交新任务 */
 export async function submitTask(options: { allowFullMask?: boolean; useCurrentApiProfileWhenReusedMissing?: boolean } = {}) {
-  const { settings, prompt, inputImages, maskDraft, params, reusedTaskApiProfileId, reusedTaskApiProfileName, reusedTaskApiProfileMissing, showToast, setConfirmDialog } =
+  const { appMode, settings, prompt, inputImages, maskDraft, params, reusedTaskApiProfileId, reusedTaskApiProfileName, reusedTaskApiProfileMissing, showToast, setConfirmDialog } =
     useStore.getState()
 
   const normalizedSettings = normalizeSettings(settings)
@@ -2123,6 +2123,14 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     showToast(`请先完善请求 API 配置：${validateApiProfile(activeProfile)}`, 'error')
     useStore.getState().setShowSettings(true)
     return
+  }
+
+  if (appMode === 'gallery') {
+    const normalizedModel = normalizeBananaModelId(activeProfile.model)
+    if (normalizedModel !== activeProfile.model) {
+      activeProfile = { ...activeProfile, model: normalizedModel }
+      requestSettings = createSettingsForApiProfile(normalizedSettings, activeProfile)
+    }
   }
 
   if (!prompt.trim()) {
@@ -2173,11 +2181,13 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     useStore.getState().setParams(normalizedParamPatch)
   }
 
-  const taskId = genId()
-  const task: TaskRecord = {
-    id: taskId,
+  const requestCount = appMode === 'gallery' ? Math.max(1, Math.trunc(normalizedParams.n || 1)) : 1
+  const singleTaskParams = requestCount > 1 ? { ...normalizedParams, n: 1 } : normalizedParams
+  const now = Date.now()
+  const tasksToCreate: TaskRecord[] = Array.from({ length: requestCount }, (_, index) => ({
+    id: genId(),
     prompt: prompt.trim(),
-    params: normalizedParams,
+    params: { ...singleTaskParams },
     apiProvider: activeProfile.provider,
     apiProfileId: activeProfile.id,
     apiProfileName: activeProfile.name,
@@ -2189,14 +2199,14 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     outputImages: [],
     status: 'running',
     error: null,
-    createdAt: Date.now(),
+    createdAt: now + index,
     finishedAt: null,
     elapsed: null,
-  }
+  }))
 
   const latestTasks = useStore.getState().tasks
-  useStore.getState().setTasks([task, ...latestTasks])
-  await putTask(task)
+  useStore.getState().setTasks([...tasksToCreate, ...latestTasks])
+  await Promise.all(tasksToCreate.map((createdTask) => putTask(createdTask)))
   useStore.getState().showToast('任务已提交', 'success')
 
   if (settings.clearInputAfterSubmit) {
@@ -2206,7 +2216,9 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   useStore.getState().setReusedTaskApiProfile(null)
 
   // 异步调用 API
-  executeTask(taskId)
+  for (const createdTask of tasksToCreate) {
+    executeTask(createdTask.id)
+  }
 }
 
 function getActiveAgentConversation(): AgentConversation {
@@ -3798,7 +3810,13 @@ async function executeTask(taskId: string) {
     })
     return
   }
-  const activeProfile = taskProfile ?? getActiveApiProfile(settings)
+  let activeProfile = taskProfile ?? getActiveApiProfile(settings)
+  if (typeof task.apiModel === 'string' && task.apiModel.trim()) {
+    const normalizedTaskModel = normalizeBananaModelId(task.apiModel)
+    if (normalizedTaskModel !== activeProfile.model) {
+      activeProfile = { ...activeProfile, model: normalizedTaskModel }
+    }
+  }
   const requestSettings = createSettingsForApiProfile(settings, activeProfile)
   const taskProvider = task.apiProvider ?? activeProfile.provider
   let falRequestInfo: { requestId: string; endpoint: string } | null = task.falRequestId && task.falEndpoint
