@@ -18,6 +18,21 @@ function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function createOpenAIImagesSettingsWithModel(model: string, overrides: Record<string, unknown> = {}) {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...overrides,
+    apiKey: 'test-key',
+    model,
+    profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+      ...profile,
+      apiKey: 'test-key',
+      model,
+      ...(overrides as Record<string, unknown>),
+    })),
+  }
+}
+
 function createGeminiSettings(model: 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-image-preview', overrides: Record<string, unknown> = {}) {
   return {
     ...DEFAULT_SETTINGS,
@@ -224,7 +239,31 @@ describe('callImageApi', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/images/generations')
     const [, init] = fetchMock.mock.calls[0]
     const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.model).toBe('gpt-image-2')
     expect(body.size).toBe('auto')
+    expect(body.generationConfig).toBeUndefined()
+    expect(body.responseModalities).toBeUndefined()
+    expect(body.imageConfig).toBeUndefined()
+  })
+
+  it('normalizes GPT-Image-2 output format to lowercase for generations', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIImagesSettings(),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, output_format: 'PNG' as any },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.output_format).toBe('png')
   })
 
   it('splits GPT-Image-2 multi-image text generation into parallel single-image requests', async () => {
@@ -270,7 +309,11 @@ describe('callImageApi', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/images/edits'))).toBe(true)
     const editCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/v1/images/edits'))
     const formData = editCall?.[1] && (editCall[1] as RequestInit).body as FormData
+    expect(formData?.get('model')).toBe('gpt-image-2')
+    expect(formData?.get('output_format')).toBe('png')
     expect(formData?.get('size')).toBe('auto')
+    expect(formData?.get('responseModalities')).toBeNull()
+    expect(formData?.get('generationConfig')).toBeNull()
   })
 
   it('splits GPT-Image-2 multi-image edits into parallel single-image requests', async () => {
@@ -378,7 +421,7 @@ describe('callImageApi', () => {
     const partialImages: string[] = []
 
     const result = await callImageApi({
-      settings: createOpenAIImagesSettings({
+      settings: createOpenAIImagesSettingsWithModel('test-image-model', {
         streamImages: true,
         streamPartialImages: 3,
       }),
@@ -423,7 +466,7 @@ describe('callImageApi', () => {
     }))
 
     const result = await callImageApi({
-      settings: createOpenAIImagesSettings({
+      settings: createOpenAIImagesSettingsWithModel('test-image-model', {
         streamImages: true,
       }),
       prompt: 'prompt',
@@ -460,7 +503,7 @@ describe('callImageApi', () => {
     const partials: Array<{ image: string; requestIndex?: number }> = []
 
     const result = await callImageApi({
-      settings: createOpenAIImagesSettings({
+      settings: createOpenAIImagesSettingsWithModel('test-image-model', {
         streamImages: true,
         streamPartialImages: 1,
       }),
@@ -487,6 +530,30 @@ describe('callImageApi', () => {
       'data:image/png;base64,cGFydGlhbA==',
       'data:image/png;base64,cGFydGlhbA==',
     ])
+  })
+
+  it('does not send stream fields for GPT-Image-2 Images API requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIImagesSettings({
+        streamImages: true,
+        streamPartialImages: 3,
+      }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.stream).toBeUndefined()
+    expect(body.partial_images).toBeUndefined()
   })
 
   it('streams Responses API partial images and resolves the completed response image', async () => {
