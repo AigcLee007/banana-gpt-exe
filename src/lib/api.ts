@@ -40,7 +40,7 @@ function getTomorrowDateString() {
   return `${year}-${month}-${day}`
 }
 
-function getBalanceUpstreamBaseUrl(profileBaseUrl: string) {
+function getBalanceUpstreamBaseUrl() {
   const fromViteAittco = readRuntimeEnv(import.meta.env.VITE_AITTCO_UPSTREAM_URL)
   if (fromViteAittco) return fromViteAittco
 
@@ -53,10 +53,7 @@ function getBalanceUpstreamBaseUrl(profileBaseUrl: string) {
   const fromBuildUpstream = readRuntimeEnv(typeof __UPSTREAM_URL__ === 'string' ? __UPSTREAM_URL__ : undefined)
   if (fromBuildUpstream) return fromBuildUpstream
 
-  const fromDefault = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL)
-  if (fromDefault) return fromDefault
-
-  return profileBaseUrl.trim() || 'https://vip.aittco.com'
+  return 'https://vip.aittco.com'
 }
 
 function ensureNumber(value: unknown): number | null {
@@ -151,7 +148,7 @@ export async function queryApiKeyBalance(options: QueryApiKeyBalanceOptions): Pr
 
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
-  const baseUrl = getBalanceUpstreamBaseUrl(profile.baseUrl)
+  const baseUrl = getBalanceUpstreamBaseUrl()
 
   const usagePath = `dashboard/billing/usage?start_date=${BALANCE_USAGE_START_DATE}&end_date=${getTomorrowDateString()}`
   const subscriptionUrl = buildApiUrl(baseUrl, 'dashboard/billing/subscription', proxyConfig, useApiProxy)

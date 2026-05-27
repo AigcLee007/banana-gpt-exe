@@ -1045,6 +1045,42 @@ describe('callImageApi', () => {
     })
   })
 
+  it('uses the Aittco upstream for billing even when profile baseUrl points to OpenAI', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        hard_limit_usd: 10,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        total_usage_usd: 1,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    await queryApiKeyBalance({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'test-key',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: 'test-key',
+        })),
+      },
+    })
+
+    const [subscriptionUrl, usageUrl] = fetchMock.mock.calls.map((call) => String(call[0]))
+    expect(subscriptionUrl).toContain('https://vip.aittco.com/v1/dashboard/billing/subscription')
+    expect(usageUrl).toContain('https://vip.aittco.com/v1/dashboard/billing/usage?start_date=2023-01-01&end_date=')
+    expect(subscriptionUrl).not.toContain('api.openai.com')
+    expect(usageUrl).not.toContain('api.openai.com')
+  })
+
   it('keeps remaining points at least zero', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({
