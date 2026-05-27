@@ -26,6 +26,7 @@ import Toast from './components/Toast'
 import MaskEditorModal from './components/MaskEditorModal'
 import ImageContextMenu from './components/ImageContextMenu'
 import SupportPromptModal from './components/SupportPromptModal'
+import PwaInstallPrompt from './components/PwaInstallPrompt'
 import { useGlobalClickSuppression } from './lib/clickSuppression'
 
 export default function App() {
@@ -184,6 +185,7 @@ export default function App() {
       <SettingsModal />
       <ConfirmDialog />
       <SupportPromptModal />
+      <PwaInstallPrompt />
       <Toast />
       <MaskEditorModal />
       <ImageContextMenu />
