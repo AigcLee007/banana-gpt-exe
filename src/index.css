@@ -29,12 +29,22 @@ html {
   overflow-y: scroll;
 }
 
+html,
+body,
+#root {
+  min-height: 100dvh;
+}
+
 body {
   padding: 0;
   -webkit-user-select: none;
   user-select: none;
   background: var(--app-bg);
   color: var(--app-text);
+}
+
+:root[data-theme] [data-input-bar] {
+  padding-bottom: max(0.35rem, var(--safe-area-bottom));
 }
 
 :root[data-theme="light"] {

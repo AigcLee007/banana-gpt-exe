@@ -1,18 +1,31 @@
 {
   "name": "艾特智绘",
   "short_name": "艾特智绘",
-  "description": "GPT Image Playground 图像生成工作台",
-  "start_url": "./",
-  "scope": "./",
+  "description": "AI 图片生成工具",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#030712",
-  "theme_color": "#111827",
+  "background_color": "#f8f1e7",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "./aittco-icon.png",
-      "sizes": "1024x1024",
+      "src": "/icons/pwa-192.png",
+      "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/pwa-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
