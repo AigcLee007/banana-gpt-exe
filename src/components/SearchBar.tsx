@@ -1,4 +1,5 @@
-import { useStore } from '../store'
+import { clearFailedTasks, useStore } from '../store'
+import { TrashIcon } from './icons'
 import Select from './Select'
 
 export default function SearchBar() {
@@ -8,6 +9,41 @@ export default function SearchBar() {
   const setFilterStatus = useStore((s) => s.setFilterStatus)
   const filterFavorite = useStore((s) => s.filterFavorite)
   const setFilterFavorite = useStore((s) => s.setFilterFavorite)
+  const setConfirmDialog = useStore((s) => s.setConfirmDialog)
+  const tasks = useStore((s) => s.tasks)
+  const failedCount = tasks.filter((task) => {
+    if (task.status !== 'error') return false
+    if (filterFavorite && !task.isFavorite) return false
+    const query = searchQuery.trim().toLowerCase()
+    if (!query) return true
+    const prompt = (task.prompt || '').toLowerCase()
+    const paramStr = JSON.stringify(task.params).toLowerCase()
+    return prompt.includes(query) || paramStr.includes(query)
+  }).length
+
+  const handleClearFailed = () => {
+    const query = searchQuery.trim().toLowerCase()
+    const failedTaskIds = tasks
+      .filter((task) => {
+        if (task.status !== 'error') return false
+        if (filterFavorite && !task.isFavorite) return false
+        if (!query) return true
+        const prompt = (task.prompt || '').toLowerCase()
+        const paramStr = JSON.stringify(task.params).toLowerCase()
+        return prompt.includes(query) || paramStr.includes(query)
+      })
+      .map((task) => task.id)
+
+    if (!failedTaskIds.length) return
+    setConfirmDialog({
+      title: '清除失败记录',
+      message: `确定清除当前筛选范围内的失败记录吗？\n将删除 ${failedTaskIds.length} 条失败记录，并同步清理孤立图片资源。`,
+      confirmText: '删除',
+      cancelText: '取消',
+      tone: 'danger',
+      action: () => clearFailedTasks(failedTaskIds),
+    })
+  }
 
   return (
     <div data-no-drag-select className="mt-6 mb-4 flex gap-3">
@@ -38,6 +74,18 @@ export default function SearchBar() {
             className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-white/[0.06] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
           />
         </div>
+        {filterStatus === 'error' && (
+          <button
+            type="button"
+            onClick={handleClearFailed}
+            disabled={failedCount === 0}
+            title={failedCount > 0 ? `清除 ${failedCount} 条失败记录` : '没有失败记录'}
+            aria-label={failedCount > 0 ? `清除 ${failedCount} 条失败记录` : '没有失败记录'}
+            className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-all hover:bg-gray-50 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-white disabled:hover:text-gray-400 dark:border-white/[0.08] dark:bg-gray-900 dark:text-gray-500 dark:hover:bg-white/[0.06] dark:hover:text-gray-300 dark:disabled:hover:bg-gray-900 dark:disabled:hover:text-gray-500"
+          >
+            <TrashIcon className="h-[18px] w-[18px]" />
+          </button>
+        )}
       </div>
       <div className="relative flex-1 z-10">
         <svg

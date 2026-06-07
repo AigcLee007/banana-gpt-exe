@@ -664,6 +664,9 @@ export default function InputBar() {
     ? resolvedGalleryModel
     : DEFAULT_GALLERY_MODEL
   const isGeminiGalleryModel = appMode === 'gallery' && isGeminiNativeModel(galleryModel)
+  const transparentOutputAvailable = appMode === 'gallery' && !isGeminiGalleryModel
+  const showTransparentOutputControl = transparentOutputAvailable && params.output_format === 'png'
+  const transparentOutputEnabled = showTransparentOutputControl && params.transparent_output
   const geminiAspectRatio = normalizeGeminiAspectRatio(params.geminiAspectRatio ?? params.size)
   const geminiImageSize = normalizeGeminiImageSize(params.geminiImageSize ?? '2K')
   const geminiRatioOptions = GEMINI_ASPECT_RATIOS.map((ratio) => ({
@@ -1915,7 +1918,12 @@ export default function InputBar() {
             <span className="text-gray-400 dark:text-gray-500 ml-1">格式</span>
             <Select
               value={params.output_format}
-              onChange={(val) => setParams({ output_format: val as any })}
+              onChange={(val) => setParams({
+                output_format: val as any,
+                ...(val === 'png'
+                  ? { output_compression: null }
+                  : { transparent_output: false }),
+              })}
               options={[
                 { label: 'PNG', value: 'png' },
                 { label: 'JPEG', value: 'jpeg' },
@@ -1924,6 +1932,22 @@ export default function InputBar() {
               className={selectClass}
             />
           </label>
+          {showTransparentOutputControl && (
+            <label className="flex flex-col gap-0.5">
+              <span className="text-gray-400 dark:text-gray-500 ml-1">透明背景</span>
+              <Select
+                value={transparentOutputEnabled ? 'on' : 'off'}
+                onChange={(val) => {
+                  setParams({ transparent_output: val === 'on', output_compression: null })
+                }}
+                options={[
+                  { label: 'false', value: 'off' },
+                  { label: 'true', value: 'on' },
+                ]}
+                className={selectClass}
+              />
+            </label>
+          )}
           <label
             className="relative flex flex-col gap-0.5"
             onMouseEnter={compressionHint.show}

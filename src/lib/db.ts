@@ -242,6 +242,14 @@ function hashDataUrlFallback(dataUrl: string): string {
 export async function storeImage(dataUrl: string, source: NonNullable<StoredImage['source']> = 'upload'): Promise<string> {
   const id = await hashDataUrl(dataUrl)
   const existing = await getImage(id)
+  if (import.meta.env.DEV) {
+    console.debug('[diag][storeImage]', {
+      source,
+      imageId: id,
+      dataUrlLength: dataUrl.length,
+      reusedExisting: Boolean(existing),
+    })
+  }
   if (!existing) {
     const thumbnail = await safeCreateImageThumbnail(dataUrl)
     await putImage({
@@ -261,6 +269,14 @@ export async function storeImage(dataUrl: string, source: NonNullable<StoredImag
         thumbnailVersion: THUMBNAIL_VERSION,
       })
     }
+    if (import.meta.env.DEV) {
+      console.debug('[diag][storeImage][created]', {
+        imageId: id,
+        width: thumbnail.width,
+        height: thumbnail.height,
+        hasThumbnail: Boolean(thumbnail.thumbnailDataUrl),
+      })
+    }
   } else if ((await getStoredImageThumbnail(id))?.thumbnailVersion !== THUMBNAIL_VERSION) {
     const thumbnail = await safeCreateImageThumbnail(existing.dataUrl)
     if (thumbnail.width && thumbnail.height && (existing.width !== thumbnail.width || existing.height !== thumbnail.height)) {
@@ -273,6 +289,14 @@ export async function storeImage(dataUrl: string, source: NonNullable<StoredImag
         width: thumbnail.width,
         height: thumbnail.height,
         thumbnailVersion: THUMBNAIL_VERSION,
+      })
+    }
+    if (import.meta.env.DEV) {
+      console.debug('[diag][storeImage][refreshed-thumbnail]', {
+        imageId: id,
+        width: thumbnail.width,
+        height: thumbnail.height,
+        hasThumbnail: Boolean(thumbnail.thumbnailDataUrl),
       })
     }
   }

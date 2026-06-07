@@ -58,6 +58,10 @@ export function normalizeParamsForSettings(
     nextParams.output_compression = DEFAULT_PARAMS.output_compression
   }
 
+  if (nextParams.output_format !== 'png') {
+    nextParams.transparent_output = false
+  }
+
   return nextParams
 }
 

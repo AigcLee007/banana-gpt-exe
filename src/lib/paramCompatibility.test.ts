@@ -50,4 +50,20 @@ describe('parameter compatibility', () => {
     expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: 'auto' }, settings).size).toBe('1360x1024')
     expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: 'auto' }, settings, { hasInputImages: true }).size).toBe('auto')
   })
+
+  it('disables transparent output when format is not png', () => {
+    const openAIProfile = createDefaultOpenAIProfile({ apiKey: 'test-key' })
+    const settings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [openAIProfile],
+      activeProfileId: openAIProfile.id,
+    })
+
+    expect(
+      normalizeParamsForSettings(
+        { ...DEFAULT_PARAMS, output_format: 'jpeg', transparent_output: true },
+        settings,
+      ).transparent_output,
+    ).toBe(false)
+  })
 })

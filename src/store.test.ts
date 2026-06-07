@@ -99,7 +99,7 @@ import { clearAgentConversations, clearImages, getAllAgentConversations, getAllT
 import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
 import { callImageApi } from './lib/api'
 import { getGeminiOutputPixels } from './lib/geminiImageSizing'
-import { cleanStaleAgentInputDrafts, deleteAgentRoundFromConversation, editOutputs, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, migratePersistedState, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
+import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConversation, editOutputs, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, migratePersistedState, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
@@ -313,6 +313,57 @@ describe('mask draft lifecycle in store actions', () => {
     expect(createdTask.params.size).toBe(getGeminiOutputPixels('3:4', '2K'))
   })
 
+  it('keeps transparent background enabled for non-Gemini PNG gallery tasks', async () => {
+    vi.mocked(callImageApi).mockClear()
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        model: 'gpt-image-2',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          model: 'gpt-image-2',
+        })),
+      }),
+      params: { ...DEFAULT_PARAMS, transparent_output: true, output_format: 'png' },
+    })
+
+    await submitTask()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const createdTask = useStore.getState().tasks[0]
+    expect(createdTask.params.transparent_output).toBe(true)
+    expect(createdTask.transparentOutput).toBe(true)
+    expect(createdTask.transparentPrompt).toContain('[背景指令]')
+    expect(vi.mocked(callImageApi).mock.calls[0]?.[0]?.prompt).toContain('[背景指令]')
+  })
+
+  it('turns transparent background off for Gemini gallery tasks', async () => {
+    vi.mocked(callImageApi).mockClear()
+    useStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        model: 'gemini-3-pro-image-preview',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          model: 'gemini-3-pro-image-preview',
+        })),
+      },
+      params: { ...DEFAULT_PARAMS, transparent_output: true, output_format: 'png' },
+    })
+
+    await submitTask()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const createdTask = useStore.getState().tasks[0]
+    expect(createdTask.params.transparent_output).toBe(false)
+    expect(createdTask.transparentOutput).toBeUndefined()
+    expect(vi.mocked(callImageApi).mock.calls[0]?.[0]?.prompt).not.toContain('[背景指令]')
+  })
+
   it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {
     const replacement = { id: 'image-a-replacement', dataUrl: imageA.dataUrl }
     const prompt = `参考 ${getSelectedImageMentionLabel(0)} 生成`
@@ -328,6 +379,30 @@ describe('mask draft lifecycle in store actions', () => {
     const state = useStore.getState()
     expect(state.inputImages.map((img) => img.id)).toEqual([replacement.id, imageB.id])
     expect(state.prompt).toBe(prompt)
+  })
+})
+
+describe('failed task cleanup', () => {
+  beforeEach(() => {
+    useStore.setState({
+      tasks: [],
+      selectedTaskIds: [],
+      inputImages: [],
+      galleryInputDraft: null,
+      showToast: vi.fn(),
+    })
+  })
+
+  it('removes only failed tasks', async () => {
+    const failed = task({ id: 'task-failed', status: 'error', outputImages: ['out-failed'] })
+    const done = task({ id: 'task-done', status: 'done', outputImages: ['out-done'] })
+    useStore.setState({ tasks: [failed, done] })
+    await putDbTask(failed)
+    await putDbTask(done)
+
+    await clearFailedTasks()
+
+    expect(useStore.getState().tasks.map((item) => item.id)).toEqual(['task-done'])
   })
 })
 

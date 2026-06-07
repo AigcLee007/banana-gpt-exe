@@ -5,7 +5,7 @@ import { formatImageRatio } from '../lib/size'
 import { getParamDisplay, ActualValueBadge } from '../lib/paramDisplay'
 import { DEFAULT_IMAGES_MODEL, DEFAULT_FAL_MODEL } from '../lib/apiProfiles'
 import { isAgentTaskPromptPending } from '../lib/taskPromptDisplay'
-import { CodeIcon } from './icons'
+import { CodeIcon, TransparentBgIcon } from './icons'
 import ViewportTooltip from './ViewportTooltip'
 
 interface Props {
@@ -256,6 +256,16 @@ export default function TaskCard({
 
     const applyThumbnail = (thumbnail: { dataUrl: string; width?: number; height?: number }) => {
       if (cancelled) return
+      if (import.meta.env.DEV) {
+        console.debug('[diag][TaskCard][applyThumbnail]', {
+          taskId: task.id,
+          taskCreatedAt: task.createdAt,
+          imageId,
+          thumbnailLength: thumbnail.dataUrl.length,
+          width: thumbnail.width,
+          height: thumbnail.height,
+        })
+      }
       setThumbSrc(thumbnail.dataUrl)
       if (thumbnail.width && thumbnail.height) {
         setCoverRatio(formatImageRatio(thumbnail.width, thumbnail.height))
@@ -264,6 +274,14 @@ export default function TaskCard({
     }
 
     if (imageId) {
+      if (import.meta.env.DEV) {
+        console.debug('[diag][TaskCard][subscribeThumbnail]', {
+          taskId: task.id,
+          taskCreatedAt: task.createdAt,
+          imageId,
+          outputImages: task.outputImages,
+        })
+      }
       unsubscribe = subscribeImageThumbnail(imageId, applyThumbnail)
       ensureImageThumbnailCached(imageId).then((thumbnail) => {
         if (cancelled || !thumbnail) return
@@ -310,6 +328,7 @@ export default function TaskCard({
 
   const formatDisplay = getParamDisplay(task, 'output_format')
   const showFormat = task.params.output_format !== 'png' || formatDisplay.isMismatch
+  const showTransparentOutput = task.transparentOutput || task.params.transparent_output
 
   const nDisplay = getParamDisplay(task, 'n')
   const isAgentTask = task.sourceMode === 'agent' || Boolean(task.agentConversationId || task.agentRoundId)
@@ -605,6 +624,12 @@ export default function TaskCard({
                 <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
                   <span className="text-gray-400 dark:text-gray-500">格式</span>
                   {formatDisplay.isMismatch ? <ActualValueBadge value={formatDisplay.displayValue} className="px-1 rounded-sm" /> : <span className="text-gray-600 dark:text-gray-300">{formatDisplay.displayValue}</span>}
+                </span>
+              )}
+              {showTransparentOutput && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/10 text-xs flex-shrink-0 text-emerald-700 dark:text-emerald-300">
+                  <TransparentBgIcon className="h-3 w-3" />
+                  <span>透明背景</span>
                 </span>
               )}
               {showN && (
