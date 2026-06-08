@@ -1,7 +1,7 @@
 {
   "name": "gpt-image-playground",
   "private": true,
-  "version": "0.4.5-banana.1",
+  "version": "0.4.6-banana.0",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
