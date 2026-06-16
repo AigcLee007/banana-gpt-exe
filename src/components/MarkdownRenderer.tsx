@@ -11,13 +11,18 @@ type MarkdownRendererProps = {
 type StreamdownComponent = typeof import('streamdown')['Streamdown']
 type ReactMarkdownComponent = typeof import('react-markdown')['default']
 type RemarkGfmPlugin = typeof import('remark-gfm')['default']
+type StreamdownMathPlugin = typeof import('@streamdown/math')['math']
 type LegacyMarkdownModule = {
   ReactMarkdown: ReactMarkdownComponent
   remarkGfm: RemarkGfmPlugin
 }
+type ModernMarkdownModule = {
+  Component: StreamdownComponent
+  math: StreamdownMathPlugin
+}
 type MarkdownRendererState =
   | { type: 'loading' }
-  | { type: 'modern'; Component: StreamdownComponent }
+  | { type: 'modern'; module: ModernMarkdownModule }
   | { type: 'legacy'; module: LegacyMarkdownModule }
   | { type: 'plain' }
 
@@ -120,8 +125,14 @@ function loadLegacyMarkdown() {
 function loadMarkdownRenderer() {
   if (!canLoadStreamdown) return loadLegacyMarkdown()
 
-  streamdownPromise ??= import('streamdown')
-    .then((module) => ({ type: 'modern' as const, Component: module.Streamdown }))
+  streamdownPromise ??= Promise.all([import('streamdown'), import('@streamdown/math')])
+    .then(([streamdown, streamdownMath]) => ({
+      type: 'modern' as const,
+      module: {
+        Component: streamdown.Streamdown,
+        math: streamdownMath.createMathPlugin({ singleDollarTextMath: true }),
+      },
+    }))
     .catch((error) => {
       console.error('Streamdown failed to load:', error)
       return loadLegacyMarkdown()
@@ -180,7 +191,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
     return <PlainTextMarkdown content={content} className={className} />
   }
 
-  const StreamdownComponent = renderer.Component
+  const { Component: StreamdownComponent, math } = renderer.module
 
   return (
     <StreamdownComponent
@@ -196,6 +207,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
       lineNumbers={false}
       mode={streaming ? 'streaming' : 'static'}
       parseIncompleteMarkdown={streaming}
+      plugins={{ math }}
       skipHtml
       translations={translations}
       urlTransform={safeUrl}

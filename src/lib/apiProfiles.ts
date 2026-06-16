@@ -498,6 +498,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     referenceImageEditAction: normalizeReferenceImageEditAction(record.referenceImageEditAction),
     agentScrollToBottomAfterSubmit: typeof record.agentScrollToBottomAfterSubmit === 'boolean' ? record.agentScrollToBottomAfterSubmit : true,
     agentMaxToolRounds: normalizeAgentMaxToolRounds(record.agentMaxToolRounds),
+    agentMathFormattingPrompt: typeof record.agentMathFormattingPrompt === 'boolean' ? record.agentMathFormattingPrompt : true,
     agentWebSearch: typeof record.agentWebSearch === 'boolean' ? record.agentWebSearch : false,
     profiles,
     activeProfileId,
@@ -791,6 +792,7 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   referenceImageEditAction: 'ask',
   agentScrollToBottomAfterSubmit: true,
   agentMaxToolRounds: DEFAULT_AGENT_MAX_TOOL_ROUNDS,
+  agentMathFormattingPrompt: true,
   agentWebSearch: false,
   theme: 'light',
 })
