@@ -563,6 +563,12 @@ describe('custom providers', () => {
     expect(normalizeSettings({ agentScrollToBottomAfterSubmit: false }).agentScrollToBottomAfterSubmit).toBe(false)
   })
 
+  it('enables Agent math formatting prompt by default', () => {
+    expect(DEFAULT_SETTINGS.agentMathFormattingPrompt).toBe(true)
+    expect(normalizeSettings({ agentMathFormattingPrompt: false }).agentMathFormattingPrompt).toBe(false)
+    expect(normalizeSettings({}).agentMathFormattingPrompt).toBe(true)
+  })
+
   it('restores OpenAI-compatible URL after switching through fal.ai', () => {
     const openaiProfile = createDefaultOpenAIProfile({
       baseUrl: 'https://api.compat.example.com/v1',

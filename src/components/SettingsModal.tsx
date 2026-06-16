@@ -1337,6 +1337,30 @@ export default function SettingsModal() {
 
             {activeTab === 'agent' && (
               <div className="space-y-4">
+                <div className="block">
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <span className="block text-sm text-gray-600 dark:text-gray-300">数学公式格式提示</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const agentMaxToolRounds = agentMaxToolRoundsInput.trim() === ''
+                          ? DEFAULT_AGENT_MAX_TOOL_ROUNDS
+                          : normalizeAgentMaxToolRounds(agentMaxToolRoundsInput, draft.agentMaxToolRounds)
+                        setAgentMaxToolRoundsInput(String(agentMaxToolRounds))
+                        commitSettings({ ...draft, agentMaxToolRounds, agentMathFormattingPrompt: !draft.agentMathFormattingPrompt })
+                      }}
+                      className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${draft.agentMathFormattingPrompt ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                      role="switch"
+                      aria-checked={draft.agentMathFormattingPrompt}
+                      aria-label="数学公式格式提示"
+                    >
+                      <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.agentMathFormattingPrompt ? 'translate-x-[14px]' : 'translate-x-[2px]'}`} />
+                    </button>
+                  </div>
+                  <div data-selectable-text className="text-xs text-gray-500 dark:text-gray-500">
+                    开启后，Agent 会优先使用本应用支持的 Markdown 数学公式格式输出结果。
+                  </div>
+                </div>
                 <label className="block">
                   <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">最大工具调用轮数</span>
                   <input

@@ -94,6 +94,7 @@ export interface AppSettings {
   referenceImageEditAction: ReferenceImageEditAction
   agentScrollToBottomAfterSubmit: boolean
   agentMaxToolRounds: number
+  agentMathFormattingPrompt: boolean
   agentWebSearch: boolean
   profiles: ApiProfile[]
   activeProfileId: string

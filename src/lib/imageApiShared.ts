@@ -1,5 +1,23 @@
 import type { AppMode, AppSettings, TaskParams } from '../types'
 
+export const STREAMING_UNSUPPORTED_HINT = ' 当前服务端可能不支持流式图片返回，可尝试关闭「流式传输」后重试。'
+export const STREAMING_FORMAT_HINT = ' 流式图片通常仅支持 PNG，请尝试将输出格式切换为 PNG 后重试。'
+
+export function appendStreamingUnsupportedHint(message: string): string {
+  return `${message}${STREAMING_UNSUPPORTED_HINT}`
+}
+
+export function appendStreamingFormatHint(message: string): string {
+  return `${message}${STREAMING_FORMAT_HINT}`
+}
+
+export function maybeAppendStreamingHint(message: string, status: number, streamImages?: boolean): string {
+  if (streamImages !== true) return message
+  if (status === 401 || status === 403 || status === 404 || status === 408 || status === 429) return message
+  if (status >= 500 && status < 600) return message
+  return appendStreamingUnsupportedHint(message)
+}
+
 export const MIME_MAP: Record<string, string> = {
   png: 'image/png',
   jpeg: 'image/jpeg',

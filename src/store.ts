@@ -3406,6 +3406,24 @@ async function executeAgentRound(
       return taskId
     }
 
+    const failAgentImageTask = async (toolCallId: string, error: string, rawResponsePayload?: string) => {
+      const taskId = taskIdByToolCallId.get(toolCallId)
+      if (!taskId) return
+      const latestTask = useStore.getState().tasks.find((task) => task.id === taskId)
+      if (!latestTask || latestTask.status !== 'running') return
+      useStore.getState().setTaskStreamPreview(taskId)
+      updateTaskInStore(taskId, {
+        status: 'error',
+        error,
+        rawResponsePayload,
+        falRecoverable: false,
+        customRecoverable: false,
+        finishedAt: Date.now(),
+        elapsed: Date.now() - latestTask.createdAt,
+      })
+      return taskId
+    }
+
     if (shouldStreamAssistantMessage) {
       updateAgentConversation(conversationId, (current) => ({
         ...current,
@@ -3538,6 +3556,13 @@ async function executeAgentRound(
         if (batchResult.image && !shouldStreamAssistantMessage) {
           await completeAgentImageTask({ ...batchResult.image, toolCallId: batchToolCallId }, batchResult.rawResponsePayload)
         }
+        if (!batchResult.image) {
+          await failAgentImageTask(
+            batchToolCallId,
+            batchResult.error || '接口未返回图片数据',
+            batchResult.rawResponsePayload,
+          )
+        }
 
         return batchResult
       })
@@ -3557,6 +3582,13 @@ async function executeAgentRound(
             ...(r.error ? { error: r.error } : {}),
           })
         } else {
+          const batchToolCallId = batchExecutionItems[i]?.batchToolCallId
+          if (batchToolCallId) {
+            await failAgentImageTask(
+              batchToolCallId,
+              settled.reason instanceof Error ? settled.reason.message : String(settled.reason),
+            )
+          }
           outputImages.push({
             id: batchItem.id,
             status: 'error',
@@ -3625,6 +3657,13 @@ async function executeAgentRound(
           ? async (image) => {
               if (controller.signal.aborted) return
               await completeAgentImageTask(image)
+            }
+          : undefined,
+        onImageToolFailed: shouldStreamAssistantMessage
+          ? async ({ toolCallId, error }) => {
+              if (controller.signal.aborted) return
+              await ensureStreamingAgentTask(toolCallId)
+              await failAgentImageTask(toolCallId, error)
             }
           : undefined,
       })

@@ -1695,6 +1695,210 @@ describe('agent batch reference resolution', () => {
   })
 })
 
+describe('agent built-in image tool failure', () => {
+  const responsesProfile = createDefaultOpenAIProfile({
+    id: 'responses-profile',
+    apiKey: 'test-key',
+    apiMode: 'responses',
+    model: DEFAULT_RESPONSES_MODEL,
+    streamImages: true,
+  })
+
+  beforeEach(() => {
+    vi.mocked(callAgentResponsesApi).mockClear()
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        apiMode: 'responses',
+        model: DEFAULT_RESPONSES_MODEL,
+        profiles: [responsesProfile],
+        activeProfileId: responsesProfile.id,
+      }),
+      prompt: '做一张图然后继续说明',
+      inputImages: [],
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS },
+      appMode: 'agent',
+      tasks: [],
+      agentConversations: [],
+      activeAgentConversationId: null,
+      agentEditingRoundId: null,
+      toast: null,
+      showToast: vi.fn(),
+      setConfirmDialog: vi.fn(),
+    })
+  })
+
+  it('marks the streaming agent task as error while preserving partial images and later assistant text', async () => {
+    vi.mocked(callAgentResponsesApi).mockImplementationOnce(async (options) => {
+      await options.onImageToolStarted?.({ toolCallId: 'image-call-1' })
+      await options.onImagePartialImage?.({
+        toolCallId: 'image-call-1',
+        image: 'data:image/png;base64,partial-image-1',
+        partialImageIndex: 0,
+      })
+      await options.onImageToolFailed?.({
+        toolCallId: 'image-call-1',
+        error: 'image tool failed hard',
+      })
+      await options.onTextDelta?.('后续文本还在继续')
+      return {
+        text: '后续文本还在继续',
+        images: [],
+        outputItems: [{ type: 'message', content: [{ type: 'output_text', text: '后续文本还在继续' }] }],
+        responseId: 'response-failure-1',
+      }
+    })
+
+    await submitAgentMessage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const state = useStore.getState()
+    const conversation = state.agentConversations[0]
+    expect(conversation).toBeDefined()
+    const round = conversation?.rounds[0]
+    expect(round).toMatchObject({
+      status: 'done',
+      responseId: 'response-failure-1',
+    })
+    const assistantMessage = conversation?.messages.find((message) => message.id === round?.assistantMessageId)
+    expect(assistantMessage?.content).toContain('后续文本还在继续')
+
+    expect(state.tasks).toHaveLength(1)
+    expect(state.tasks[0]).toMatchObject({
+      status: 'error',
+      error: 'image tool failed hard',
+      rawResponsePayload: undefined,
+      falRecoverable: false,
+      customRecoverable: false,
+    })
+    expect(state.tasks[0].streamPartialImageIds).toHaveLength(1)
+    expect(state.tasks[0].elapsed).toBe(state.tasks[0].finishedAt! - state.tasks[0].createdAt)
+  })
+
+  it('marks the streaming agent task as error even when failure arrives before start', async () => {
+    vi.mocked(callAgentResponsesApi).mockImplementationOnce(async (options) => {
+      await options.onImageToolFailed?.({
+        toolCallId: 'image-call-without-start',
+        error: 'failed before start',
+      })
+      await options.onTextDelta?.('assistant kept going after failure')
+      return {
+        text: 'assistant kept going after failure',
+        images: [],
+        outputItems: [{ type: 'message', content: [{ type: 'output_text', text: 'assistant kept going after failure' }] }],
+        responseId: 'response-failure-without-start',
+      }
+    })
+
+    await submitAgentMessage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const state = useStore.getState()
+    expect(state.tasks).toHaveLength(1)
+    expect(state.tasks[0]).toMatchObject({
+      status: 'error',
+      error: 'failed before start',
+      rawResponsePayload: undefined,
+      falRecoverable: false,
+      customRecoverable: false,
+    })
+
+    const conversation = state.agentConversations[0]
+    const assistantMessage = conversation?.messages.find((message) => message.role === 'assistant')
+    expect(assistantMessage?.content).toContain('assistant kept going after failure')
+  })
+
+  it('marks a batch image task as error with the batch raw payload when no image is returned', async () => {
+    vi.mocked(callAgentResponsesApi)
+      .mockResolvedValueOnce({
+        text: '',
+        images: [],
+        outputItems: [{
+          type: 'function_call',
+          name: 'generate_image_batch',
+          call_id: 'batch-call-1',
+          arguments: JSON.stringify({
+            images: [{ id: 'batch-image-1', prompt: 'generate something' }],
+          }),
+        }],
+        responseId: 'response-batch-1',
+      })
+      .mockResolvedValueOnce({
+        text: 'assistant kept going',
+        images: [],
+        outputItems: [{ type: 'message', content: [{ type: 'output_text', text: 'assistant kept going' }] }],
+        responseId: 'response-batch-2',
+      })
+    vi.mocked(callBatchImageSingle).mockResolvedValueOnce({
+      batchItemId: 'batch-image-1',
+      image: null,
+      error: null,
+      rawResponsePayload: '{"batch":"raw-payload"}',
+    } as Awaited<ReturnType<typeof callBatchImageSingle>>)
+
+    await submitAgentMessage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const state = useStore.getState()
+    expect(state.tasks).toHaveLength(1)
+    expect(state.tasks[0]).toMatchObject({
+      status: 'error',
+      error: '接口未返回图片数据',
+      rawResponsePayload: '{"batch":"raw-payload"}',
+      falRecoverable: false,
+      customRecoverable: false,
+    })
+    expect(state.tasks[0].elapsed).toBe(state.tasks[0].finishedAt! - state.tasks[0].createdAt)
+
+    const conversation = state.agentConversations[0]
+    const assistantMessage = conversation?.messages.find((message) => message.role === 'assistant')
+    expect(assistantMessage?.content).toContain('assistant kept going')
+  })
+
+  it('marks a rejected batch image task as error while the assistant continues', async () => {
+    vi.mocked(callAgentResponsesApi)
+      .mockResolvedValueOnce({
+        text: '',
+        images: [],
+        outputItems: [{
+          type: 'function_call',
+          name: 'generate_image_batch',
+          call_id: 'batch-call-rejected',
+          arguments: JSON.stringify({
+            images: [{ id: 'batch-image-rejected', prompt: 'generate rejected image' }],
+          }),
+        }],
+        responseId: 'response-batch-rejected-1',
+      })
+      .mockResolvedValueOnce({
+        text: 'assistant still replied',
+        images: [],
+        outputItems: [{ type: 'message', content: [{ type: 'output_text', text: 'assistant still replied' }] }],
+        responseId: 'response-batch-rejected-2',
+      })
+    vi.mocked(callBatchImageSingle).mockRejectedValueOnce(new Error('batch request exploded'))
+
+    await submitAgentMessage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const state = useStore.getState()
+    expect(state.tasks).toHaveLength(1)
+    expect(state.tasks[0]).toMatchObject({
+      status: 'error',
+      error: 'batch request exploded',
+      rawResponsePayload: undefined,
+      falRecoverable: false,
+      customRecoverable: false,
+    })
+
+    const conversation = state.agentConversations[0]
+    const assistantMessage = conversation?.messages.find((message) => message.role === 'assistant')
+    expect(assistantMessage?.content).toContain('assistant still replied')
+  })
+})
+
 describe('agent assistant regeneration', () => {
   const responsesProfile = createDefaultOpenAIProfile({ id: 'openai-responses', apiKey: 'openai-key', apiMode: 'responses' })
 
