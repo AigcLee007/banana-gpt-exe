@@ -31,7 +31,7 @@
 
 ### Windows
 
-- `/downloads/win/banana-gpt-windows-0.4.6-banana.1.exe`
+- `/downloads/win/banana-gpt-windows-0.4.6-banana.1.zip`
 
 ### Mac
 
