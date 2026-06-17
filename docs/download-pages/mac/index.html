@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mac 客户端下载 - 香蕉 GPT</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #061018;
+      --panel: rgba(9, 17, 29, 0.82);
+      --panel-2: rgba(255, 255, 255, 0.04);
+      --border: rgba(148, 163, 184, 0.16);
+      --text: #eef7ff;
+      --muted: #9bb0c6;
+      --blue: #5998ff;
+      --teal: #29d3c1;
+      --pink: #f571d6;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "SF Pro Display", "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(89, 152, 255, 0.3), transparent 32%),
+        radial-gradient(circle at 90% 0%, rgba(245, 113, 214, 0.18), transparent 24%),
+        linear-gradient(180deg, #08121f 0%, #050a10 100%);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .page {
+      width: min(1200px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 56px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, rgba(89, 152, 255, 0.3), rgba(41, 211, 193, 0.25));
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 22px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .brand p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .version {
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(89, 152, 255, 0.12);
+      border: 1px solid rgba(89, 152, 255, 0.24);
+      color: #dce9ff;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .hero {
+      padding: 34px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -90px -120px auto;
+      width: 300px;
+      height: 300px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(89, 152, 255, 0.24), transparent 68%);
+      pointer-events: none;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
+      gap: 22px;
+      align-items: stretch;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #dceaff;
+      font-size: 13px;
+      margin-bottom: 18px;
+    }
+
+    .hero-copy h2 {
+      margin: 0;
+      font-size: clamp(34px, 5vw, 52px);
+      line-height: 1.06;
+      max-width: 10ch;
+    }
+
+    .hero-copy p {
+      margin: 18px 0 26px;
+      max-width: 560px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.8;
+    }
+
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .download-card {
+      padding: 20px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      position: relative;
+    }
+
+    .download-card .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .chip-recommended {
+      background: rgba(41, 211, 193, 0.14);
+      color: #c7fff8;
+      border: 1px solid rgba(41, 211, 193, 0.2);
+    }
+
+    .chip-intel {
+      background: rgba(89, 152, 255, 0.14);
+      color: #dde9ff;
+      border: 1px solid rgba(89, 152, 255, 0.2);
+    }
+
+    .download-card h3 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .download-card p {
+      margin: 10px 0 16px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .spec {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 18px;
+      font-size: 13px;
+      color: #dce6f3;
+    }
+
+    .download-button {
+      width: 100%;
+      min-height: 50px;
+      border-radius: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 700;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .download-button:hover {
+      transform: translateY(-1px);
+    }
+
+    .download-arm {
+      background: linear-gradient(135deg, var(--teal), #179b90);
+      box-shadow: 0 14px 34px rgba(41, 211, 193, 0.24);
+    }
+
+    .download-intel {
+      background: linear-gradient(135deg, var(--blue), #346aff);
+      box-shadow: 0 14px 34px rgba(89, 152, 255, 0.24);
+    }
+
+    .hero-side {
+      display: grid;
+      gap: 16px;
+    }
+
+    .side-panel,
+    .support-panel,
+    .note-panel {
+      padding: 22px;
+      border-radius: 20px;
+      background: var(--panel-2);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .side-panel h3,
+    .support-panel h3,
+    .note-panel h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+
+    .side-panel p,
+    .support-panel p,
+    .note-panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.75;
+    }
+
+    .mini-switch {
+      margin-top: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 14px;
+      color: #eaf1fb;
+    }
+
+    .bottom-grid {
+      margin-top: 24px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 24px;
+    }
+
+    .tips-panel {
+      padding: 28px;
+    }
+
+    .tips-panel h3 {
+      margin: 0 0 18px;
+      font-size: 24px;
+    }
+
+    .tips-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .tip {
+      padding: 18px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .tip strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .tip span {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .support-panel img {
+      display: block;
+      width: min(100%, 220px);
+      margin: 18px auto 12px;
+      border-radius: 18px;
+      background: #fff;
+      padding: 10px;
+    }
+
+    .footer {
+      margin-top: 24px;
+      text-align: center;
+      color: #7f94ad;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    @media (max-width: 980px) {
+      .hero-grid,
+      .bottom-grid,
+      .tips-list,
+      .platform-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        width: min(100% - 20px, 100%);
+        padding-top: 20px;
+        padding-bottom: 28px;
+      }
+
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+        margin-bottom: 18px;
+      }
+
+      .hero,
+      .tips-panel,
+      .support-panel {
+        padding: 22px;
+      }
+
+      .hero-copy h2 {
+        max-width: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">B</div>
+        <div>
+          <h1>香蕉 GPT 客户端</h1>
+          <p>Mac 版下载中心，按芯片类型选择安装包</p>
+        </div>
+      </div>
+      <div class="version">Mac 版 · v0.4.6-banana.1</div>
+    </div>
+
+    <section class="card hero">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="badge">Mac 客户端下载</div>
+          <h2>按芯片类型选择正确安装包</h2>
+          <p>
+            Mac 客户端提供 Apple 芯片版与 Intel 版两个安装包。
+            如果你不确定自己是哪种机器，通常 2020 年后的新款 MacBook 更大概率是 Apple 芯片机型。
+          </p>
+          <div class="platform-grid">
+            <div class="download-card">
+              <div class="chip chip-recommended">推荐</div>
+              <h3>Apple 芯片版</h3>
+              <p>适用于 M1 / M2 / M3 / M4 芯片机型，适合大多数新款 Mac 电脑。</p>
+              <div class="spec">
+                <span>芯片类型：Apple Silicon</span>
+                <span>文件格式：`.dmg`</span>
+                <span>推荐机型：MacBook Air / Pro 新款机型</span>
+              </div>
+              <a class="download-button download-arm" href="/downloads/mac/banana-gpt-macos-arm64-0.4.6-banana.1.dmg">下载 Apple 芯片版</a>
+            </div>
+
+            <div class="download-card">
+              <div class="chip chip-intel">兼容版</div>
+              <h3>Intel 版</h3>
+              <p>适用于较早期的 Intel 处理器 Mac 设备，老款 MacBook / iMac 常见。</p>
+              <div class="spec">
+                <span>芯片类型：Intel</span>
+                <span>文件格式：`.dmg`</span>
+                <span>推荐机型：较早期 MacBook / iMac</span>
+              </div>
+              <a class="download-button download-intel" href="/downloads/mac/banana-gpt-macos-x64-0.4.6-banana.1.dmg">下载 Intel 版</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-side">
+          <div class="side-panel">
+            <h3>不知道怎么选？</h3>
+            <p>点击左上角苹果菜单，选择“关于本机”。如果看到 M1、M2、M3、M4，就是 Apple 芯片版；如果看到 Intel Core i5、i7 之类，就是 Intel 版。</p>
+            <a class="mini-switch" href="https://m.aittco.com/downloads/win/">查看 Windows 版本</a>
+          </div>
+          <div class="note-panel">
+            <h3>安装提示</h3>
+            <p>下载后打开 `.dmg` 进行安装。若首次启动出现系统安全提示，可在“系统设置 - 隐私与安全性”中允许打开。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="bottom-grid">
+      <div class="card tips-panel">
+        <h3>使用前小提示</h3>
+        <div class="tips-list">
+          <div class="tip">
+            <strong>优先选对芯片版本</strong>
+            <span>选对安装包比一切都重要，Apple 芯片和 Intel 版不要混装。</span>
+          </div>
+          <div class="tip">
+            <strong>首次启动看安全提示</strong>
+            <span>macOS 对新下载应用会做额外确认，这属于正常系统行为。</span>
+          </div>
+          <div class="tip">
+            <strong>建议使用最新版本</strong>
+            <span>最新版通常包含更好的稳定性、兼容性和功能修复。</span>
+          </div>
+          <div class="tip">
+            <strong>遇到问题可快速支持</strong>
+            <span>安装失败、打不开、配置异常，都可以直接联系微信客服协助处理。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card support-panel">
+        <h3>联系支持</h3>
+        <p>如安装或使用过程中遇到问题，可扫码联系微信客服处理。</p>
+        <img src="/wechat.png" alt="微信客服二维码" />
+        <p>扫码关注微信客服</p>
+      </div>
+    </section>
+
+    <div class="footer">
+      建议根据自己设备芯片类型选择对应安装包，以获得更稳定顺滑的运行体验。
+    </div>
+  </div>
+</body>
+</html>
