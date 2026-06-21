@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_RESPONSES_MODEL,
   DEFAULT_FAL_BASE_URL,
   DEFAULT_FAL_MODEL,
   DEFAULT_IMAGES_MODEL,
@@ -567,6 +568,28 @@ describe('custom providers', () => {
     expect(DEFAULT_SETTINGS.agentMathFormattingPrompt).toBe(true)
     expect(normalizeSettings({ agentMathFormattingPrompt: false }).agentMathFormattingPrompt).toBe(false)
     expect(normalizeSettings({}).agentMathFormattingPrompt).toBe(true)
+  })
+
+  it('defaults and normalizes agentImageModel independently from gallery model', () => {
+    expect(DEFAULT_SETTINGS.agentImageModel).toBe(DEFAULT_IMAGES_MODEL)
+
+    const normalized = normalizeSettings({
+      model: 'gemini-3-pro-image-preview',
+      agentImageModel: 'GPT-Image-2(VIP)',
+    })
+
+    expect(normalized.model).toBe('gemini-3-pro-image-preview')
+    expect(normalized.agentImageModel).toBe(DEFAULT_RESPONSES_MODEL)
+  })
+
+  it('does not let legacy responses model override agentImageModel default', () => {
+    const normalized = normalizeSettings({
+      model: DEFAULT_RESPONSES_MODEL,
+      apiMode: 'responses',
+    })
+
+    expect(normalized.model).toBe(DEFAULT_RESPONSES_MODEL)
+    expect(normalized.agentImageModel).toBe(DEFAULT_IMAGES_MODEL)
   })
 
   it('restores OpenAI-compatible URL after switching through fal.ai', () => {

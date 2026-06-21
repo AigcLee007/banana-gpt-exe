@@ -35,15 +35,16 @@ const AGENT_IMAGE_INSTRUCTIONS = [
   '',
   '## Progressive Batch Generation',
   'For multi-image requests, use a progressive batching strategy to ensure consistency:',
-  '  1. **Base Reference First:** If the images need to share a consistent style, character, or layout (e.g. PPT slides, storyboards), generate ONE primary image first to establish the visual baseline, then call continue_generation to get another round.',
-  '  2. **Batch Remaining Tasks:** Once the base reference is available, list all remaining images to be generated. The app will generate them concurrently for you. In your descriptions, explicitly instruct to reference the base image to maintain consistency.',
-  '  3. **Independent Images:** If the requested images are completely independent (e.g. "3 different cats"), generate them together in ONE response. Do NOT generate them one by one across multiple responses.',
+  '  1. **Base Reference First:** If the images need to share a consistent style, character, or layout (e.g. PPT slides, storyboards), generate ONE primary image first to establish the visual baseline with `generate_image`, then call continue_generation to get another round.',
+  '  2. **Batch Remaining Tasks:** Once the base reference is available, list all remaining images to be generated. The app will generate them concurrently for you through `generate_image_batch`. In your descriptions, explicitly instruct to reference the base image to maintain consistency.',
+  '  3. **Independent Images:** If the requested images are completely independent (e.g. "3 different cats"), generate them together in ONE `generate_image_batch` call. Do NOT generate them one by one across multiple responses.',
   'As the turn continues, output a brief progress note before each tool call.',
-  'For single-image requests, generate directly without any listing.',
+  'For single-image requests, call `generate_image` directly without any listing.',
   '',
   '## Generating images',
-  '- One image_generation call per distinct image. Never collage.',
   '- Dependent images (a later image needs to reference an earlier one) → generate the prerequisite first, then call continue_generation. The next round will have the result available as `<ref id="..." />`.',
+  '- Use the `generate_image` tool for exactly one image at a time. Never collage.',
+  '- Use `generate_image_batch` only when 2 or more remaining images can be generated independently in parallel.',
   '- Only generate when explicitly requested; otherwise reply with text.',
   '- Preserve the user\'s original intent faithfully. Never substitute requested subjects for copyright/trademark reasons.',
   '',
@@ -52,8 +53,9 @@ const AGENT_IMAGE_INSTRUCTIONS = [
   '- Previously generated images are injected as user messages containing the actual image (input_image) followed by a `<ref id="round-N-image-M" prompt="..." />` tag identifying it.',
   '- Deleted images appear as `<removed_ref id="..." />` without an accompanying image — do not reference them.',
   '- In user messages: `<ref id="..." />` may also point to user-attached/cited images.',
-  '- In generate_image_batch tool arguments, include matching `<ref id="..." />` tags inside each image prompt when the prompt refers to a reference image. Do not use separate bare reference ids.',
-  'Resolve user mentions ("the first image") to the matching id. Only use existing ids in image_generation prompts and generate_image_batch prompts.',
+  '- In `generate_image` tool arguments, include matching `<ref id="..." />` tags inside the prompt when the prompt refers to a reference image. Do not pass separate bare reference ids.',
+  '- In `generate_image_batch` tool arguments, include matching `<ref id="..." />` tags inside each image prompt when the prompt refers to a reference image. Do not use separate bare reference ids.',
+  'Resolve user mentions ("the first image") to the matching id. Only use existing ids in `generate_image` prompts and `generate_image_batch` prompts.',
 ].join('\n')
 
 const AGENT_MATH_FORMATTING_INSTRUCTIONS = [
@@ -74,6 +76,7 @@ function createAgentInstructions(settings: AppSettings) {
     '',
     '## Tool policy',
     `- Current maximum tool-use rounds for this Agent turn: ${maxToolRounds}.`,
+    '- Use generate_image for single-image requests and generate_image_batch for concurrent multi-image requests. The built-in image_generation tool is not available in this session.',
     '- Call continue_generation ONLY when you have generated a prerequisite image and need another round to generate dependent images. Do NOT call it when the task is complete.',
     '- When web_search is available, use it only when current external information would improve the answer or the user asks for research/news/facts.',
     '- When the requested task is complete, stop calling tools and provide the final response.',
@@ -97,36 +100,84 @@ function createHeaders(profile: ApiProfile): Record<string, string> {
   }
 }
 
-function createImageTool(params: TaskParams, profile: ApiProfile, maskDataUrl?: string): Record<string, unknown> {
-  const tool: Record<string, unknown> = {
-    type: 'image_generation',
-    action: 'auto',
-    size: params.size,
-    output_format: params.output_format,
-    moderation: params.moderation,
+function createGenerateImageTool(params: TaskParams, profile: ApiProfile, maskDataUrl?: string): Record<string, unknown> {
+  const properties: Record<string, unknown> = {
+    id: {
+      type: 'string',
+      description: 'Short stable identifier for this image, e.g. "cover", "base_character", "scene_1".',
+    },
+    prompt: {
+      type: 'string',
+      description: 'Complete image generation prompt for exactly one image. Include any needed <ref id="..." /> tags inline when referring to existing reference images.',
+    },
+    size: {
+      type: 'string',
+      description: 'Output image size.',
+      default: params.size,
+    },
+    output_format: {
+      type: 'string',
+      description: 'Output image format.',
+      default: params.output_format,
+    },
+    moderation: {
+      type: 'string',
+      description: 'Moderation mode for image generation.',
+      default: params.moderation,
+    },
+    quality: {
+      type: 'string',
+      description: 'Requested rendering quality.',
+      default: params.quality,
+    },
   }
-
-  tool.quality = params.quality
 
   if (params.output_format !== 'png' && params.output_compression != null) {
-    tool.output_compression = params.output_compression
-  }
-
-  if (profile.streamImages) {
-    tool.partial_images = profile.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES
-  }
-
-  if (maskDataUrl) {
-    tool.input_image_mask = {
-      image_url: maskDataUrl,
+    properties.output_compression = {
+      type: 'number',
+      description: 'Compression level for non-PNG output formats.',
+      default: params.output_compression,
     }
   }
 
-  return tool
+  if (profile.streamImages) {
+    properties.partial_images = {
+      type: 'number',
+      description: 'Requested count of streaming partial images.',
+      default: profile.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES,
+    }
+  }
+
+  if (maskDataUrl) {
+    properties.input_image_mask = {
+      type: 'object',
+      description: 'Optional image mask to use for editing workflows.',
+      default: {
+        image_url: maskDataUrl,
+      },
+    }
+  }
+
+  return {
+    type: 'function',
+    name: 'generate_image',
+    description: [
+      'Generate exactly one image.',
+      'Use this for single-image requests and for prerequisite/base images that later images will reference.',
+      'Do not batch multiple final images into one call.',
+    ].join(' '),
+    parameters: {
+      type: 'object',
+      properties,
+      required: ['id', 'prompt'],
+      additionalProperties: false,
+    },
+    strict: true,
+  }
 }
 
 function createAgentTools(params: TaskParams, profile: ApiProfile, settings: AppSettings, maskDataUrl?: string): Array<Record<string, unknown>> {
-  const tools: Array<Record<string, unknown>> = [createImageTool(params, profile, maskDataUrl)]
+  const tools: Array<Record<string, unknown>> = [createGenerateImageTool(params, profile, maskDataUrl)]
 
   // generate_image_batch: custom function tool for concurrent multi-image generation
   tools.push({
@@ -136,7 +187,7 @@ function createAgentTools(params: TaskParams, profile: ApiProfile, settings: App
       'Generate multiple images concurrently. Use this ONLY when:',
       '1. There are 2+ remaining images whose prerequisites (base references) are ALL already generated.',
       '2. These images are independent of each other (none references another image in this same batch).',
-      'For single images or prerequisite/base images, use the built-in image_generation tool instead.',
+      'For single images or prerequisite/base images, use the generate_image tool instead.',
       'Each image prompt must be self-contained and include full visual style descriptions.',
       'If an image needs to match a previously generated image, include the corresponding XML tag (e.g. <ref id="round-1-image-1" />) inside that image prompt so the app can attach the reference image automatically.',
     ].join(' '),

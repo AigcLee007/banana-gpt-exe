@@ -14,7 +14,7 @@ import type {
   ReferenceImageEditAction,
 } from '../types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES } from '../types'
-import { AGENT_FIXED_MODEL, DEFAULT_GALLERY_MODEL } from './bananaModels'
+import { AGENT_FIXED_MODEL, DEFAULT_GALLERY_MODEL, getBananaModelById, normalizeBananaModelId } from './bananaModels'
 import { readRuntimeEnv } from './runtimeEnv'
 
 const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://vip.aittco.com'
@@ -454,10 +454,17 @@ function validateImportedProfileRecord(input: unknown) {
   }
 }
 
+function normalizeAgentImageModel(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) return DEFAULT_GALLERY_MODEL
+  const normalized = normalizeBananaModelId(value)
+  return getBananaModelById(normalized) ? normalized : DEFAULT_GALLERY_MODEL
+}
+
 export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
   const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
   const customProviderIds = new Set(customProviders.map((provider) => provider.id))
+  const agentImageModel = normalizeAgentImageModel(record.agentImageModel)
   const legacyProfile = createDefaultOpenAIProfile({
     baseUrl: typeof record.baseUrl === 'string' ? normalizeOpenAIBaseUrl(record.baseUrl) : DEFAULT_BASE_URL,
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : '',
@@ -482,6 +489,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     baseUrl: active.baseUrl,
     apiKey: active.apiKey,
     model: active.model,
+    agentImageModel,
     timeout: active.timeout,
     apiMode: active.apiMode,
     codexCli: active.codexCli,
@@ -777,6 +785,7 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   baseUrl: DEFAULT_BASE_URL,
   apiKey: '',
   model: DEFAULT_IMAGES_MODEL,
+  agentImageModel: DEFAULT_GALLERY_MODEL,
   timeout: DEFAULT_API_TIMEOUT,
   apiMode: 'images',
   codexCli: false,

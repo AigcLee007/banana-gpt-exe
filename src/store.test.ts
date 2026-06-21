@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { strToU8, zipSync } from 'fflate'
 import { DEFAULT_PARAMS } from './types'
 import { createDefaultFalProfile, createDefaultOpenAIProfile, DEFAULT_RESPONSES_MODEL, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
@@ -99,6 +99,7 @@ import { clearAgentConversations, clearImages, getAllAgentConversations, getAllT
 import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
 import { callImageApi } from './lib/api'
 import { getGeminiOutputPixels } from './lib/geminiImageSizing'
+import { AGENT_FIXED_MODEL } from './lib/bananaModels'
 import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConversation, editOutputs, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, migratePersistedState, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
@@ -1540,6 +1541,7 @@ describe('agent batch reference resolution', () => {
     await putImage(imageB)
     vi.mocked(callAgentResponsesApi).mockClear()
     vi.mocked(callBatchImageSingle).mockClear()
+    vi.mocked(callImageApi).mockClear()
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -1647,14 +1649,14 @@ describe('agent batch reference resolution', () => {
 
     await submitAgentMessage()
 
-    for (let i = 0; i < 5 && vi.mocked(callBatchImageSingle).mock.calls.length === 0; i++) {
+    for (let i = 0; i < 5 && vi.mocked(callImageApi).mock.calls.length === 0; i++) {
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
-    expect(callBatchImageSingle).toHaveBeenCalled()
-    const batchArgs = vi.mocked(callBatchImageSingle).mock.calls[0][0]
-    expect(batchArgs.referenceImageDataUrls).toEqual([imageB.dataUrl])
-    expect(batchArgs.referenceImageDataUrls).not.toContain(imageA.dataUrl)
-    expect(batchArgs.referenceIds).toEqual(['round-2-image-1'])
+    expect(callImageApi).toHaveBeenCalled()
+    expect(callBatchImageSingle).not.toHaveBeenCalled()
+    const batchArgs = vi.mocked(callImageApi).mock.calls[0][0]
+    expect(batchArgs.inputImageDataUrls).toEqual([imageB.dataUrl])
+    expect(batchArgs.inputImageDataUrls).not.toContain(imageA.dataUrl)
   })
 
   it('resolves batch references to current round input images', async () => {
@@ -1685,13 +1687,170 @@ describe('agent batch reference resolution', () => {
 
     await submitAgentMessage()
 
-    for (let i = 0; i < 5 && vi.mocked(callBatchImageSingle).mock.calls.length === 0; i++) {
+    for (let i = 0; i < 5 && vi.mocked(callImageApi).mock.calls.length === 0; i++) {
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
-    expect(callBatchImageSingle).toHaveBeenCalled()
-    const batchArgs = vi.mocked(callBatchImageSingle).mock.calls[0][0]
-    expect(batchArgs.referenceImageDataUrls).toEqual([imageA.dataUrl])
-    expect(batchArgs.referenceIds).toEqual(['round-3-reference-1'])
+    expect(callImageApi).toHaveBeenCalled()
+    expect(callBatchImageSingle).not.toHaveBeenCalled()
+    const batchArgs = vi.mocked(callImageApi).mock.calls[0][0]
+    expect(batchArgs.inputImageDataUrls).toEqual([imageA.dataUrl])
+  })
+})
+
+describe('agent image model selection', () => {
+  const responsesProfile = createDefaultOpenAIProfile({
+    id: 'responses-profile',
+    apiKey: 'test-key',
+    apiMode: 'responses',
+    model: DEFAULT_RESPONSES_MODEL,
+    streamImages: false,
+  })
+
+  beforeEach(() => {
+    vi.mocked(callAgentResponsesApi).mockClear()
+    vi.mocked(callBatchImageSingle).mockClear()
+    vi.mocked(callImageApi).mockClear()
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        apiMode: 'responses',
+        model: DEFAULT_RESPONSES_MODEL,
+        agentImageModel: 'gemini-3.1-flash-image-preview',
+        profiles: [responsesProfile],
+        activeProfileId: responsesProfile.id,
+      }),
+      prompt: '生成一张海报',
+      inputImages: [],
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS },
+      appMode: 'agent',
+      tasks: [],
+      agentConversations: [],
+      activeAgentConversationId: null,
+      agentEditingRoundId: null,
+      toast: null,
+      showToast: vi.fn(),
+      setConfirmDialog: vi.fn(),
+    })
+  })
+
+  afterEach(() => {
+    vi.mocked(callAgentResponsesApi).mockReset()
+    vi.mocked(callBatchImageSingle).mockReset()
+    vi.mocked(callImageApi).mockReset()
+    vi.mocked(callBatchImageSingle).mockImplementation(async (opts: { batchItemId: string; prompt: string }) => ({
+      batchItemId: opts.batchItemId,
+      image: { dataUrl: 'data:image/png;base64,batch-output', revisedPrompt: opts.prompt },
+      error: null,
+    }))
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: [],
+      actualParams: {},
+      actualParamsList: [],
+      revisedPrompts: [],
+    })
+  })
+
+  it('keeps Agent text on the fixed model while single-image generation uses agentImageModel', async () => {
+    vi.mocked(callAgentResponsesApi)
+      .mockImplementationOnce(async (options) => {
+        expect(options.profile.model).toBe(AGENT_FIXED_MODEL)
+        return {
+          text: '',
+          images: [],
+          outputItems: [{
+            type: 'function_call',
+            id: 'fc-single',
+            call_id: 'call-single',
+            name: 'generate_image',
+            arguments: JSON.stringify({ id: 'poster', prompt: '一张科技海报' }),
+          }],
+          responseId: 'response-single-1',
+        }
+      })
+      .mockResolvedValueOnce({
+        text: '完成',
+        images: [],
+        outputItems: [{ type: 'message', content: [{ type: 'output_text', text: '完成' }] }],
+        responseId: 'response-single-2',
+      })
+
+    vi.mocked(callImageApi).mockResolvedValueOnce({
+      images: ['data:image/png;base64,agent-single-output'],
+      actualParams: { size: 'auto' },
+      actualParamsList: [{ size: 'auto' }],
+      revisedPrompts: ['一张科技海报'],
+      rawImageUrls: [],
+    })
+
+    await submitAgentMessage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(callImageApi).toHaveBeenCalled()
+    expect(callBatchImageSingle).not.toHaveBeenCalled()
+    const imageSettings = vi.mocked(callImageApi).mock.calls[0]?.[0]?.settings
+    expect(imageSettings.model).toBe('gemini-3.1-flash-image-preview')
+    expect(imageSettings.apiMode).toBe('images')
+  })
+
+  it('uses agentImageModel for generate_image_batch without calling callBatchImageSingle', async () => {
+    useStore.setState((state) => ({
+      settings: normalizeSettings({
+        ...state.settings,
+        agentImageModel: 'gpt-image-2',
+      }),
+    }))
+
+    vi.mocked(callAgentResponsesApi)
+      .mockImplementationOnce(async (options) => {
+        expect(options.profile.model).toBe(AGENT_FIXED_MODEL)
+        return {
+          text: '',
+          images: [],
+          outputItems: [{
+            type: 'function_call',
+            call_id: 'batch-call',
+            name: 'generate_image_batch',
+            arguments: JSON.stringify({
+              images: [
+                { id: 'poster-a', prompt: '海报 A' },
+                { id: 'poster-b', prompt: '海报 B' },
+              ],
+            }),
+          }],
+          responseId: 'response-batch-1',
+        }
+      })
+      .mockResolvedValueOnce({
+        text: '完成',
+        images: [],
+        outputItems: [{ type: 'message', content: [{ type: 'output_text', text: '完成' }] }],
+        responseId: 'response-batch-2',
+      })
+
+    vi.mocked(callImageApi)
+      .mockResolvedValueOnce({
+        images: ['data:image/png;base64,batch-a'],
+        actualParams: { size: 'auto' },
+        actualParamsList: [{ size: 'auto' }],
+        revisedPrompts: ['海报 A'],
+        rawImageUrls: [],
+      })
+      .mockResolvedValueOnce({
+        images: ['data:image/png;base64,batch-b'],
+        actualParams: { size: 'auto' },
+        actualParamsList: [{ size: 'auto' }],
+        revisedPrompts: ['海报 B'],
+        rawImageUrls: [],
+      })
+
+    await submitAgentMessage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(callImageApi).toHaveBeenCalledTimes(2)
+    expect(callBatchImageSingle).not.toHaveBeenCalled()
+    expect(vi.mocked(callImageApi).mock.calls.every((call) => call[0].settings.model === 'gpt-image-2')).toBe(true)
   })
 })
 
@@ -1706,6 +1865,8 @@ describe('agent built-in image tool failure', () => {
 
   beforeEach(() => {
     vi.mocked(callAgentResponsesApi).mockClear()
+    vi.mocked(callBatchImageSingle).mockClear()
+    vi.mocked(callImageApi).mockClear()
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -1727,6 +1888,23 @@ describe('agent built-in image tool failure', () => {
       toast: null,
       showToast: vi.fn(),
       setConfirmDialog: vi.fn(),
+    })
+  })
+
+  afterEach(() => {
+    vi.mocked(callAgentResponsesApi).mockReset()
+    vi.mocked(callBatchImageSingle).mockReset()
+    vi.mocked(callImageApi).mockReset()
+    vi.mocked(callBatchImageSingle).mockImplementation(async (opts: { batchItemId: string; prompt: string }) => ({
+      batchItemId: opts.batchItemId,
+      image: { dataUrl: 'data:image/png;base64,batch-output', revisedPrompt: opts.prompt },
+      error: null,
+    }))
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: [],
+      actualParams: {},
+      actualParamsList: [],
+      revisedPrompts: [],
     })
   })
 
@@ -1831,12 +2009,13 @@ describe('agent built-in image tool failure', () => {
         outputItems: [{ type: 'message', content: [{ type: 'output_text', text: 'assistant kept going' }] }],
         responseId: 'response-batch-2',
       })
-    vi.mocked(callBatchImageSingle).mockResolvedValueOnce({
-      batchItemId: 'batch-image-1',
-      image: null,
-      error: null,
-      rawResponsePayload: '{"batch":"raw-payload"}',
-    } as Awaited<ReturnType<typeof callBatchImageSingle>>)
+    vi.mocked(callImageApi).mockResolvedValueOnce({
+      images: [],
+      actualParams: {},
+      actualParamsList: [],
+      revisedPrompts: [],
+      rawImageUrls: [],
+    })
 
     await submitAgentMessage()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1846,10 +2025,10 @@ describe('agent built-in image tool failure', () => {
     expect(state.tasks[0]).toMatchObject({
       status: 'error',
       error: '接口未返回图片数据',
-      rawResponsePayload: '{"batch":"raw-payload"}',
       falRecoverable: false,
       customRecoverable: false,
     })
+    expect(state.tasks[0].rawResponsePayload).toContain('"imageCount": 0')
     expect(state.tasks[0].elapsed).toBe(state.tasks[0].finishedAt! - state.tasks[0].createdAt)
 
     const conversation = state.agentConversations[0]
@@ -1878,7 +2057,7 @@ describe('agent built-in image tool failure', () => {
         outputItems: [{ type: 'message', content: [{ type: 'output_text', text: 'assistant still replied' }] }],
         responseId: 'response-batch-rejected-2',
       })
-    vi.mocked(callBatchImageSingle).mockRejectedValueOnce(new Error('batch request exploded'))
+    vi.mocked(callImageApi).mockRejectedValueOnce(new Error('batch request exploded'))
 
     await submitAgentMessage()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1888,10 +2067,10 @@ describe('agent built-in image tool failure', () => {
     expect(state.tasks[0]).toMatchObject({
       status: 'error',
       error: 'batch request exploded',
-      rawResponsePayload: undefined,
       falRecoverable: false,
       customRecoverable: false,
     })
+    expect(state.tasks[0].rawResponsePayload).toBeUndefined()
 
     const conversation = state.agentConversations[0]
     const assistantMessage = conversation?.messages.find((message) => message.role === 'assistant')

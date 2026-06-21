@@ -78,6 +78,7 @@ export interface AppSettings {
   baseUrl: string
   apiKey: string
   model: string
+  agentImageModel: string
   timeout: number
   apiMode: ApiMode
   codexCli: boolean
