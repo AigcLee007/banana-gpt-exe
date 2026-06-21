@@ -663,6 +663,10 @@ export default function InputBar() {
   const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === resolvedGalleryModel)
     ? resolvedGalleryModel
     : DEFAULT_GALLERY_MODEL
+  const resolvedAgentImageModel = normalizeBananaModelId(settings.agentImageModel || DEFAULT_GALLERY_MODEL)
+  const agentImageModel = BANANA_GALLERY_MODELS.some((item) => item.model === resolvedAgentImageModel)
+    ? resolvedAgentImageModel
+    : DEFAULT_GALLERY_MODEL
   const isGeminiGalleryModel = appMode === 'gallery' && isGeminiNativeModel(galleryModel)
   const transparentOutputAvailable = appMode === 'gallery' && !isGeminiGalleryModel
   const showTransparentOutputControl = transparentOutputAvailable && params.output_format === 'png'
@@ -1820,6 +1824,26 @@ export default function InputBar() {
             className={selectClass}
             menuClassName="min-w-max"
             triggerTitle={BANANA_GALLERY_MODELS.find((item) => item.model === galleryModel)?.displayName ?? String(galleryModel)}
+            truncateOptionLabel={false}
+          />
+        </label>
+      )}
+      {appMode === 'agent' && (
+        <label className="flex flex-col gap-0.5">
+          <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
+          <Select
+            value={agentImageModel}
+            onChange={(model) => {
+              const nextModel = normalizeBananaModelId(String(model))
+              setSettings({ agentImageModel: nextModel })
+            }}
+            options={BANANA_GALLERY_MODELS.map((item) => ({
+              label: item.displayName,
+              value: item.model,
+            }))}
+            className={selectClass}
+            menuClassName="min-w-max"
+            triggerTitle={BANANA_GALLERY_MODELS.find((item) => item.model === agentImageModel)?.displayName ?? String(agentImageModel)}
             truncateOptionLabel={false}
           />
         </label>

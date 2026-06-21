@@ -43,8 +43,12 @@ describe('callAgentResponsesApi', () => {
     const [, init] = fetchMock.mock.calls[0]
     const body = JSON.parse(String((init as RequestInit).body))
     expect(body.stream).toBe(true)
-    expect(body.tools[0].size).toBe('auto')
-    expect(body.tools[0].partial_images).toBe(2)
+    expect(body.tools[0]).toMatchObject({
+      type: 'function',
+      name: 'generate_image',
+    })
+    expect(body.tools[0].parameters.properties.size.default).toBe('auto')
+    expect(body.tools[0].parameters.properties.partial_images.default).toBe(2)
     expect(textDeltas).toEqual(['Hel', 'lo'])
     expect(result).toMatchObject({
       responseId: 'resp_1',
@@ -78,7 +82,7 @@ describe('callAgentResponsesApi', () => {
 
     const [, init] = fetchMock.mock.calls[0]
     const body = JSON.parse(String((init as RequestInit).body))
-    expect(body.tools[0].input_image_mask).toEqual({ image_url: 'data:image/png;base64,bWFzaw==' })
+    expect(body.tools[0].parameters.properties.input_image_mask.default).toEqual({ image_url: 'data:image/png;base64,bWFzaw==' })
   })
 
   it('extracts image_generation results from base64 object fields', async () => {
@@ -337,6 +341,50 @@ describe('callAgentResponsesApi', () => {
     const [, init] = fetchMock.mock.calls[0]
     const body = JSON.parse(String((init as RequestInit).body))
     expect(body.model).toBe(AGENT_FIXED_MODEL)
+  })
+
+  it('exposes custom image function tools in the main agent loop', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'OK' }] }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    const profile = createDefaultOpenAIProfile({
+      apiKey: 'test-key',
+      apiMode: 'responses',
+      model: 'user-selected-gallery-model',
+      streamImages: true,
+      streamPartialImages: 2,
+    })
+
+    await callAgentResponsesApi({
+      settings: { ...DEFAULT_SETTINGS, model: 'settings-gallery-model' },
+      profile,
+      params: DEFAULT_PARAMS,
+      input: [{ role: 'user', content: [{ type: 'input_text', text: 'prompt' }] }],
+      maskDataUrl: 'data:image/png;base64,bWFzaw==',
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.model).toBe(AGENT_FIXED_MODEL)
+    expect(body.instructions).toContain('generate_image')
+    expect(body.instructions).toContain('generate_image_batch')
+    expect(body.instructions).not.toContain('use the built-in image_generation tool')
+    expect(body.tools.map((tool: { name?: string }) => tool.name)).toEqual([
+      'generate_image',
+      'generate_image_batch',
+      'continue_generation',
+    ])
+    expect(body.tools[0]).toMatchObject({
+      type: 'function',
+      name: 'generate_image',
+      strict: true,
+    })
+    expect(body.tools[0].parameters.properties.size.default).toBe('auto')
+    expect(body.tools[0].parameters.properties.partial_images.default).toBe(2)
+    expect(body.tools[0].parameters.properties.input_image_mask.default).toEqual({ image_url: 'data:image/png;base64,bWFzaw==' })
   })
 
   it('injects configurable math formatting instructions', async () => {
