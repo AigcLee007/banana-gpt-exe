@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi, queryApiKeyBalance } from './api'
-import { getBananaModelByDisplayName, getBananaModelRoute, normalizeBananaModelId } from './bananaModels'
+import { BANANA_GALLERY_MODELS, getBananaModelByDisplayName, getBananaModelRoute, normalizeBananaModelId } from './bananaModels'
 
 function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   return {
@@ -264,6 +264,27 @@ describe('callImageApi', () => {
     expect(body.imageConfig).toBeUndefined()
   })
 
+  it('routes GPT-Image-2(High) text-to-image to images generations', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIImagesSettingsWithModel('gpt-image-2-svip'),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/images/generations')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.model).toBe('gpt-image-2-svip')
+  })
+
   it('normalizes GPT-Image-2 output format to lowercase for generations', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
@@ -332,6 +353,27 @@ describe('callImageApi', () => {
     expect(formData?.get('size')).toBe('auto')
     expect(formData?.get('responseModalities')).toBeNull()
     expect(formData?.get('generationConfig')).toBeNull()
+  })
+
+  it('routes GPT-Image-2(High) reference images to images edits', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIImagesSettingsWithModel('gpt-image-2-svip'),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: ['data:image/png;base64,aW5wdXQ='],
+    })
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/images/edits'))).toBe(true)
+    const editCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/v1/images/edits'))
+    const formData = editCall?.[1] && (editCall[1] as RequestInit).body as FormData
+    expect(formData?.get('model')).toBe('gpt-image-2-svip')
   })
 
   it('splits GPT-Image-2 multi-image edits into parallel single-image requests', async () => {
@@ -1177,10 +1219,16 @@ describe('callImageApi', () => {
 })
 
 describe('bananaModels', () => {
-  it('maps GPT-Image-2(VIP) display name to gpt-5.5 with responses route', () => {
-    const model = getBananaModelByDisplayName('GPT-Image-2(VIP)')
-    expect(model?.model).toBe('gpt-5.5')
-    expect(model?.providerRoute).toBe('openai-responses')
+  it('maps GPT-Image-2(High) display name to gpt-image-2-svip with images route', () => {
+    const model = getBananaModelByDisplayName('GPT-Image-2(High)')
+    expect(model?.model).toBe('gpt-image-2-svip')
+    expect(model?.providerRoute).toBe('openai-images')
+    expect(getBananaModelRoute('gpt-image-2-svip')).toBe('openai-images')
+    expect(normalizeBananaModelId('GPT-Image-2(High)')).toBe('gpt-image-2-svip')
+  })
+
+  it('keeps legacy GPT-Image-2(VIP) mapped to gpt-5.5 for compatibility', () => {
+    expect(getBananaModelByDisplayName('GPT-Image-2(VIP)')).toBeUndefined()
     expect(getBananaModelRoute('gpt-5.5')).toBe('openai-responses')
     expect(normalizeBananaModelId('GPT-Image-2(VIP)')).toBe('gpt-5.5')
   })
@@ -1188,5 +1236,10 @@ describe('bananaModels', () => {
   it('keeps normal GPT-Image-2 mapped to images route', () => {
     expect(normalizeBananaModelId('GPT-Image-2')).toBe('gpt-image-2')
     expect(getBananaModelRoute('gpt-image-2')).toBe('openai-images')
+  })
+
+  it('keeps the visible model list on GPT-Image-2(High) and hides GPT-Image-2(VIP)', () => {
+    expect(BANANA_GALLERY_MODELS.some((item) => item.model === 'gpt-image-2-svip')).toBe(true)
+    expect(BANANA_GALLERY_MODELS.map((item) => item.model)).not.toContain('gpt-5.5')
   })
 })
