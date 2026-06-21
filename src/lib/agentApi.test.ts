@@ -9,7 +9,7 @@ describe('callAgentResponsesApi', () => {
     vi.restoreAllMocks()
   })
 
-  it('streams Agent text and requests configured partial images', async () => {
+  it('streams Agent text with the strict single-image function schema', async () => {
     const streamBody = [
       'data: {"type":"response.output_text.delta","delta":"Hel"}',
       '',
@@ -47,8 +47,16 @@ describe('callAgentResponsesApi', () => {
       type: 'function',
       name: 'generate_image',
     })
-    expect(body.tools[0].parameters.properties.size.default).toBe('auto')
-    expect(body.tools[0].parameters.properties.partial_images.default).toBe(2)
+    expect(body.tools[0].parameters.properties).toEqual({
+      id: {
+        type: 'string',
+        description: 'Short stable identifier for this image, e.g. "cover", "base_character", "scene_1".',
+      },
+      prompt: {
+        type: 'string',
+        description: 'Complete image generation prompt with all visual details. Include matching XML ref tags when referring to existing images.',
+      },
+    })
     expect(textDeltas).toEqual(['Hel', 'lo'])
     expect(result).toMatchObject({
       responseId: 'resp_1',
@@ -57,7 +65,7 @@ describe('callAgentResponsesApi', () => {
     })
   })
 
-  it('passes mask data to the Agent image tool', async () => {
+  it('keeps mask data out of the strict generate_image schema', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       output: [{
         type: 'message',
@@ -82,10 +90,10 @@ describe('callAgentResponsesApi', () => {
 
     const [, init] = fetchMock.mock.calls[0]
     const body = JSON.parse(String((init as RequestInit).body))
-    expect(body.tools[0].parameters.properties.input_image_mask.default).toEqual({ image_url: 'data:image/png;base64,bWFzaw==' })
+    expect(body.tools[0].parameters.properties.input_image_mask).toBeUndefined()
   })
 
-  it('marks every strict generate_image tool property as required', async () => {
+  it('keeps app-controlled image params out of the strict generate_image schema', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       output: [{
         type: 'message',
@@ -118,7 +126,17 @@ describe('callAgentResponsesApi', () => {
     const body = JSON.parse(String((init as RequestInit).body))
     const parameters = body.tools[0].parameters
     expect(body.tools[0]).toMatchObject({ name: 'generate_image', strict: true })
-    expect(parameters.required).toEqual(Object.keys(parameters.properties))
+    expect(parameters.properties).toEqual({
+      id: {
+        type: 'string',
+        description: 'Short stable identifier for this image, e.g. "cover", "base_character", "scene_1".',
+      },
+      prompt: {
+        type: 'string',
+        description: 'Complete image generation prompt with all visual details. Include matching XML ref tags when referring to existing images.',
+      },
+    })
+    expect(parameters.required).toEqual(['id', 'prompt'])
   })
 
   it('extracts image_generation results from base64 object fields', async () => {
@@ -418,9 +436,17 @@ describe('callAgentResponsesApi', () => {
       name: 'generate_image',
       strict: true,
     })
-    expect(body.tools[0].parameters.properties.size.default).toBe('auto')
-    expect(body.tools[0].parameters.properties.partial_images.default).toBe(2)
-    expect(body.tools[0].parameters.properties.input_image_mask.default).toEqual({ image_url: 'data:image/png;base64,bWFzaw==' })
+    expect(body.tools[0].parameters.properties).toEqual({
+      id: {
+        type: 'string',
+        description: 'Short stable identifier for this image, e.g. "cover", "base_character", "scene_1".',
+      },
+      prompt: {
+        type: 'string',
+        description: 'Complete image generation prompt with all visual details. Include matching XML ref tags when referring to existing images.',
+      },
+    })
+    expect(body.tools[0].parameters.required).toEqual(['id', 'prompt'])
   })
 
   it('injects configurable math formatting instructions', async () => {

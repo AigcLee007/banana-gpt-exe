@@ -100,7 +100,7 @@ function createHeaders(profile: ApiProfile): Record<string, string> {
   }
 }
 
-function createGenerateImageTool(params: TaskParams, profile: ApiProfile, maskDataUrl?: string): Record<string, unknown> {
+function createGenerateImageTool(): Record<string, unknown> {
   const properties: Record<string, unknown> = {
     id: {
       type: 'string',
@@ -108,54 +108,8 @@ function createGenerateImageTool(params: TaskParams, profile: ApiProfile, maskDa
     },
     prompt: {
       type: 'string',
-      description: 'Complete image generation prompt for exactly one image. Include any needed <ref id="..." /> tags inline when referring to existing reference images.',
+      description: 'Complete image generation prompt with all visual details. Include matching XML ref tags when referring to existing images.',
     },
-    size: {
-      type: 'string',
-      description: 'Output image size.',
-      default: params.size,
-    },
-    output_format: {
-      type: 'string',
-      description: 'Output image format.',
-      default: params.output_format,
-    },
-    moderation: {
-      type: 'string',
-      description: 'Moderation mode for image generation.',
-      default: params.moderation,
-    },
-    quality: {
-      type: 'string',
-      description: 'Requested rendering quality.',
-      default: params.quality,
-    },
-  }
-
-  if (params.output_format !== 'png' && params.output_compression != null) {
-    properties.output_compression = {
-      type: 'number',
-      description: 'Compression level for non-PNG output formats.',
-      default: params.output_compression,
-    }
-  }
-
-  if (profile.streamImages) {
-    properties.partial_images = {
-      type: 'number',
-      description: 'Requested count of streaming partial images.',
-      default: profile.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES,
-    }
-  }
-
-  if (maskDataUrl) {
-    properties.input_image_mask = {
-      type: 'object',
-      description: 'Optional image mask to use for editing workflows.',
-      default: {
-        image_url: maskDataUrl,
-      },
-    }
   }
 
   return {
@@ -177,7 +131,7 @@ function createGenerateImageTool(params: TaskParams, profile: ApiProfile, maskDa
 }
 
 function createAgentTools(params: TaskParams, profile: ApiProfile, settings: AppSettings, maskDataUrl?: string): Array<Record<string, unknown>> {
-  const tools: Array<Record<string, unknown>> = [createGenerateImageTool(params, profile, maskDataUrl)]
+  const tools: Array<Record<string, unknown>> = [createGenerateImageTool()]
 
   // generate_image_batch: custom function tool for concurrent multi-image generation
   tools.push({
