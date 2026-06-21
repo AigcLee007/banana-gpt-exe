@@ -85,6 +85,42 @@ describe('callAgentResponsesApi', () => {
     expect(body.tools[0].parameters.properties.input_image_mask.default).toEqual({ image_url: 'data:image/png;base64,bWFzaw==' })
   })
 
+  it('marks every strict generate_image tool property as required', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      output: [{
+        type: 'message',
+        content: [{ type: 'output_text', text: 'OK' }],
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    const profile = createDefaultOpenAIProfile({
+      apiKey: 'test-key',
+      apiMode: 'responses',
+      streamImages: true,
+      streamPartialImages: 2,
+    })
+
+    await callAgentResponsesApi({
+      settings: DEFAULT_SETTINGS,
+      profile,
+      params: {
+        ...DEFAULT_PARAMS,
+        output_format: 'jpeg',
+        output_compression: 80,
+      },
+      input: [{ role: 'user', content: [{ type: 'input_text', text: 'edit' }] }],
+      maskDataUrl: 'data:image/png;base64,bWFzaw==',
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    const parameters = body.tools[0].parameters
+    expect(body.tools[0]).toMatchObject({ name: 'generate_image', strict: true })
+    expect(parameters.required).toEqual(Object.keys(parameters.properties))
+  })
+
   it('extracts image_generation results from base64 object fields', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       output: [{

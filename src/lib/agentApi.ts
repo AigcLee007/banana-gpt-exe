@@ -169,7 +169,7 @@ function createGenerateImageTool(params: TaskParams, profile: ApiProfile, maskDa
     parameters: {
       type: 'object',
       properties,
-      required: ['id', 'prompt'],
+      required: Object.keys(properties),
       additionalProperties: false,
     },
     strict: true,
