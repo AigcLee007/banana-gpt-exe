@@ -1852,6 +1852,56 @@ describe('agent image model selection', () => {
     expect(callBatchImageSingle).not.toHaveBeenCalled()
     expect(vi.mocked(callImageApi).mock.calls.every((call) => call[0].settings.model === 'gpt-image-2')).toBe(true)
   })
+
+  it('counts continue_generation calls toward the Agent tool limit', async () => {
+    useStore.setState((state) => ({
+      settings: normalizeSettings({
+        ...state.settings,
+        agentMaxToolRounds: 2,
+      }),
+    }))
+
+    vi.mocked(callAgentResponsesApi)
+      .mockResolvedValueOnce({
+        text: '',
+        images: [],
+        outputItems: [{
+          type: 'function_call',
+          call_id: 'continue-call-1',
+          name: 'continue_generation',
+          arguments: JSON.stringify({ reason: 'keep going' }),
+        }],
+        responseId: 'response-continue-1',
+      })
+      .mockResolvedValueOnce({
+        text: '',
+        images: [],
+        outputItems: [{
+          type: 'function_call',
+          call_id: 'continue-call-2',
+          name: 'continue_generation',
+          arguments: JSON.stringify({ reason: 'keep going again' }),
+        }],
+        responseId: 'response-continue-2',
+      })
+      .mockResolvedValueOnce({
+        text: 'should not be requested',
+        images: [],
+        outputItems: [{ type: 'message', content: [{ type: 'output_text', text: 'should not be requested' }] }],
+        responseId: 'response-continue-3',
+      })
+
+    await submitAgentMessage()
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(callAgentResponsesApi).toHaveBeenCalledTimes(2)
+    const conversation = useStore.getState().agentConversations[0]
+    expect(conversation.rounds[0]).toMatchObject({
+      status: 'done',
+      responseId: 'response-continue-2',
+    })
+    expect(conversation.messages.find((message) => message.role === 'assistant')?.content).not.toContain('should not be requested')
+  })
 })
 
 describe('agent built-in image tool failure', () => {

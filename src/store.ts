@@ -3941,6 +3941,7 @@ async function executeAgentRound(
       }
 
       for (const fc of continueFunctionCalls) {
+        toolCallsUsed += 1
         functionCallOutputs.push({
           type: 'function_call_output',
           call_id: fc.call_id,
