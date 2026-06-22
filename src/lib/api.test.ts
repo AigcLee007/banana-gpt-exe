@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi, queryApiKeyBalance } from './api'
-import { BANANA_GALLERY_MODELS, getBananaModelByDisplayName, getBananaModelRoute, normalizeBananaModelId } from './bananaModels'
+import { BANANA_GALLERY_MODELS, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, normalizeBananaModelId } from './bananaModels'
 
 function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   return {
@@ -1236,6 +1236,24 @@ describe('bananaModels', () => {
   it('keeps normal GPT-Image-2 mapped to images route', () => {
     expect(normalizeBananaModelId('GPT-Image-2')).toBe('gpt-image-2')
     expect(getBananaModelRoute('gpt-image-2')).toBe('openai-images')
+  })
+
+  it('uses the Agent image model route when deciding which parameter controls to show', () => {
+    expect(getActiveBananaModelRouteForMode('agent', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('gemini-native')
+    expect(getActiveBananaModelRouteForMode('agent', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('openai-images')
+    expect(getActiveBananaModelRouteForMode('gallery', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('gemini-native')
+  })
+
+  it('uses agentImageModel as the active image parameter model in Agent mode', () => {
+    expect(getActiveBananaModelForMode('agent', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('gemini-3-pro-image-preview')
+    expect(getActiveBananaModelForMode('gallery', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('gemini-3-pro-image-preview')
+  })
+
+  it('uses the same four-column desktop parameter layout for Agent and Gallery Gemini image models', () => {
+    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-4')
+    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('grid-cols-4')
+    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('grid-cols-6')
+    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-7')
   })
 
   it('keeps the visible model list on GPT-Image-2(High) and hides GPT-Image-2(VIP)', () => {

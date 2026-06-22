@@ -84,6 +84,32 @@ export function getBananaModelRoute(model: string): BananaModelRoute | undefined
   return getBananaModelById(model)?.providerRoute
 }
 
+export function getActiveBananaModelForMode(
+  appMode: 'gallery' | 'agent',
+  galleryModel: string,
+  agentImageModel: string,
+): string {
+  return appMode === 'agent' ? agentImageModel : galleryModel
+}
+
+export function getActiveBananaModelRouteForMode(
+  appMode: 'gallery' | 'agent',
+  galleryModel: string,
+  agentImageModel: string,
+): BananaModelRoute | undefined {
+  return getBananaModelRoute(getActiveBananaModelForMode(appMode, galleryModel, agentImageModel))
+}
+
+export function getBananaDesktopParamGridColumnsForMode(
+  appMode: 'gallery' | 'agent',
+  galleryModel: string,
+  agentImageModel: string,
+): 'grid-cols-4' | 'grid-cols-6' | 'grid-cols-7' {
+  const activeRoute = getActiveBananaModelRouteForMode(appMode, galleryModel, agentImageModel)
+  if (activeRoute === 'gemini-native') return 'grid-cols-4'
+  return appMode === 'gallery' ? 'grid-cols-7' : 'grid-cols-6'
+}
+
 export function isGeminiNativeModel(model: string): boolean {
   return getBananaModelRoute(model) === 'gemini-native'
 }

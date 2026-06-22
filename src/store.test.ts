@@ -1794,6 +1794,65 @@ describe('agent image model selection', () => {
     expect(imageSettings.apiMode).toBe('images')
   })
 
+  it('passes selected Agent Gemini image size params to image generation', async () => {
+    useStore.setState((state) => ({
+      settings: normalizeSettings({
+        ...state.settings,
+        agentImageModel: 'gemini-3-pro-image-preview',
+      }),
+      params: {
+        ...state.params,
+        size: getGeminiOutputPixels('9:16', '4K'),
+        geminiAspectRatio: '9:16',
+        geminiImageSize: '4K',
+        geminiOutputPixels: getGeminiOutputPixels('9:16', '4K'),
+      },
+    }))
+
+    vi.mocked(callAgentResponsesApi)
+      .mockImplementationOnce(async (options) => {
+        expect(options.profile.model).toBe(AGENT_FIXED_MODEL)
+        return {
+          text: '',
+          images: [],
+          outputItems: [{
+            type: 'function_call',
+            id: 'fc-gemini-4k',
+            call_id: 'call-gemini-4k',
+            name: 'generate_image',
+            arguments: JSON.stringify({ id: 'poster', prompt: '4K 绔栧浘' }),
+          }],
+          responseId: 'response-gemini-4k-1',
+        }
+      })
+      .mockResolvedValueOnce({
+        text: '瀹屾垚',
+        images: [],
+        outputItems: [{ type: 'message', content: [{ type: 'output_text', text: '瀹屾垚' }] }],
+        responseId: 'response-gemini-4k-2',
+      })
+
+    vi.mocked(callImageApi).mockResolvedValueOnce({
+      images: ['data:image/png;base64,agent-gemini-4k-output'],
+      actualParams: { size: getGeminiOutputPixels('9:16', '4K') },
+      actualParamsList: [{ size: getGeminiOutputPixels('9:16', '4K') }],
+      revisedPrompts: ['4K 绔栧浘'],
+      rawImageUrls: [],
+    })
+
+    await submitAgentMessage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(callImageApi).toHaveBeenCalled()
+    const imageParams = vi.mocked(callImageApi).mock.calls[0]?.[0]?.params
+    expect(imageParams).toMatchObject({
+      size: getGeminiOutputPixels('9:16', '4K'),
+      geminiAspectRatio: '9:16',
+      geminiImageSize: '4K',
+      geminiOutputPixels: getGeminiOutputPixels('9:16', '4K'),
+    })
+  })
+
   it('uses agentImageModel for generate_image_batch without calling callBatchImageSingle', async () => {
     useStore.setState((state) => ({
       settings: normalizeSettings({
@@ -1851,6 +1910,69 @@ describe('agent image model selection', () => {
     expect(callImageApi).toHaveBeenCalledTimes(2)
     expect(callBatchImageSingle).not.toHaveBeenCalled()
     expect(vi.mocked(callImageApi).mock.calls.every((call) => call[0].settings.model === 'gpt-image-2')).toBe(true)
+  })
+
+  it('keeps successful streaming batch images when the Agent continuation request fails', async () => {
+    const streamingProfile = createDefaultOpenAIProfile({
+      id: 'streaming-responses-profile',
+      apiKey: 'test-key',
+      apiMode: 'responses',
+      model: DEFAULT_RESPONSES_MODEL,
+      streamImages: true,
+    })
+    useStore.setState((state) => ({
+      settings: normalizeSettings({
+        ...state.settings,
+        agentImageModel: 'gemini-3-pro-image-preview',
+        profiles: [streamingProfile],
+        activeProfileId: streamingProfile.id,
+      }),
+    }))
+
+    vi.mocked(callAgentResponsesApi)
+      .mockResolvedValueOnce({
+        text: '',
+        images: [],
+        outputItems: [{
+          type: 'function_call',
+          call_id: 'batch-call-streaming',
+          name: 'generate_image_batch',
+          arguments: JSON.stringify({
+            images: [{ id: 'poster-a', prompt: '海报 A' }],
+          }),
+        }],
+        responseId: 'response-batch-streaming-1',
+      })
+      .mockRejectedValueOnce(new Error('Upstream request failed'))
+    vi.mocked(callImageApi).mockResolvedValueOnce({
+      images: ['data:image/png;base64,batch-a'],
+      actualParams: { size: '1536x864' },
+      actualParamsList: [{ size: '1536x864' }],
+      revisedPrompts: ['海报 A'],
+      rawImageUrls: [],
+    })
+
+    await submitAgentMessage()
+    for (let i = 0; i < 10 && vi.mocked(callAgentResponsesApi).mock.calls.length < 2; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+
+    const state = useStore.getState()
+    expect(state.tasks).toHaveLength(1)
+    expect(state.tasks[0]).toMatchObject({
+      status: 'done',
+      apiModel: 'gemini-3-pro-image-preview',
+      rawResponsePayload: expect.stringContaining('"imageCount": 1'),
+    })
+    expect(state.tasks[0].outputImages).toHaveLength(1)
+
+    const conversation = state.agentConversations[0]
+    const round = conversation?.rounds[0]
+    expect(round?.status).toBe('error')
+    expect(round?.outputTaskIds).toContain(state.tasks[0].id)
+    const assistantMessage = conversation?.messages.find((message) => message.id === round?.assistantMessageId)
+    expect(assistantMessage?.content).toContain('图片已生成，但后续 Agent 回复失败')
+    expect(assistantMessage?.content).not.toMatch(/^请求失败：/)
   })
 
   it('counts continue_generation calls toward the Agent tool limit', async () => {

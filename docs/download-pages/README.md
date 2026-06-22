@@ -28,11 +28,11 @@
 
 ### Windows
 
-- `/downloads/win/banana-gpt-windows-0.4.6-banana.2.zip`
+- `/downloads/win/banana-gpt-windows-0.4.6-banana.3.zip`
 
 ### Mac
 
-- `/downloads/mac/banana-gpt-macos-arm64-0.4.6-banana.2.dmg`
-- `/downloads/mac/banana-gpt-macos-x64-0.4.6-banana.2.dmg`
+- `/downloads/mac/banana-gpt-macos-arm64-0.4.6-banana.3.dmg`
+- `/downloads/mac/banana-gpt-macos-x64-0.4.6-banana.3.dmg`
 
 鍚庨潰鍙戞柊鐗堟椂锛屽彧闇€瑕佹敼椤甸潰閲岀殑鐗堟湰鍙锋枃瀛楀拰涓嬭浇鏂囦欢鍚嶅嵆鍙€?

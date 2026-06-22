@@ -3123,8 +3123,9 @@ export async function submitAgentMessage() {
   const activeLeafId = activeRounds[activeRounds.length - 1]?.id ?? null
   const parentRoundId = editingRound ? editingRound.parentRoundId ?? null : activeLeafId
   const parentPath = parentRoundId ? getAgentRoundPath(conversation, parentRoundId) : []
+  const imageParamSettings = createAgentImageSettings(requestSettings)
   const normalizedParams = {
-    ...normalizeParamsForSettings(params, requestSettings, { hasInputImages: inputImageIds.length > 0 }),
+    ...normalizeParamsForSettings(params, imageParamSettings, { hasInputImages: inputImageIds.length > 0 }),
     n: DEFAULT_PARAMS.n,
   }
   const round: AgentRound = {
@@ -3228,8 +3229,9 @@ export async function regenerateAgentAssistantMessage(conversationId: string, ro
 
   const inputImageIds = uniqueIds(sourceRound.inputImageIds)
   const requestSettings = createSettingsForApiProfile(normalizedSettings, activeProfile)
+  const imageParamSettings = createAgentImageSettings(requestSettings)
   const normalizedParams = {
-    ...normalizeParamsForSettings(params, requestSettings, { hasInputImages: inputImageIds.length > 0 }),
+    ...normalizeParamsForSettings(params, imageParamSettings, { hasInputImages: inputImageIds.length > 0 }),
     n: DEFAULT_PARAMS.n,
   }
   const now = Date.now()
@@ -3617,8 +3619,7 @@ async function executeAgentRound(
           })),
         }
 
-        // If not streaming and we have an image, complete the pre-created task.
-        if (batchResult.image && !shouldStreamAssistantMessage) {
+        if (batchResult.image) {
           await completeAgentImageTask({ ...batchResult.image, toolCallId: batchToolCallId }, batchResult.rawResponsePayload)
         }
         if (!batchResult.image) {
@@ -4051,16 +4052,26 @@ async function executeAgentRound(
       message += `\n${networkErrorHint}`
     }
 
+    const stateOnError = useStore.getState()
+    const conversationOnError = stateOnError.agentConversations.find((item) => item.id === conversationId)
+    const roundOnError = conversationOnError?.rounds.find((round) => round.id === roundId)
+    const hasCompletedOutputImages = (roundOnError?.outputTaskIds ?? []).some((taskId) => {
+      const task = stateOnError.tasks.find((item) => item.id === taskId)
+      return task?.status === 'done' && task.outputImages.length > 0
+    })
+    const errorContent = hasCompletedOutputImages
+      ? `图片已生成，但后续 Agent 回复失败：${message}`
+      : `请求失败：${message}`
+
     updateAgentConversation(conversationId, (current) => {
       const failedRound = current.rounds.find((round) => round.id === roundId)
       const existingAssistantMessage = failedRound?.assistantMessageId
         ? current.messages.find((item) => item.id === failedRound.assistantMessageId)
         : current.messages.find((item) => item.roundId === roundId && item.role === 'assistant')
-      const errorContent = `请求失败：${message}`
 
       return {
         ...current,
-        title: current.rounds.length === 1 && current.rounds[0].id === roundId ? '新对话' : current.title,
+        title: !hasCompletedOutputImages && current.rounds.length === 1 && current.rounds[0].id === roundId ? '新对话' : current.title,
         updatedAt: Date.now(),
         rounds: current.rounds.map((round) =>
           round.id === roundId

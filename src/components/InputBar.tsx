@@ -11,7 +11,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId } from '../lib/bananaModels'
+import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import Select from './Select'
@@ -591,28 +591,34 @@ export default function InputBar() {
       ? settings
       : normalizeSettings({ ...settings, activeProfileId: activeProfile.id })
   ), [activeProfile.id, currentActiveProfile.id, settings])
+  const resolvedAgentImageModel = normalizeBananaModelId(settings.agentImageModel || DEFAULT_GALLERY_MODEL)
+  const agentImageModel = BANANA_GALLERY_MODELS.some((item) => item.model === resolvedAgentImageModel)
+    ? resolvedAgentImageModel
+    : DEFAULT_GALLERY_MODEL
   const paramsNormalizationSettings = useMemo(() => {
     if (appMode !== 'agent') return effectiveSettings
     const normalized = normalizeSettings(effectiveSettings)
+    const agentImageModelRoute = getBananaModelRoute(agentImageModel)
+    const agentImageApiMode = agentImageModelRoute === 'openai-responses' ? 'responses' : 'images'
     const nextProfiles = normalized.profiles.map((profile) =>
       profile.id === activeProfile.id
         ? {
             ...profile,
             provider: 'openai',
-            apiMode: 'responses',
-            model: AGENT_FIXED_MODEL,
+            apiMode: agentImageApiMode,
+            model: agentImageModel,
           }
         : profile,
     )
     return normalizeSettings({
       ...normalized,
       provider: 'openai',
-      apiMode: 'responses',
-      model: AGENT_FIXED_MODEL,
+      apiMode: agentImageApiMode,
+      model: agentImageModel,
       profiles: nextProfiles,
       activeProfileId: activeProfile.id,
     })
-  }, [appMode, effectiveSettings, activeProfile.id])
+  }, [appMode, effectiveSettings, activeProfile.id, agentImageModel])
   const hasSubmitApiConfig = Boolean(activeProfile.apiKey)
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !activeAgentIsRunning)
   const submitButtonAriaLabel = activeAgentIsRunning
@@ -663,11 +669,10 @@ export default function InputBar() {
   const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === resolvedGalleryModel)
     ? resolvedGalleryModel
     : DEFAULT_GALLERY_MODEL
-  const resolvedAgentImageModel = normalizeBananaModelId(settings.agentImageModel || DEFAULT_GALLERY_MODEL)
-  const agentImageModel = BANANA_GALLERY_MODELS.some((item) => item.model === resolvedAgentImageModel)
-    ? resolvedAgentImageModel
-    : DEFAULT_GALLERY_MODEL
+  const activeImageModelRoute = getActiveBananaModelRouteForMode(appMode, galleryModel, agentImageModel)
+  const isGeminiImageModel = activeImageModelRoute === 'gemini-native'
   const isGeminiGalleryModel = appMode === 'gallery' && isGeminiNativeModel(galleryModel)
+  const desktopParamGridColumns = getBananaDesktopParamGridColumnsForMode(appMode, galleryModel, agentImageModel)
   const transparentOutputAvailable = appMode === 'gallery' && !isGeminiGalleryModel
   const showTransparentOutputControl = transparentOutputAvailable && params.output_format === 'png'
   const transparentOutputEnabled = showTransparentOutputControl && params.transparent_output
@@ -1848,7 +1853,7 @@ export default function InputBar() {
           />
         </label>
       )}
-      {isGeminiGalleryModel ? (
+      {isGeminiImageModel ? (
         <>
           <label className="flex flex-col gap-0.5">
             <span className="text-gray-400 dark:text-gray-500 ml-1">比例</span>
@@ -1884,6 +1889,8 @@ export default function InputBar() {
               }}
               options={geminiImageSizeOptions}
               className={selectClass}
+              menuClassName="min-w-max"
+              truncateOptionLabel={false}
             />
           </label>
         </>
@@ -2113,7 +2120,7 @@ export default function InputBar() {
         </div>
       )}
 
-      {showSizePicker && !isGeminiGalleryModel && (
+      {showSizePicker && !isGeminiImageModel && (
         <SizePickerModal
           currentSize={isFalTextToImage && params.size === 'auto' ? DEFAULT_FAL_IMAGE_SIZE : params.size}
           onSelect={(size) => setParams({ size })}
@@ -2326,7 +2333,7 @@ export default function InputBar() {
           <div className="mt-3">
             {/* 桌面端布局 */}
             <div className="hidden sm:flex items-end justify-between gap-3">
-              {renderParams(appMode === 'gallery' ? (isGeminiGalleryModel ? 'grid-cols-4' : 'grid-cols-7') : 'grid-cols-6')}
+              {renderParams(desktopParamGridColumns)}
 
               <div className="flex gap-2 flex-shrink-0 mb-0.5">
                 <div
