@@ -163,12 +163,13 @@ function collectGeminiImageResults(source: unknown, output: string[] = [], seen 
   const record = source as Record<string, unknown>
   const inlineData = (record.inlineData ?? record.inline_data) as Record<string, unknown> | undefined
   if (inlineData && typeof inlineData === 'object' && typeof inlineData.data === 'string') {
+    const imageData = inlineData.data.trim()
     const mimeType = typeof inlineData.mimeType === 'string'
       ? inlineData.mimeType
       : typeof inlineData.mime_type === 'string'
         ? inlineData.mime_type
         : 'image/png'
-    output.push(normalizeBase64Image(inlineData.data, mimeType))
+    if (imageData) output.push(isHttpUrl(imageData) || isDataUrl(imageData) ? imageData : normalizeBase64Image(imageData, mimeType))
   }
 
   const fileData = (record.fileData ?? record.file_data) as Record<string, unknown> | undefined
@@ -243,6 +244,8 @@ async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: Ap
     }
 
     const result = normalizeGeminiImageResult(await response.json())
+    const images = result.images.slice(-1)
+    const rawImageUrls = result.rawImageUrls?.filter((url) => images.includes(url))
     const actualParams = mergeActualParams(result.actualParams, {
       geminiAspectRatio: requestSpec.aspectRatio,
       geminiImageSize: requestSpec.imageSize,
@@ -250,8 +253,10 @@ async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: Ap
     })
     return {
       ...result,
+      images,
+      ...(rawImageUrls?.length ? { rawImageUrls } : { rawImageUrls: undefined }),
       actualParams,
-      actualParamsList: result.images.map(() => actualParams),
+      actualParamsList: images.map(() => actualParams),
     }
   } finally {
     clearTimeout(timeoutId)

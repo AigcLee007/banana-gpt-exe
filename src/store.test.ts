@@ -100,7 +100,7 @@ import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
 import { callImageApi } from './lib/api'
 import { getGeminiOutputPixels } from './lib/geminiImageSizing'
 import { AGENT_FIXED_MODEL } from './lib/bananaModels'
-import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConversation, editOutputs, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, migratePersistedState, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
+import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConversation, editOutputs, ensureImageThumbnailCached, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, migratePersistedState, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
@@ -380,6 +380,21 @@ describe('mask draft lifecycle in store actions', () => {
     const state = useStore.getState()
     expect(state.inputImages.map((img) => img.id)).toEqual([replacement.id, imageB.id])
     expect(state.prompt).toBe(prompt)
+  })
+})
+
+describe('image thumbnail cache fallback', () => {
+  beforeEach(async () => {
+    await clearImages()
+  })
+
+  it('uses the stored remote image URL as a visible fallback when no generated thumbnail exists', async () => {
+    const imageUrl = 'https://visionary.beer/api/generations/result.png'
+    await putImage({ id: 'remote-image', dataUrl: imageUrl })
+
+    await expect(ensureImageThumbnailCached('remote-image')).resolves.toEqual({
+      dataUrl: imageUrl,
+    })
   })
 })
 

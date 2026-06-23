@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { readFileSync } from 'fs'
 import { execSync } from 'node:child_process'
+import { request } from 'node:https'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
@@ -38,6 +39,22 @@ function loadDevProxyConfig() {
   }
 }
 
+const DOWNLOAD_PROXY_ALLOWED_HOSTS = new Set([
+  'file1.aitohumanize.com',
+  'visionary.beer',
+])
+
+function isAllowedDownloadProxyUrl(value: string): URL | null {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:') return null
+    if (!DOWNLOAD_PROXY_ALLOWED_HOSTS.has(url.hostname)) return null
+    return url
+  } catch {
+    return null
+  }
+}
+
 export default defineConfig(({ command }) => {
   const devProxyConfig = command === 'serve' ? loadDevProxyConfig() : null
 
@@ -51,6 +68,32 @@ export default defineConfig(({ command }) => {
             res.setHeader('Content-Type', 'application/json; charset=utf-8')
             res.setHeader('Cache-Control', 'no-store')
             res.end(JSON.stringify(versionManifest, null, 2))
+          })
+          server.middlewares.use('/download-proxy', (req, res) => {
+            const requestUrl = new URL(req.url ?? '', 'http://localhost')
+            const targetUrl = isAllowedDownloadProxyUrl(requestUrl.searchParams.get('url') ?? '')
+            if (!targetUrl) {
+              res.statusCode = 403
+              res.end('Forbidden')
+              return
+            }
+
+            const upstream = request(targetUrl, { method: 'GET' }, (upstreamRes) => {
+              if (!upstreamRes.statusCode || upstreamRes.statusCode >= 400) {
+                res.statusCode = upstreamRes.statusCode ?? 502
+                res.end('Download proxy upstream error')
+                return
+              }
+              res.statusCode = 200
+              res.setHeader('Content-Type', upstreamRes.headers['content-type'] ?? 'application/octet-stream')
+              res.setHeader('Content-Disposition', 'attachment')
+              upstreamRes.pipe(res)
+            })
+            upstream.on('error', () => {
+              res.statusCode = 502
+              res.end('Download proxy failed')
+            })
+            upstream.end()
           })
         },
         generateBundle() {

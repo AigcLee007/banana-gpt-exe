@@ -132,19 +132,6 @@ function createOpenAITimeoutError(timeoutSeconds: number, profile?: TimeoutStrea
   return `请求超时：超过 ${timeoutSeconds} 秒仍未完成，请稍后重试或提高超时时间。${getTimeoutStreamingHint(profile)}`
 }
 
-async function getDebugDataUrlFingerprint(dataUrl: string) {
-  try {
-    const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(dataUrl))
-    const hash = Array.from(new Uint8Array(buffer))
-      .slice(0, 6)
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('')
-    return `${hash}:${dataUrl.length}`
-  } catch {
-    return `fallback:${dataUrl.length}`
-  }
-}
-
 export function getCachedImage(id: string): string | undefined {
   const dataUrl = imageCache.get(id)
   if (dataUrl) {
@@ -201,10 +188,16 @@ export async function ensureImageCached(id: string): Promise<string | undefined>
 
 export async function ensureImageThumbnailCached(id: string): Promise<{ dataUrl: string; width?: number; height?: number } | undefined> {
   const cached = getCachedThumbnail(id)
-  if (cached) return cached
+  if (cached) {
+    return cached
+  }
 
   const rec = await getStoredFreshImageThumbnail(id)
   if (!rec?.thumbnailDataUrl) {
+    const image = await getImage(id)
+    if (image?.dataUrl && isHttpImageUrl(image.dataUrl)) {
+      return { dataUrl: image.dataUrl, width: image.width, height: image.height }
+    }
     scheduleThumbnailBackfill([id], 'visible')
     return undefined
   }
@@ -347,6 +340,10 @@ function orderImagesWithMaskFirst(images: InputImage[], maskTargetImageId: strin
 
 function isAgentTask(task: TaskRecord) {
   return task.sourceMode === 'agent' || Boolean(task.agentConversationId || task.agentRoundId)
+}
+
+function isHttpImageUrl(value: string) {
+  return /^https?:\/\//i.test(value)
 }
 
 function countSuccessfulOutputImages(tasks: TaskRecord[]) {
@@ -2605,15 +2602,6 @@ async function storeTaskOutputImages(task: TaskRecord, images: string[]) {
     for (let index = 0; index < images.length; index += 1) {
       const dataUrl = images[index]
       let outputDataUrl = dataUrl
-      if (import.meta.env.DEV) {
-        console.debug('[diag][storeTaskOutputImages][input]', {
-          taskId: task.id,
-          taskPrompt: task.prompt,
-          imageIndex: index,
-          transparentOutput: task.transparentOutput === true,
-          fingerprint: await getDebugDataUrlFingerprint(dataUrl),
-        })
-      }
       if (task.transparentOutput) {
         const originalImageId = await storeImage(dataUrl, 'generated')
         storedImageIds.push(originalImageId)
@@ -2634,22 +2622,6 @@ async function storeTaskOutputImages(task: TaskRecord, images: string[]) {
       storedImageIds.push(imageId)
       cacheImage(imageId, outputDataUrl)
       outputIds.push(imageId)
-      if (import.meta.env.DEV) {
-        console.debug('[diag][storeTaskOutputImages][stored]', {
-          taskId: task.id,
-          imageIndex: index,
-          outputImageId: imageId,
-          fingerprint: await getDebugDataUrlFingerprint(outputDataUrl),
-        })
-      }
-    }
-
-    if (import.meta.env.DEV) {
-      console.debug('[diag][storeTaskOutputImages][summary]', {
-        taskId: task.id,
-        outputIds,
-        transparentOriginalImageIds,
-      })
     }
 
     return {
@@ -4188,19 +4160,6 @@ async function executeTask(taskId: string) {
       },
     })
 
-    if (import.meta.env.DEV) {
-      console.debug('[diag][executeTask][result]', {
-        taskId,
-        prompt: task.prompt,
-        apiModel: task.apiModel,
-        imageCount: result.images.length,
-        rawImageUrls: result.rawImageUrls ?? [],
-        fingerprints: await Promise.all(result.images.map((image, index) =>
-          getDebugDataUrlFingerprint(image).then((fingerprint) => ({ index, fingerprint })),
-        )),
-      })
-    }
-
     const latestBeforeSuccess = useStore.getState().tasks.find((t) => t.id === taskId)
     if (!latestBeforeSuccess || latestBeforeSuccess.status !== 'running') {
       useStore.getState().setTaskStreamPreview(taskId)
@@ -4262,14 +4221,6 @@ async function executeTask(taskId: string) {
       falRecoverable: false,
       customRecoverable: false,
     })
-    if (import.meta.env.DEV) {
-      console.debug('[diag][executeTask][taskUpdate]', {
-        taskId,
-        outputIds,
-        transparentOriginalImageIds,
-        actualParams,
-      })
-    }
     void deleteUnreferencedImageIds(partialImageIdsToClean)
 
     useStore.getState().showToast(`生成完成，共 ${outputIds.length} 张图片`, 'success')

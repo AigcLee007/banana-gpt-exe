@@ -172,6 +172,99 @@ describe('callImageApi', () => {
     expect(body.size).toBeUndefined()
   })
 
+  it('ignores empty Gemini inline image parts before saving results', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{
+        content: {
+          parts: [
+            { inlineData: { mimeType: 'image/png', data: '' } },
+            { inlineData: { mimeType: 'image/png', data: 'dmFsaWQtaW1hZ2U=' } },
+          ],
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const result = await callImageApi({
+      settings: createGeminiSettings('gemini-3-pro-image-preview'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        geminiAspectRatio: '9:16',
+        geminiImageSize: '4K',
+      },
+      inputImageDataUrls: [],
+    })
+
+    expect(result.images).toEqual(['data:image/png;base64,dmFsaWQtaW1hZ2U='])
+    expect(result.actualParams?.n).toBeUndefined()
+    expect(result.actualParamsList).toHaveLength(1)
+  })
+
+  it('keeps only the final Gemini image part from a single native request', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{
+        content: {
+          parts: [
+            { inlineData: { mimeType: 'image/png', data: 'cHJldmlldy1pbWFnZQ==' } },
+            { inlineData: { mimeType: 'image/png', data: 'ZmluYWwtaW1hZ2U=' } },
+          ],
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const result = await callImageApi({
+      settings: createGeminiSettings('gemini-3-pro-image-preview'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        n: 1,
+        geminiAspectRatio: '9:16',
+        geminiImageSize: '4K',
+      },
+      inputImageDataUrls: [],
+    })
+
+    expect(result.images).toEqual(['data:image/png;base64,ZmluYWwtaW1hZ2U='])
+    expect(result.actualParamsList).toHaveLength(1)
+  })
+
+  it('preserves Gemini inline image URLs instead of wrapping them as base64 data URLs', async () => {
+    const imageUrl = 'https://visionary.beer/api/generations/result.png'
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{
+        content: {
+          parts: [
+            { inlineData: { mimeType: 'image/png', data: imageUrl } },
+          ],
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const result = await callImageApi({
+      settings: createGeminiSettings('gemini-3-pro-image-preview'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        n: 1,
+        geminiAspectRatio: '9:16',
+        geminiImageSize: '4K',
+      },
+      inputImageDataUrls: [],
+    })
+
+    expect(result.images).toEqual([imageUrl])
+    expect(result.rawImageUrls).toEqual([imageUrl])
+  })
+
   it('normalizes Nano_Banana_Pro to gemini-3-pro-image-preview before calling Gemini endpoint', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] } }],

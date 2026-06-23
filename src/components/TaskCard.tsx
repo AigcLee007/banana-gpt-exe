@@ -256,16 +256,6 @@ export default function TaskCard({
 
     const applyThumbnail = (thumbnail: { dataUrl: string; width?: number; height?: number }) => {
       if (cancelled) return
-      if (import.meta.env.DEV) {
-        console.debug('[diag][TaskCard][applyThumbnail]', {
-          taskId: task.id,
-          taskCreatedAt: task.createdAt,
-          imageId,
-          thumbnailLength: thumbnail.dataUrl.length,
-          width: thumbnail.width,
-          height: thumbnail.height,
-        })
-      }
       setThumbSrc(thumbnail.dataUrl)
       if (thumbnail.width && thumbnail.height) {
         setCoverRatio(formatImageRatio(thumbnail.width, thumbnail.height))
@@ -274,14 +264,6 @@ export default function TaskCard({
     }
 
     if (imageId) {
-      if (import.meta.env.DEV) {
-        console.debug('[diag][TaskCard][subscribeThumbnail]', {
-          taskId: task.id,
-          taskCreatedAt: task.createdAt,
-          imageId,
-          outputImages: task.outputImages,
-        })
-      }
       unsubscribe = subscribeImageThumbnail(imageId, applyThumbnail)
       ensureImageThumbnailCached(imageId).then((thumbnail) => {
         if (cancelled || !thumbnail) return

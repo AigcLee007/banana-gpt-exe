@@ -26,12 +26,18 @@ export async function downloadImageIds(imageIds: string[], fileNameBase = 'image
 
   for (let index = 0; index < imageIds.length; index++) {
     try {
-      const blob = await getImageBlob(imageIds[index])
+      const src = await resolveImageSource(imageIds[index])
       const order = String(index + 1).padStart(2, '0')
-      const fileName = multiple
-        ? `${fileNameBase}-${order}.${getBlobExtension(blob)}`
-        : `${fileNameBase}.${getBlobExtension(blob)}`
-      triggerDownload(blob, fileName)
+      const baseName = multiple ? `${fileNameBase}-${order}` : fileNameBase
+
+      try {
+        const blob = await getImageBlob(getDownloadFetchUrl(src))
+        triggerBlobDownload(blob, `${baseName}.${getBlobExtension(blob)}`)
+      } catch (err) {
+        if (!isHttpUrl(src)) throw err
+        triggerDirectDownload(src, `${baseName}.${getUrlExtension(src)}`)
+      }
+
       successCount++
       if (multiple) await delay(100)
     } catch (err) {
@@ -43,33 +49,61 @@ export async function downloadImageIds(imageIds: string[], fileNameBase = 'image
   return { successCount, failCount }
 }
 
-async function getImageBlob(imageIdOrUrl: string): Promise<Blob> {
-  let src = imageIdOrUrl
-  if (!imageIdOrUrl.startsWith('data:') && !imageIdOrUrl.startsWith('http://') && !imageIdOrUrl.startsWith('https://')) {
-    src = await ensureImageCached(imageIdOrUrl) ?? imageIdOrUrl
-  }
+async function resolveImageSource(imageIdOrUrl: string): Promise<string> {
+  if (isDataUrl(imageIdOrUrl) || isHttpUrl(imageIdOrUrl)) return imageIdOrUrl
+  return await ensureImageCached(imageIdOrUrl) ?? imageIdOrUrl
+}
 
+async function getImageBlob(src: string): Promise<Blob> {
   const res = await fetch(src)
-  if (!res.ok && !src.startsWith('data:')) throw new Error(`读取图片失败：${imageIdOrUrl}`)
+  if (!res.ok && !isDataUrl(src)) throw new Error('读取图片失败')
   return await res.blob()
 }
 
-function triggerDownload(blob: Blob, fileName: string) {
+function getDownloadFetchUrl(src: string): string {
+  return isHttpUrl(src) ? `/download-proxy?url=${encodeURIComponent(src)}` : src
+}
+
+function triggerBlobDownload(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob)
+  triggerDirectDownload(url, fileName)
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+function triggerDirectDownload(url: string, fileName: string) {
   const a = document.createElement('a')
   a.href = url
   a.download = fileName
+  if (isHttpUrl(url)) {
+    a.target = '_blank'
+    a.rel = 'noopener'
+  }
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
-  window.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 function getBlobExtension(blob: Blob): string {
   return MIME_EXTENSIONS[blob.type.toLowerCase()] ?? blob.type.split('/')[1] ?? 'png'
 }
 
+function getUrlExtension(url: string): string {
+  try {
+    const ext = new URL(url).pathname.split('.').pop()?.toLowerCase()
+    return ext && /^[a-z0-9]+$/.test(ext) ? ext : 'png'
+  } catch {
+    return 'png'
+  }
+}
+
+function isDataUrl(value: string): boolean {
+  return value.startsWith('data:')
+}
+
+function isHttpUrl(value: string): boolean {
+  return value.startsWith('http://') || value.startsWith('https://')
+}
+
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
-
