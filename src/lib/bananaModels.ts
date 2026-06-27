@@ -42,7 +42,7 @@ export const BANANA_MODEL_REGISTRY = [
   },
 ] as const satisfies readonly BananaGalleryModel[]
 
-export const BANANA_GALLERY_MODELS = BANANA_MODEL_REGISTRY.filter((item) => item.model !== 'gpt-5.5')
+export const BANANA_GALLERY_MODELS = BANANA_MODEL_REGISTRY.filter((item) => item.model !== 'gemini-3.1-flash-image-preview')
 
 export const DEFAULT_GALLERY_MODEL = 'gemini-3-pro-image-preview'
 

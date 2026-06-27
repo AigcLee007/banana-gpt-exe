@@ -1423,8 +1423,10 @@ describe('bananaModels', () => {
     expect(normalizeBananaModelId('GPT-Image-2(High)')).toBe('gpt-image-2-svip')
   })
 
-  it('keeps legacy GPT-Image-2(VIP) mapped to gpt-5.5 for compatibility', () => {
-    expect(getBananaModelByDisplayName('GPT-Image-2(VIP)')).toBeUndefined()
+  it('shows GPT-Image-2(VIP) and maps it to gpt-5.5 responses route', () => {
+    const model = getBananaModelByDisplayName('GPT-Image-2(VIP)')
+    expect(model?.model).toBe('gpt-5.5')
+    expect(model?.providerRoute).toBe('openai-responses')
     expect(getBananaModelRoute('gpt-5.5')).toBe('openai-responses')
     expect(normalizeBananaModelId('GPT-Image-2(VIP)')).toBe('gpt-5.5')
   })
@@ -1452,8 +1454,10 @@ describe('bananaModels', () => {
     expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-7')
   })
 
-  it('keeps the visible model list on GPT-Image-2(High) and hides GPT-Image-2(VIP)', () => {
-    expect(BANANA_GALLERY_MODELS.some((item) => item.model === 'gpt-image-2-svip')).toBe(true)
-    expect(BANANA_GALLERY_MODELS.map((item) => item.model)).not.toContain('gpt-5.5')
+  it('shows GPT-Image-2(VIP) and hides Nano Banana 2 in the visible model list', () => {
+    const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
+    expect(visibleModels).toContain('gpt-image-2-svip')
+    expect(visibleModels).toContain('gpt-5.5')
+    expect(visibleModels).not.toContain('gemini-3.1-flash-image-preview')
   })
 })
