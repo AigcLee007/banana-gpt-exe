@@ -536,8 +536,19 @@ async function parseImagesApiResponse(payload: ImageApiResponse, mime: string, s
       }
     }
   } catch (err) {
-    if (rawImageUrls.length > 0 && err instanceof Error) {
-      (err as any).rawImageUrls = rawImageUrls
+    if (rawImageUrls.length > 0) {
+      const actualParams = mergeActualParams(
+        pickActualParams(payload),
+      )
+      return {
+        images: rawImageUrls,
+        actualParams,
+        actualParamsList: rawImageUrls.map(() => actualParams),
+        revisedPrompts: rawImageUrls.map((_, index) =>
+          typeof data[index]?.revised_prompt === 'string' ? data[index].revised_prompt : undefined,
+        ),
+        rawImageUrls,
+      }
     }
     throw err
   }

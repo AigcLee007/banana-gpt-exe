@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildApiUrl } from './devProxy'
+import { buildApiUrl, normalizeDevProxyConfig } from './devProxy'
 
 describe('buildApiUrl', () => {
   it('uses the same-origin proxy prefix when API proxy is enabled', () => {
@@ -29,6 +29,18 @@ describe('buildApiUrl', () => {
         true,
       ),
     ).toBe('/openai-proxy/responses')
+  })
+
+  it('uses the configured proxy target to normalize same-origin proxy paths', () => {
+    const proxyConfig = normalizeDevProxyConfig({
+      enabled: true,
+      prefix: '/api-proxy',
+      target: 'https://vip.aittco.com/v1',
+    })
+
+    expect(buildApiUrl('https://vip.aittco.com', 'images/generations', proxyConfig, true)).toBe(
+      '/api-proxy/images/generations',
+    )
   })
 
   it('uses the configured API URL directly when API proxy is disabled', () => {

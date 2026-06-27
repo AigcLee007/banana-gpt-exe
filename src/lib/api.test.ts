@@ -378,6 +378,30 @@ describe('callImageApi', () => {
     expect(body.model).toBe('gpt-image-2-svip')
   })
 
+  it('keeps GPT-Image-2 result URLs when browser-side image fetch is blocked', async () => {
+    const imageUrl = 'https://example-cdn.invalid/result.png'
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [{ url: imageUrl }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+
+    const result = await callImageApi({
+      settings: createOpenAIImagesSettings(),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    expect(result.images).toEqual([imageUrl])
+    expect(result.rawImageUrls).toEqual([imageUrl])
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
   it('normalizes GPT-Image-2 output format to lowercase for generations', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
