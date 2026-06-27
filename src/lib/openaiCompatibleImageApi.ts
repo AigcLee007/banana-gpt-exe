@@ -55,7 +55,7 @@ function normalizeOutputFormat(format: string): 'png' | 'jpeg' | 'webp' {
 }
 
 function isGptImage2Model(model: string): boolean {
-  return normalizeBananaModelId(model) === 'gpt-image-2'
+  return getBananaModelRoute(model) === 'openai-images'
 }
 
 function shouldEnableImagesStreaming(profile: ApiProfile): boolean {
@@ -832,8 +832,8 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       }
 
       if (import.meta.env.DEV) {
-        console.debug('[gallery request]', {
-          mode: 'gallery',
+        console.debug('[image request]', {
+          mode: opts.sourceMode ?? 'gallery',
           route: 'images/edits',
           model: profile.model,
           pathname: getDebugPathname(buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy)),
@@ -885,8 +885,8 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       }
 
       if (import.meta.env.DEV) {
-        console.debug('[gallery request]', {
-          mode: 'gallery',
+        console.debug('[image request]', {
+          mode: opts.sourceMode ?? 'gallery',
           route: 'images/generations',
           model: profile.model,
           pathname: getDebugPathname(buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy)),
@@ -917,7 +917,8 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       const debugResponseText = await response.clone().text().catch(() => '')
       const errorMessage = await getApiErrorMessage(response)
       if (import.meta.env.DEV) {
-        console.debug('[gallery request failed]', {
+        console.debug('[image request failed]', {
+          mode: opts.sourceMode ?? 'gallery',
           route: isEdit ? 'images/edits' : 'images/generations',
           status: response.status,
           message: errorMessage,

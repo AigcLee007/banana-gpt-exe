@@ -685,7 +685,9 @@ describe('callImageApi', () => {
     ])
   })
 
-  it('does not send stream fields for GPT-Image-2 Images API requests', async () => {
+  it.each(['gpt-image-2', 'gpt-image-2-svip'])(
+    'does not send stream fields for %s Images API requests',
+    async (model) => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
     }), {
@@ -694,7 +696,7 @@ describe('callImageApi', () => {
     }))
 
     await callImageApi({
-      settings: createOpenAIImagesSettings({
+      settings: createOpenAIImagesSettingsWithModel(model, {
         streamImages: true,
         streamPartialImages: 3,
       }),
@@ -707,7 +709,8 @@ describe('callImageApi', () => {
     const body = JSON.parse(String((init as RequestInit).body))
     expect(body.stream).toBeUndefined()
     expect(body.partial_images).toBeUndefined()
-  })
+    },
+  )
 
   it('routes Gallery GPT-Image-2(VIP) to responses endpoint with gpt-5.5 and image_generation tool', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
