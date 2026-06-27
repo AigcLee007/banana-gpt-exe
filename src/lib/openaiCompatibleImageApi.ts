@@ -1,7 +1,7 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
 import { getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
-import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { buildApiUrl, isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import {
   assertImageInputPayloadSize,
@@ -209,7 +209,7 @@ async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: Ap
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
   const endpointUrl = `${getGeminiApiBaseUrl(profile, proxyConfig, useApiProxy)}/v1beta/models/${encodeURIComponent(profile.model)}:generateContent`
-  const urlWithKey = appendQuery(endpointUrl, { key: profile.apiKey })
+  const urlWithKey = appendQuery(endpointUrl, { key: profile.apiKey.trim() })
   const requestSpec = resolveGeminiRequestSpec(opts.params)
 
   try {
@@ -308,8 +308,22 @@ function normalizeImageApiPayload(value: unknown): ImageApiResponse {
 
 function createRequestHeaders(profile: ApiProfile): Record<string, string> {
   return {
-    Authorization: `Bearer ${profile.apiKey}`,
+    Authorization: `Bearer ${profile.apiKey.trim()}`,
   }
+}
+
+function attachImageRequestDiagnostics(err: unknown, details: Record<string, unknown>): never {
+  if (err instanceof Error) {
+    const diagnosticPayload = {
+      kind: 'image_request_fetch_error',
+      errorName: err.name,
+      errorMessage: err.message,
+      ...details,
+    }
+    ;(err as any).rawResponsePayload = JSON.stringify(diagnosticPayload, null, 2)
+    throw err
+  }
+  throw err
 }
 
 function isEventStreamResponse(response: Response): boolean {
@@ -778,6 +792,8 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
   const mime = MIME_MAP[outputFormat] || 'image/png'
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
+  const apiProxyAvailable = isApiProxyAvailable(proxyConfig)
+  const apiProxyLocked = isApiProxyLocked(proxyConfig)
   const requestHeaders = createRequestHeaders(profile)
   const paths = createOpenAICompatiblePaths(customProvider)
   const streamEnabled = shouldEnableImagesStreaming(profile)
@@ -861,13 +877,38 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         })
       }
 
-      response = await fetch(buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy), {
-        method: 'POST',
-        headers: requestHeaders,
-        cache: 'no-store',
-        body: formData,
-        signal: controller.signal,
-      })
+      const requestUrl = buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy)
+      try {
+        response = await fetch(requestUrl, {
+          method: 'POST',
+          headers: requestHeaders,
+          cache: 'no-store',
+          body: formData,
+          signal: controller.signal,
+        })
+      } catch (err) {
+        attachImageRequestDiagnostics(err, {
+          mode: opts.sourceMode ?? 'gallery',
+          route: 'images/edits',
+          requestUrl,
+          model: profile.model,
+          baseUrl: profile.baseUrl,
+          useApiProxy,
+          apiProxy: profile.apiProxy,
+          proxyAvailable: apiProxyAvailable,
+          proxyLocked: apiProxyLocked,
+          size: params.size,
+          quality: profile.codexCli ? undefined : params.quality,
+          moderation: params.moderation,
+          output_format: outputFormat,
+          response_format: profile.responseFormatB64Json ? 'b64_json' : undefined,
+          n: params.n > 1 ? params.n : 1,
+          imageCount: inputImageDataUrls.length,
+          hasMask: Boolean(opts.maskDataUrl),
+          hasInputImages: inputImageDataUrls.length > 0,
+          stream: streamEnabled,
+        })
+      }
     } else {
       const body: Record<string, unknown> = {
         model: profile.model,
@@ -912,16 +953,39 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         })
       }
 
-      response = await fetch(buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy), {
-        method: 'POST',
-        headers: {
-          ...requestHeaders,
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
+      const requestUrl = buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy)
+      try {
+        response = await fetch(requestUrl, {
+          method: 'POST',
+          headers: {
+            ...requestHeaders,
+            'Content-Type': 'application/json',
+          },
+          cache: 'no-store',
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
+      } catch (err) {
+        attachImageRequestDiagnostics(err, {
+          mode: opts.sourceMode ?? 'gallery',
+          route: 'images/generations',
+          requestUrl,
+          model: profile.model,
+          baseUrl: profile.baseUrl,
+          useApiProxy,
+          apiProxy: profile.apiProxy,
+          proxyAvailable: apiProxyAvailable,
+          proxyLocked: apiProxyLocked,
+          size: params.size,
+          quality: profile.codexCli ? undefined : params.quality,
+          moderation: params.moderation,
+          output_format: outputFormat,
+          response_format: profile.responseFormatB64Json ? 'b64_json' : undefined,
+          n: params.n > 1 ? params.n : 1,
+          hasInputImages: false,
+          stream: streamEnabled,
+        })
+      }
     }
 
     if (!response.ok) {

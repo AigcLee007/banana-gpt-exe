@@ -60,7 +60,12 @@ export function buildApiUrl(
   proxyConfig?: DevProxyConfig | null,
   useApiProxy = false,
 ): string {
-  const normalizedBaseUrl = normalizeBaseUrl(useApiProxy && proxyConfig?.target ? proxyConfig.target : baseUrl)
+  const runtimeProxyTarget = useApiProxy ? readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) : ''
+  const normalizedBaseUrl = normalizeBaseUrl(
+    useApiProxy
+      ? proxyConfig?.target || runtimeProxyTarget || baseUrl
+      : baseUrl,
+  )
   const endpointPath = path.replace(/^\/+/, '')
   const apiPath = normalizedBaseUrl.endsWith('/v1')
     ? endpointPath

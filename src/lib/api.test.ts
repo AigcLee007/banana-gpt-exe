@@ -378,6 +378,35 @@ describe('callImageApi', () => {
     expect(body.model).toBe('gpt-image-2-svip')
   })
 
+  it('trims the API key before sending GPT Images Authorization headers', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const settings = createOpenAIImagesSettings()
+
+    await callImageApi({
+      settings: {
+        ...settings,
+        apiKey: '  test-key\r\n',
+        profiles: settings.profiles.map((profile) => ({
+          ...profile,
+          apiKey: '  test-key\r\n',
+        })),
+      },
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const headers = (init as RequestInit).headers as Record<string, string>
+    expect(headers.Authorization).toBe('Bearer test-key')
+  })
+
   it('keeps GPT-Image-2 result URLs when browser-side image fetch is blocked', async () => {
     const imageUrl = 'https://example-cdn.invalid/result.png'
     const fetchMock = vi.spyOn(globalThis, 'fetch')
@@ -937,6 +966,7 @@ describe('callImageApi', () => {
   it('uses the same-origin API proxy path when API proxy is locked', async () => {
     vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
     vi.stubEnv('VITE_API_PROXY_LOCKED', 'true')
+    vi.stubEnv('VITE_DEFAULT_API_URL', 'https://vip.aittco.com/v1')
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
     }), {
@@ -958,6 +988,52 @@ describe('callImageApi', () => {
       '/api-proxy/images/generations',
       expect.objectContaining({ method: 'POST' }),
     )
+  })
+
+  it('uses the deployed proxy target path when proxy is locked even if a saved base URL has extra path segments', async () => {
+    vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
+    vi.stubEnv('VITE_API_PROXY_LOCKED', 'true')
+    vi.stubEnv('VITE_DEFAULT_API_URL', 'https://vip.aittco.com/v1')
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIImagesSettings({
+        apiProxy: false,
+        baseUrl: 'https://m.aittco.com/custom-prefix/v1',
+      }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api-proxy/images/generations',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('attaches image request diagnostics when the browser rejects the GPT Images request', async () => {
+    vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
+    vi.stubEnv('VITE_API_PROXY_LOCKED', 'true')
+    vi.stubEnv('VITE_DEFAULT_API_URL', 'https://vip.aittco.com/v1')
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'))
+
+    await expect(callImageApi({
+      settings: createOpenAIImagesSettings({
+        apiProxy: false,
+        baseUrl: 'https://m.aittco.com/custom-prefix/v1',
+      }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })).rejects.toMatchObject({
+      rawResponsePayload: expect.stringContaining('"requestUrl": "/api-proxy/images/generations"'),
+    })
   })
 
   it('does not add cache request headers that require extra CORS allow-list entries', async () => {

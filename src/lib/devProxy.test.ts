@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildApiUrl, normalizeDevProxyConfig } from './devProxy'
 
 describe('buildApiUrl', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('uses the same-origin proxy prefix when API proxy is enabled', () => {
     expect(buildApiUrl('http://api.example.com/v1', 'images/edits', null, true)).toBe(
       '/api-proxy/images/edits',
@@ -39,6 +43,22 @@ describe('buildApiUrl', () => {
     })
 
     expect(buildApiUrl('https://vip.aittco.com', 'images/generations', proxyConfig, true)).toBe(
+      '/api-proxy/images/generations',
+    )
+  })
+
+  it('uses the runtime default API URL to normalize locked Docker proxy paths', () => {
+    vi.stubEnv('VITE_DEFAULT_API_URL', 'https://vip.aittco.com/v1')
+
+    expect(buildApiUrl('https://m.aittco.com/custom-prefix/v1', 'images/generations', null, true)).toBe(
+      '/api-proxy/images/generations',
+    )
+  })
+
+  it('uses the runtime default API URL when a saved proxy base URL is missing the v1 segment', () => {
+    vi.stubEnv('VITE_DEFAULT_API_URL', 'https://vip.aittco.com/v1')
+
+    expect(buildApiUrl('https://vip.aittco.com', 'images/generations', null, true)).toBe(
       '/api-proxy/images/generations',
     )
   })
