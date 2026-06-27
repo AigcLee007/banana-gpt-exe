@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildApiUrl, normalizeDevProxyConfig } from './devProxy'
 
@@ -67,5 +68,16 @@ describe('buildApiUrl', () => {
     expect(buildApiUrl('http://api.example.com/v1', 'responses', null, false)).toBe(
       'http://api.example.com/v1/responses',
     )
+  })
+})
+
+describe('Docker API proxy config', () => {
+  const nginxConfig = readFileSync(new URL('../../deploy/nginx.conf', import.meta.url), 'utf-8')
+
+  it('allows proxied billing quota requests as GET-only endpoints', () => {
+    expect(nginxConfig).toMatch(/location \/api-proxy\/dashboard\/billing\//)
+    expect(nginxConfig).toMatch(/location \/api-proxy\/v1\/dashboard\/billing\//)
+    expect(nginxConfig).toMatch(/limit_except GET OPTIONS/)
+    expect(nginxConfig).toContain('proxy_pass ${API_PROXY_URL}/dashboard/billing/')
   })
 })
