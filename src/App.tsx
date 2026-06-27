@@ -11,6 +11,7 @@ import {
   isDesktopUpdateAvailable,
   isWebUpdateAvailable,
   shouldRunDesktopAutoCheck,
+  shouldRunWebAutoCheck,
   type VersionManifest,
 } from './lib/versionCheck'
 import Header from './components/Header'
@@ -90,8 +91,13 @@ export default function App() {
     const lastAuto = lastAutoRaw ? Number(lastAutoRaw) : null
     const lastFail = lastFailRaw ? Number(lastFailRaw) : null
 
-    if (isDesktop && !manual && !shouldRunDesktopAutoCheck(now, Number.isFinite(lastAuto ?? NaN) ? lastAuto : null, Number.isFinite(lastFail ?? NaN) ? lastFail : null)) {
-      return
+    if (!manual) {
+      const normalizedLastAuto = Number.isFinite(lastAuto ?? NaN) ? lastAuto : null
+      const normalizedLastFail = Number.isFinite(lastFail ?? NaN) ? lastFail : null
+      const shouldRun = isDesktop
+        ? shouldRunDesktopAutoCheck(now, normalizedLastAuto, normalizedLastFail)
+        : shouldRunWebAutoCheck(now, normalizedLastAuto)
+      if (!shouldRun) return
     }
 
     try {
@@ -141,7 +147,7 @@ export default function App() {
     void runVersionCheck(false)
     const interval = window.setInterval(() => {
       void runVersionCheck(false)
-    }, 3 * 60 * 1000)
+    }, 60 * 60 * 1000)
     const onFocus = () => {
       void runVersionCheck(false)
     }

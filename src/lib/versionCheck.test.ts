@@ -7,6 +7,7 @@ import {
   isDesktopUpdateAvailable,
   isWebUpdateAvailable,
   shouldRunDesktopAutoCheck,
+  shouldRunWebAutoCheck,
   type VersionSnapshot,
 } from './versionCheck'
 
@@ -47,6 +48,13 @@ describe('versionCheck', () => {
     expect(shouldRunDesktopAutoCheck(now, now - 1_000, null)).toBe(false)
     expect(shouldRunDesktopAutoCheck(now, now - 25 * 60 * 60 * 1000, null)).toBe(true)
     expect(shouldRunDesktopAutoCheck(now, null, now - 30 * 60 * 1000)).toBe(false)
+  })
+
+  it('web auto check throttles by 1h', () => {
+    const now = 1_000_000
+    expect(shouldRunWebAutoCheck(now, null)).toBe(true)
+    expect(shouldRunWebAutoCheck(now, now - 59 * 60 * 1000)).toBe(false)
+    expect(shouldRunWebAutoCheck(now, now - 60 * 60 * 1000)).toBe(true)
   })
 
   it('returns desktop download url by platform', () => {

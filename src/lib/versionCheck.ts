@@ -76,6 +76,11 @@ export function shouldRunDesktopAutoCheck(
   return now - lastAutoCheckAt >= DAY_MS
 }
 
+export function shouldRunWebAutoCheck(now: number, lastAutoCheckAt: number | null): boolean {
+  if (lastAutoCheckAt == null) return true
+  return now - lastAutoCheckAt >= HOUR_MS
+}
+
 export function getVersionManifestUrl(basePath = '/version.json', now = Date.now()): string {
   const sep = basePath.includes('?') ? '&' : '?'
   return `${basePath}${sep}ts=${now}`
