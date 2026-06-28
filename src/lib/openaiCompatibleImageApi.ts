@@ -267,7 +267,14 @@ function getBananaT3ModelForImageSize(imageSize: ReturnType<typeof normalizeGemi
   return `Nano-banana-pro-${imageSize}`
 }
 
-function buildBananaT3ImagesPayload(opts: CallApiOptions): Record<string, unknown> {
+async function normalizeBananaT3InputImages(inputImages: string[], signal: AbortSignal): Promise<string[]> {
+  return Promise.all(inputImages.map((image) => {
+    if (!isHttpUrl(image)) return Promise.resolve(image)
+    return fetchImageUrlAsDataUrl(`/download-proxy?url=${encodeURIComponent(image)}`, 'image/png', signal)
+  }))
+}
+
+function buildBananaT3ImagesPayload(opts: CallApiOptions, inputImages = opts.inputImageDataUrls): Record<string, unknown> {
   const requestSpec = resolveGeminiRequestSpec(opts.params)
   const payload: Record<string, unknown> = {
     model: getBananaT3ModelForImageSize(requestSpec.imageSize),
@@ -279,12 +286,11 @@ function buildBananaT3ImagesPayload(opts: CallApiOptions): Record<string, unknow
     n: 1,
   }
 
-  if (opts.inputImageDataUrls.length > 0) {
-    const images = opts.inputImageDataUrls
-    payload.image = images[0]
-    payload.images = images
-    payload.reference_image = images[0]
-    payload.reference_images = images
+  if (inputImages.length > 0) {
+    payload.image = inputImages[0]
+    payload.images = inputImages
+    payload.reference_image = inputImages[0]
+    payload.reference_images = inputImages
   }
 
   return payload
@@ -348,8 +354,9 @@ async function callBananaT3ImagesGenerateContent(opts: CallApiOptions, profile: 
         hasInputImages: opts.inputImageDataUrls.length > 0,
       })
     }
+    const inputImageDataUrls = await normalizeBananaT3InputImages(opts.inputImageDataUrls, controller.signal)
     assertImageInputPayloadSize(
-      opts.inputImageDataUrls.reduce((sum, dataUrl) => sum + getDataUrlEncodedByteSize(dataUrl), 0) +
+      inputImageDataUrls.reduce((sum, dataUrl) => sum + getDataUrlEncodedByteSize(dataUrl), 0) +
         (opts.maskDataUrl ? getDataUrlEncodedByteSize(opts.maskDataUrl) : 0),
     )
 
@@ -360,7 +367,7 @@ async function callBananaT3ImagesGenerateContent(opts: CallApiOptions, profile: 
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
-      body: JSON.stringify(buildBananaT3ImagesPayload(opts)),
+      body: JSON.stringify(buildBananaT3ImagesPayload(opts, inputImageDataUrls)),
       signal: controller.signal,
     })
 

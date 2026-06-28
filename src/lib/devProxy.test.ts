@@ -73,11 +73,19 @@ describe('buildApiUrl', () => {
 
 describe('Docker API proxy config', () => {
   const nginxConfig = readFileSync(new URL('../../deploy/nginx.conf', import.meta.url), 'utf-8')
+  const migrateApiEnvScript = readFileSync(new URL('../../deploy/migrate-api-env.envsh', import.meta.url), 'utf-8')
 
   it('allows proxied billing quota requests as GET-only endpoints', () => {
     expect(nginxConfig).toMatch(/location \/api-proxy\/dashboard\/billing\//)
     expect(nginxConfig).toMatch(/location \/api-proxy\/v1\/dashboard\/billing\//)
     expect(nginxConfig).toMatch(/limit_except GET OPTIONS/)
     expect(nginxConfig).toContain('proxy_pass ${API_PROXY_URL}/dashboard/billing/')
+  })
+
+  it('forwards legacy v1 proxy image paths without duplicating the upstream v1 prefix', () => {
+    expect(migrateApiEnvScript).toContain('API_PROXY_LEGACY_V1_BASE_URL')
+    expect(nginxConfig).toMatch(/location ~ \^\/api-proxy\/v1\/\(images\/generations\|images\/edits\|responses\)\$/)
+    expect(nginxConfig).toContain('rewrite ^/api-proxy/v1/(.*)$ /v1/$1 break;')
+    expect(nginxConfig).toContain('proxy_pass ${API_PROXY_LEGACY_V1_BASE_URL};')
   })
 })

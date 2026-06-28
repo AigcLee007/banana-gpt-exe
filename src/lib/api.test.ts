@@ -251,6 +251,50 @@ describe('callImageApi', () => {
     expect(body.generationConfig).toBeUndefined()
   })
 
+  it('converts remote official T3 reference image URLs to data URLs before sending upstream', async () => {
+    const remoteReferenceUrl = 'https://visionary.beer/api/generations/result.png?token=expired'
+    const imageBlob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      if (String(url) === `/download-proxy?url=${encodeURIComponent(remoteReferenceUrl)}`) {
+        return new Response(imageBlob, {
+          status: 200,
+          headers: { 'Content-Type': 'image/png' },
+        })
+      }
+      return new Response(JSON.stringify({
+        data: [{ b64_json: 'aW1hZ2U=' }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+
+    await callImageApi({
+      settings: createGeminiSettings('nano-banana-pro-official-t3'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        size: '3072x5504',
+        geminiAspectRatio: '9:16',
+        geminiImageSize: '4K',
+        geminiOutputPixels: '3072x5504',
+      },
+      inputImageDataUrls: [remoteReferenceUrl],
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(`/download-proxy?url=${encodeURIComponent(remoteReferenceUrl)}`, expect.objectContaining({
+      cache: 'no-store',
+    }))
+    const upstreamCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/v1/images/generations'))
+    expect(upstreamCall).toBeTruthy()
+    const body = JSON.parse(String((upstreamCall?.[1] as RequestInit).body))
+    expect(body.image).toMatch(/^data:image\/png;base64,/)
+    expect(body.images).toEqual([body.image])
+    expect(body.reference_image).toBe(body.image)
+    expect(body.reference_images).toEqual([body.image])
+    expect(body.image).not.toContain('visionary.beer')
+  })
+
   it('sends explicit pixel size for official T3 portrait requests', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
