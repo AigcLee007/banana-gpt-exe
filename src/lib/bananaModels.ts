@@ -1,4 +1,4 @@
-export type BananaModelRoute = 'gemini-native' | 'openai-images' | 'openai-responses'
+export type BananaModelRoute = 'gemini-native' | 'banana-t3-images' | 'openai-images' | 'openai-responses'
 
 export interface BananaGalleryModel {
   displayName: string
@@ -11,7 +11,13 @@ export const AGENT_FIXED_MODEL = 'gpt-5.5'
 
 export const BANANA_MODEL_REGISTRY = [
   {
-    displayName: 'Nano Banana Pro',
+    displayName: 'Nano Banana Pro（官方T3）',
+    model: 'nano-banana-pro-official-t3',
+    providerRoute: 'banana-t3-images',
+    supportsReferenceImages: true,
+  },
+  {
+    displayName: 'Nano Banana Pro（优惠线路）',
     model: 'gemini-3-pro-image-preview',
     providerRoute: 'gemini-native',
     supportsReferenceImages: true,
@@ -23,19 +29,19 @@ export const BANANA_MODEL_REGISTRY = [
     supportsReferenceImages: true,
   },
   {
-    displayName: 'GPT-Image-2',
+    displayName: 'GPT-Image-2(4K线路）',
     model: 'gpt-image-2',
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
   },
   {
-    displayName: 'GPT-Image-2(High)',
+    displayName: 'GPT-Image-2（备用）',
     model: 'gpt-image-2-svip',
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
   },
   {
-    displayName: 'GPT-Image-2(VIP)',
+    displayName: 'GPT-Image-2（Agent线路）',
     model: 'gpt-5.5',
     providerRoute: 'openai-responses',
     supportsReferenceImages: true,
@@ -47,7 +53,7 @@ export const BANANA_GALLERY_MODELS = BANANA_MODEL_REGISTRY.filter((item) => item
 export const DEFAULT_GALLERY_MODEL = 'gemini-3-pro-image-preview'
 
 function normalizeModelLookupKey(value: string): string {
-  return value.trim().toLowerCase().replace(/[_\s-]+/g, '')
+  return value.trim().toLowerCase().replace(/[_\s-]+/g, '').replace(/[()（）]+/g, '')
 }
 
 export function normalizeBananaModelId(model: string): string {
@@ -62,10 +68,11 @@ export function normalizeBananaModelId(model: string): string {
   if (byDisplayName) return byDisplayName.model
 
   if (lookup === 'nanobananapro') return 'gemini-3-pro-image-preview'
+  if (lookup === 'nanobananapro官方t3' || lookup === 'nanobananaproofficialt3' || lookup === 'nanobananaprot3') return 'nano-banana-pro-official-t3'
   if (lookup === 'nanobanana2') return 'gemini-3.1-flash-image-preview'
-  if (lookup === 'gptimage2') return 'gpt-image-2'
-  if (lookup === 'gptimage2high' || lookup === 'gptimage2svip') return 'gpt-image-2-svip'
-  if (lookup === 'gptimage2vip' || lookup === 'gpt55') return 'gpt-5.5'
+  if (lookup === 'gptimage2' || lookup === 'gptimage24k线路') return 'gpt-image-2'
+  if (lookup === 'gptimage2备用' || lookup === 'gptimage2high' || lookup === 'gptimage2svip') return 'gpt-image-2-svip'
+  if (lookup === 'gptimage2agent线路' || lookup === 'gptimage2vip' || lookup === 'gpt55') return 'gpt-5.5'
 
   return trimmed
 }
@@ -106,12 +113,21 @@ export function getBananaDesktopParamGridColumnsForMode(
   agentImageModel: string,
 ): 'grid-cols-4' | 'grid-cols-6' | 'grid-cols-7' {
   const activeRoute = getActiveBananaModelRouteForMode(appMode, galleryModel, agentImageModel)
-  if (activeRoute === 'gemini-native') return 'grid-cols-4'
+  if (activeRoute === 'gemini-native' || activeRoute === 'banana-t3-images') return 'grid-cols-4'
   return appMode === 'gallery' ? 'grid-cols-7' : 'grid-cols-6'
 }
 
 export function isGeminiNativeModel(model: string): boolean {
   return getBananaModelRoute(model) === 'gemini-native'
+}
+
+export function isBananaT3ImagesModel(model: string): boolean {
+  return getBananaModelRoute(model) === 'banana-t3-images'
+}
+
+export function usesGeminiImageParams(model: string): boolean {
+  const route = getBananaModelRoute(model)
+  return route === 'gemini-native' || route === 'banana-t3-images'
 }
 
 export function isOpenAIImagesModel(model: string): boolean {

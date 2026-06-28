@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi, queryApiKeyBalance } from './api'
-import { BANANA_GALLERY_MODELS, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, normalizeBananaModelId } from './bananaModels'
+import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, normalizeBananaModelId } from './bananaModels'
 
 function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   return {
@@ -51,7 +51,7 @@ function createOpenAIResponsesSettingsWithModel(model: string, overrides: Record
   }
 }
 
-function createGeminiSettings(model: 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-image-preview', overrides: Record<string, unknown> = {}) {
+function createGeminiSettings(model: 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-image-preview' | 'nano-banana-pro-official-t3', overrides: Record<string, unknown> = {}) {
   return {
     ...DEFAULT_SETTINGS,
     ...overrides,
@@ -170,6 +170,115 @@ describe('callImageApi', () => {
     })
     expect(body.generationConfig?.responseFormat).toBeUndefined()
     expect(body.size).toBeUndefined()
+  })
+
+  it.each([
+    ['1K', 'Nano-banana-pro-1K', '1024x1024'],
+    ['2K', 'Nano-banana-pro-2K', '2048x2048'],
+    ['4K', 'Nano-banana-pro-4K', '4096x4096'],
+  ] as const)('routes official T3 %s text-to-image through images generations with compatible payload', async (imageSize, expectedModel, outputPixels) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createGeminiSettings('nano-banana-pro-official-t3'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        size: outputPixels,
+        geminiAspectRatio: '1:1',
+        geminiImageSize: imageSize,
+        geminiOutputPixels: outputPixels,
+      },
+      inputImageDataUrls: [],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/images/generations')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.model).toBe(expectedModel)
+    expect(body.prompt).toBe('prompt')
+    expect(body.aspect_ratio).toBe('1:1')
+    expect(body.aspectRatio).toBe('1:1')
+    expect(body.imageSize).toBe(imageSize)
+    expect(body.n).toBe(1)
+    expect(body.contents).toBeUndefined()
+    expect(body.generationConfig).toBeUndefined()
+    expect(body.output_format).toBeUndefined()
+    expect(body.quality).toBeUndefined()
+    expect(body.moderation).toBeUndefined()
+  })
+
+  it('routes official T3 image-to-image through images generations with compatible reference fields', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createGeminiSettings('nano-banana-pro-official-t3'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        size: '3072x5504',
+        geminiAspectRatio: '9:16',
+        geminiImageSize: '4K',
+        geminiOutputPixels: '3072x5504',
+      },
+      inputImageDataUrls: ['data:image/jpeg;base64,aW5wdXQ='],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/images/generations')
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('/v1/images/edits')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.model).toBe('Nano-banana-pro-4K')
+    expect(body.prompt).toBe('prompt')
+    expect(body.aspect_ratio).toBe('9:16')
+    expect(body.aspectRatio).toBe('9:16')
+    expect(body.imageSize).toBe('4K')
+    expect(body.image).toBe('data:image/jpeg;base64,aW5wdXQ=')
+    expect(body.images).toEqual(['data:image/jpeg;base64,aW5wdXQ='])
+    expect(body.reference_image).toBe('data:image/jpeg;base64,aW5wdXQ=')
+    expect(body.reference_images).toEqual(['data:image/jpeg;base64,aW5wdXQ='])
+    expect(body.contents).toBeUndefined()
+    expect(body.generationConfig).toBeUndefined()
+  })
+
+  it('sends explicit pixel size for official T3 portrait requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createGeminiSettings('nano-banana-pro-official-t3'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        size: '1536x2752',
+        geminiAspectRatio: '9:16',
+        geminiImageSize: '2K',
+        geminiOutputPixels: '1536x2752',
+      },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.model).toBe('Nano-banana-pro-2K')
+    expect(body.aspect_ratio).toBe('9:16')
+    expect(body.aspectRatio).toBe('9:16')
+    expect(body.imageSize).toBe('2K')
+    expect(body.size).toBe('1536x2752')
   })
 
   it('ignores empty Gemini inline image parts before saving results', async () => {
@@ -555,7 +664,7 @@ describe('callImageApi', () => {
       size: '1033x1522',
       data: [{
         b64_json: 'aW1hZ2U=',
-        revised_prompt: '移除靴子',
+        revised_prompt: 'removed boots',
       }],
     }), {
       status: 200,
@@ -580,7 +689,7 @@ describe('callImageApi', () => {
       quality: 'medium',
       size: '1033x1522',
     }])
-    expect(result.revisedPrompts).toEqual(['移除靴子'])
+    expect(result.revisedPrompts).toEqual(['removed boots'])
   })
 
   it('does not synthesize actual quality in Codex CLI mode when the API omits it', async () => {
@@ -792,6 +901,32 @@ describe('callImageApi', () => {
     expect(body.generationConfig).toBeUndefined()
     expect(body.responseModalities).toBeUndefined()
     expect(body.imageConfig).toBeUndefined()
+  })
+
+  it('includes a Responses payload shape summary when GPT-Image-2(VIP) returns an unrecognized image result', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      id: 'resp_shape',
+      output: [
+        { type: 'message', content: [{ type: 'output_text', text: 'done' }] },
+        {
+          type: 'image_generation_call',
+          id: 'ig_shape',
+          status: 'completed',
+          result: { url: 'https://cdn.example.com/result.png' },
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await expect(callImageApi({
+      settings: createOpenAIResponsesSettingsWithModel('gpt-5.5'),
+      sourceMode: 'gallery',
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })).rejects.toThrow(/outputCount=2.*image_generation_call.*keys=url/s)
   })
 
   it('routes Gallery GPT-Image-2(VIP) image edit to responses endpoint with input_image', async () => {
@@ -1369,7 +1504,7 @@ describe('callImageApi', () => {
         ...DEFAULT_SETTINGS,
         apiKey: 'test-key',
       },
-    })).rejects.toThrow(/查询总额度失败/)
+    })).rejects.toThrow(/invalid key/)
   })
 
   it('throws a clear error when usage request fails', async () => {
@@ -1392,7 +1527,7 @@ describe('callImageApi', () => {
         ...DEFAULT_SETTINGS,
         apiKey: 'test-key',
       },
-    })).rejects.toThrow(/查询已用额度失败/)
+    })).rejects.toThrow(/usage denied/)
   })
 
   it('redacts api key in thrown errors', async () => {
@@ -1415,29 +1550,32 @@ describe('callImageApi', () => {
 })
 
 describe('bananaModels', () => {
-  it('maps GPT-Image-2(High) display name to gpt-image-2-svip with images route', () => {
-    const model = getBananaModelByDisplayName('GPT-Image-2(High)')
+  it('maps GPT-Image-2（备用） display name to gpt-image-2-svip with images route', () => {
+    const model = getBananaModelByDisplayName('GPT-Image-2（备用）')
     expect(model?.model).toBe('gpt-image-2-svip')
     expect(model?.providerRoute).toBe('openai-images')
     expect(getBananaModelRoute('gpt-image-2-svip')).toBe('openai-images')
     expect(normalizeBananaModelId('GPT-Image-2(High)')).toBe('gpt-image-2-svip')
   })
 
-  it('shows GPT-Image-2(VIP) and maps it to gpt-5.5 responses route', () => {
-    const model = getBananaModelByDisplayName('GPT-Image-2(VIP)')
+  it('shows GPT-Image-2（Agent线路） and maps it to gpt-5.5 responses route', () => {
+    const model = getBananaModelByDisplayName('GPT-Image-2（Agent线路）')
     expect(model?.model).toBe('gpt-5.5')
     expect(model?.providerRoute).toBe('openai-responses')
     expect(getBananaModelRoute('gpt-5.5')).toBe('openai-responses')
     expect(normalizeBananaModelId('GPT-Image-2(VIP)')).toBe('gpt-5.5')
   })
 
-  it('keeps normal GPT-Image-2 mapped to images route', () => {
+  it('keeps GPT-Image-2(4K线路） mapped to images route', () => {
+    const model = getBananaModelByDisplayName('GPT-Image-2(4K线路）')
+    expect(model?.model).toBe('gpt-image-2')
     expect(normalizeBananaModelId('GPT-Image-2')).toBe('gpt-image-2')
     expect(getBananaModelRoute('gpt-image-2')).toBe('openai-images')
   })
 
   it('uses the Agent image model route when deciding which parameter controls to show', () => {
     expect(getActiveBananaModelRouteForMode('agent', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('gemini-native')
+    expect(getActiveBananaModelRouteForMode('agent', 'gpt-image-2', 'nano-banana-pro-official-t3')).toBe('banana-t3-images')
     expect(getActiveBananaModelRouteForMode('agent', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('openai-images')
     expect(getActiveBananaModelRouteForMode('gallery', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('gemini-native')
   })
@@ -1449,6 +1587,8 @@ describe('bananaModels', () => {
 
   it('uses the same four-column desktop parameter layout for Agent and Gallery Gemini image models', () => {
     expect(getBananaDesktopParamGridColumnsForMode('agent', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-4')
+    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gpt-image-2', 'nano-banana-pro-official-t3')).toBe('grid-cols-4')
+    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'nano-banana-pro-official-t3', 'gpt-image-2')).toBe('grid-cols-4')
     expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('grid-cols-4')
     expect(getBananaDesktopParamGridColumnsForMode('agent', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('grid-cols-6')
     expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-7')
@@ -1456,8 +1596,26 @@ describe('bananaModels', () => {
 
   it('shows GPT-Image-2(VIP) and hides Nano Banana 2 in the visible model list', () => {
     const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
+    expect(visibleModels[0]).toBe('nano-banana-pro-official-t3')
+    expect(visibleModels).toContain('nano-banana-pro-official-t3')
     expect(visibleModels).toContain('gpt-image-2-svip')
     expect(visibleModels).toContain('gpt-5.5')
     expect(visibleModels).not.toContain('gemini-3.1-flash-image-preview')
+  })
+
+  it('keeps the discount Nano Banana Pro as the default gallery model', () => {
+    const model = getBananaModelByDisplayName('Nano Banana Pro（优惠线路）')
+    expect(DEFAULT_GALLERY_MODEL).toBe('gemini-3-pro-image-preview')
+    expect(model?.model).toBe(DEFAULT_GALLERY_MODEL)
+    expect(model?.providerRoute).toBe('gemini-native')
+    expect(normalizeBananaModelId('Nano Banana Pro')).toBe(DEFAULT_GALLERY_MODEL)
+  })
+
+  it('maps Nano Banana Pro official T3 display name to the banana T3 images route', () => {
+    const model = BANANA_GALLERY_MODELS.find((item) => item.model === 'nano-banana-pro-official-t3')
+    expect(model?.model).toBe('nano-banana-pro-official-t3')
+    expect(model?.providerRoute).toBe('banana-t3-images')
+    expect(getBananaModelRoute('nano-banana-pro-official-t3')).toBe('banana-t3-images')
+    expect(normalizeBananaModelId('nano-banana-pro-official-t3')).toBe('nano-banana-pro-official-t3')
   })
 })

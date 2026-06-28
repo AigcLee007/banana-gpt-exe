@@ -66,4 +66,29 @@ describe('parameter compatibility', () => {
       ).transparent_output,
     ).toBe(false)
   })
+
+  it('normalizes Nano Banana Pro official T3 with Gemini-style aspect ratio and image size params', () => {
+    const openAIProfile = createDefaultOpenAIProfile({
+      apiKey: 'test-key',
+      model: 'nano-banana-pro-official-t3',
+    })
+    const settings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [openAIProfile],
+      activeProfileId: openAIProfile.id,
+    })
+
+    expect(normalizeParamsForSettings({
+      ...DEFAULT_PARAMS,
+      size: '3072x5504',
+      geminiImageSize: '4K',
+      transparent_output: true,
+    }, settings)).toMatchObject({
+      size: '3072x5504',
+      geminiAspectRatio: '9:16',
+      geminiImageSize: '4K',
+      geminiOutputPixels: '3072x5504',
+      transparent_output: false,
+    })
+  })
 })

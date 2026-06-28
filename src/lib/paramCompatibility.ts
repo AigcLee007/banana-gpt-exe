@@ -1,6 +1,6 @@
 import { DEFAULT_PARAMS, type AppSettings, type TaskParams } from '../types'
 import { getActiveApiProfile } from './apiProfiles'
-import { isGeminiNativeModel } from './bananaModels'
+import { usesGeminiImageParams } from './bananaModels'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import { normalizeImageSize } from './size'
 
@@ -25,7 +25,7 @@ export function normalizeParamsForSettings(
     n: Math.min(outputImageLimit, Math.max(1, params.n || DEFAULT_PARAMS.n)),
   }
 
-  if (isGeminiNativeModel(activeProfile.model)) {
+  if (usesGeminiImageParams(activeProfile.model)) {
     const geminiAspectRatio = params.geminiAspectRatio
       ? normalizeGeminiAspectRatio(params.geminiAspectRatio)
       : normalizeGeminiAspectRatio(params.size)
@@ -37,6 +37,7 @@ export function normalizeParamsForSettings(
     nextParams.geminiAspectRatio = geminiAspectRatio
     nextParams.geminiImageSize = geminiImageSize
     nextParams.geminiOutputPixels = geminiOutputPixels
+    nextParams.transparent_output = false
   } else {
     nextParams.geminiAspectRatio = undefined
     nextParams.geminiImageSize = undefined

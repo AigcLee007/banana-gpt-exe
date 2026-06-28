@@ -1,6 +1,6 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
-import { getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
+import { getBananaModelRoute, isBananaT3ImagesModel, isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
 import { buildApiUrl, isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import {
@@ -263,6 +263,33 @@ async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: Ap
   }
 }
 
+function getBananaT3ModelForImageSize(imageSize: ReturnType<typeof normalizeGeminiImageSize>): string {
+  return `Nano-banana-pro-${imageSize}`
+}
+
+function buildBananaT3ImagesPayload(opts: CallApiOptions): Record<string, unknown> {
+  const requestSpec = resolveGeminiRequestSpec(opts.params)
+  const payload: Record<string, unknown> = {
+    model: getBananaT3ModelForImageSize(requestSpec.imageSize),
+    prompt: opts.prompt,
+    aspect_ratio: requestSpec.aspectRatio,
+    aspectRatio: requestSpec.aspectRatio,
+    imageSize: requestSpec.imageSize,
+    size: requestSpec.outputPixels,
+    n: 1,
+  }
+
+  if (opts.inputImageDataUrls.length > 0) {
+    const images = opts.inputImageDataUrls
+    payload.image = images[0]
+    payload.images = images
+    payload.reference_image = images[0]
+    payload.reference_images = images
+  }
+
+  return payload
+}
+
 async function callGeminiNativeGenerateContentConcurrent(opts: CallApiOptions, profile: ApiProfile, n: number): Promise<CallApiResult> {
   const singleOpts = {
     ...opts,
@@ -273,6 +300,104 @@ async function callGeminiNativeGenerateContentConcurrent(opts: CallApiOptions, p
   }
   const results = await Promise.allSettled(
     Array.from({ length: n }).map(() => callGeminiNativeGenerateContent(singleOpts, profile)),
+  )
+  const successfulResults = results
+    .filter((result): result is PromiseFulfilledResult<CallApiResult> => result.status === 'fulfilled')
+    .map((result) => result.value)
+
+  if (successfulResults.length === 0) {
+    const firstError = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (firstError) throw firstError.reason
+    throw new Error('所有并发请求均失败')
+  }
+
+  const images = successfulResults.flatMap((result) => result.images)
+  const actualParamsList = successfulResults.flatMap((result) =>
+    result.actualParamsList?.length ? result.actualParamsList : result.images.map(() => result.actualParams),
+  )
+  const revisedPrompts = successfulResults.flatMap((result) =>
+    result.revisedPrompts?.length ? result.revisedPrompts : result.images.map(() => undefined),
+  )
+  const rawImageUrls = successfulResults.flatMap((result) => result.rawImageUrls ?? [])
+  const actualParams = mergeActualParams(
+    successfulResults[0]?.actualParams ?? {},
+    { n: images.length },
+  )
+
+  return { images, actualParams, actualParamsList, revisedPrompts, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
+}
+
+async function callBananaT3ImagesGenerateContent(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
+  const proxyConfig = readClientDevProxyConfig()
+  const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
+  const requestUrl = buildApiUrl(profile.baseUrl, 'images/generations', proxyConfig, useApiProxy)
+  const requestSpec = resolveGeminiRequestSpec(opts.params)
+  const requestModel = getBananaT3ModelForImageSize(requestSpec.imageSize)
+
+  try {
+    if (import.meta.env.DEV) {
+      console.debug('[banana t3 payload]', {
+        model: requestModel,
+        aspect_ratio: requestSpec.aspectRatio,
+        size: requestSpec.outputPixels,
+        imageSize: requestSpec.imageSize,
+        expectedPixels: requestSpec.outputPixels,
+        pathname: getDebugPathname(requestUrl),
+        hasInputImages: opts.inputImageDataUrls.length > 0,
+      })
+    }
+    assertImageInputPayloadSize(
+      opts.inputImageDataUrls.reduce((sum, dataUrl) => sum + getDataUrlEncodedByteSize(dataUrl), 0) +
+        (opts.maskDataUrl ? getDataUrlEncodedByteSize(opts.maskDataUrl) : 0),
+    )
+
+    const response = await fetch(requestUrl, {
+      method: 'POST',
+      headers: {
+        ...createRequestHeaders(profile),
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+      body: JSON.stringify(buildBananaT3ImagesPayload(opts)),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response))
+    }
+
+    const result = await parseImagesApiResponse(await response.json() as ImageApiResponse, MIME_MAP[opts.params.output_format], controller.signal)
+    const images = result.images
+    const rawImageUrls = result.rawImageUrls
+    const actualParams = mergeActualParams(result.actualParams, {
+      geminiAspectRatio: requestSpec.aspectRatio,
+      geminiImageSize: requestSpec.imageSize,
+      geminiOutputPixels: requestSpec.outputPixels,
+    })
+    return {
+      ...result,
+      images,
+      ...(rawImageUrls?.length ? { rawImageUrls } : { rawImageUrls: undefined }),
+      actualParams,
+      actualParamsList: images.map(() => actualParams),
+    }
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+async function callBananaT3ImagesGenerateContentConcurrent(opts: CallApiOptions, profile: ApiProfile, n: number): Promise<CallApiResult> {
+  const singleOpts = {
+    ...opts,
+    params: {
+      ...opts.params,
+      n: 1,
+    },
+  }
+  const results = await Promise.allSettled(
+    Array.from({ length: n }).map(() => callBananaT3ImagesGenerateContent(singleOpts, profile)),
   )
   const successfulResults = results
     .filter((result): result is PromiseFulfilledResult<CallApiResult> => result.status === 'fulfilled')
@@ -498,7 +623,8 @@ function parseResponsesImageResults(payload: ResponsesApiResponse, fallbackMime:
   }
 
   if (!results.length) {
-    const err = new Error('接口没有返回可识别的图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。')
+    logUnrecognizedResponsesImagePayload('responses.parseResponsesImageResults', payload)
+    const err = new Error(`接口没有返回可识别的图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。\n\n${formatResponsesImagePayloadShape(payload)}`)
     ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
     throw err
   }
@@ -522,6 +648,72 @@ function getResponsesImageResultBase64(result: ResponsesOutputItem['result']): s
     : ''
 
   return b64.trim() ? b64 : undefined
+}
+
+function getImageResultShape(result: ResponsesOutputItem['result']): Record<string, unknown> {
+  if (typeof result === 'string') {
+    return {
+      kind: 'string',
+      length: result.length,
+      looksDataUrl: isDataUrl(result),
+      looksHttpUrl: isHttpUrl(result),
+    }
+  }
+  if (result && typeof result === 'object') {
+    const record = result as Record<string, unknown>
+    return {
+      kind: 'object',
+      keys: Object.keys(record),
+      b64_jsonLength: typeof record.b64_json === 'string' ? record.b64_json.length : undefined,
+      base64Length: typeof record.base64 === 'string' ? record.base64.length : undefined,
+      imageLength: typeof record.image === 'string' ? record.image.length : undefined,
+      dataLength: typeof record.data === 'string' ? record.data.length : undefined,
+      url: typeof record.url === 'string' ? record.url.slice(0, 160) : undefined,
+    }
+  }
+  return { kind: result == null ? 'nullish' : typeof result }
+}
+
+function logUnrecognizedResponsesImagePayload(context: string, payload: ResponsesApiResponse) {
+  if (!import.meta.env.DEV) return
+  console.debug('[responses image parse miss]', getResponsesImagePayloadShape(context, payload))
+}
+
+function getResponsesImagePayloadShape(context: string, payload: ResponsesApiResponse) {
+  return {
+    context,
+    id: payload.id,
+    outputCount: Array.isArray(payload.output) ? payload.output.length : undefined,
+    outputTypes: Array.isArray(payload.output)
+      ? payload.output.map((item) => ({
+          type: item?.type,
+          status: item?.status,
+          id: typeof item?.id === 'string' ? item.id : undefined,
+          result: item?.type === 'image_generation_call' ? getImageResultShape(item.result) : undefined,
+          contentTypes: Array.isArray(item?.content) ? item.content.map((part) => part?.type) : undefined,
+        }))
+      : undefined,
+    topLevelKeys: Object.keys(payload as Record<string, unknown>),
+  }
+}
+
+function formatResponsesImagePayloadShape(payload: ResponsesApiResponse): string {
+  const shape = getResponsesImagePayloadShape('responses.parseResponsesImageResults', payload)
+  const outputItems = Array.isArray(shape.outputTypes)
+    ? shape.outputTypes.map((item, index) => {
+        const result = item.result as Record<string, unknown> | undefined
+        const resultParts = result
+          ? [
+              result.kind ? `result=${result.kind}` : '',
+              Array.isArray(result.keys) ? `keys=${result.keys.join('|')}` : '',
+              typeof result.length === 'number' ? `length=${result.length}` : '',
+              typeof result.url === 'string' ? `url=${result.url}` : '',
+            ].filter(Boolean).join(',')
+          : ''
+        return `#${index}:${item.type || 'unknown'}${item.status ? `(${item.status})` : ''}${resultParts ? `[${resultParts}]` : ''}`
+      }).join('; ')
+    : 'none'
+  return `Responses payload shape: outputCount=${shape.outputCount ?? 'unknown'}; outputs=${outputItems}`
 }
 
 async function parseImagesApiResponse(payload: ImageApiResponse, mime: string, signal?: AbortSignal): Promise<CallApiResult> {
@@ -722,6 +914,13 @@ export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile
     return n > 1
       ? callGeminiNativeGenerateContentConcurrent(opts, resolvedProfile, n)
       : callGeminiNativeGenerateContent(opts, resolvedProfile)
+  }
+
+  if (resolvedProfile.apiMode !== 'responses' && isBananaT3ImagesModel(resolvedProfile.model)) {
+    const n = opts.params.n > 0 ? opts.params.n : 1
+    return n > 1
+      ? callBananaT3ImagesGenerateContentConcurrent(opts, resolvedProfile, n)
+      : callBananaT3ImagesGenerateContent(opts, resolvedProfile)
   }
 
   return resolvedProfile.apiMode === 'responses'

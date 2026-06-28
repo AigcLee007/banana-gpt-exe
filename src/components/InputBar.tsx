@@ -11,7 +11,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId } from '../lib/bananaModels'
+import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelRoute, normalizeBananaModelId, usesGeminiImageParams } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import Select from './Select'
@@ -670,10 +670,10 @@ export default function InputBar() {
     ? resolvedGalleryModel
     : DEFAULT_GALLERY_MODEL
   const activeImageModelRoute = getActiveBananaModelRouteForMode(appMode, galleryModel, agentImageModel)
-  const isGeminiImageModel = activeImageModelRoute === 'gemini-native'
-  const isGeminiGalleryModel = appMode === 'gallery' && isGeminiNativeModel(galleryModel)
+  const usesGeminiParamControls = activeImageModelRoute === 'gemini-native' || activeImageModelRoute === 'banana-t3-images'
+  const usesGeminiGalleryParams = appMode === 'gallery' && usesGeminiImageParams(galleryModel)
   const desktopParamGridColumns = getBananaDesktopParamGridColumnsForMode(appMode, galleryModel, agentImageModel)
-  const transparentOutputAvailable = appMode === 'gallery' && !isGeminiGalleryModel
+  const transparentOutputAvailable = appMode === 'gallery' && !usesGeminiGalleryParams
   const showTransparentOutputControl = transparentOutputAvailable && params.output_format === 'png'
   const transparentOutputEnabled = showTransparentOutputControl && params.transparent_output
   const geminiAspectRatio = normalizeGeminiAspectRatio(params.geminiAspectRatio ?? params.size)
@@ -1853,7 +1853,7 @@ export default function InputBar() {
           />
         </label>
       )}
-      {isGeminiImageModel ? (
+      {usesGeminiParamControls ? (
         <>
           <label className="flex flex-col gap-0.5">
             <span className="text-gray-400 dark:text-gray-500 ml-1">比例</span>
@@ -2120,7 +2120,7 @@ export default function InputBar() {
         </div>
       )}
 
-      {showSizePicker && !isGeminiImageModel && (
+      {showSizePicker && !usesGeminiParamControls && (
         <SizePickerModal
           currentSize={isFalTextToImage && params.size === 'auto' ? DEFAULT_FAL_IMAGE_SIZE : params.size}
           onSelect={(size) => setParams({ size })}

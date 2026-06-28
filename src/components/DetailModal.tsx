@@ -3,7 +3,7 @@ import { useStore, getCachedImage, ensureImageCached, reuseConfig, editOutputs, 
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { useTooltip } from '../hooks/useTooltip'
-import { getBananaModelById, isGeminiNativeModel } from '../lib/bananaModels'
+import { getBananaModelById, usesGeminiImageParams } from '../lib/bananaModels'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from '../lib/geminiImageSizing'
 import { formatImageRatio } from '../lib/size'
 import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
@@ -222,7 +222,7 @@ export default function DetailModal() {
   const taskModel = task.apiModel || '未知'
   const taskGalleryModel = task.apiModel ? getBananaModelById(task.apiModel) : undefined
   const taskModelDisplayName = taskGalleryModel?.displayName ?? taskModel
-  const isGeminiTask = isGeminiNativeModel(taskModel)
+  const isGeminiTask = usesGeminiImageParams(taskModel)
   const geminiAspectRatioValue = isGeminiTask
     ? normalizeGeminiAspectRatio(
         task.params.geminiAspectRatio

@@ -49,7 +49,7 @@ import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
-import { AGENT_FIXED_MODEL, getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId } from './lib/bananaModels'
+import { AGENT_FIXED_MODEL, getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId, usesGeminiImageParams } from './lib/bananaModels'
 import { createTransparentOutputMeta, getTransparentRequestParams, removeKeyedBackgroundFromDataUrl } from './lib/transparentImage'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
@@ -2216,7 +2216,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     appMode === 'gallery' &&
     normalizedParams.output_format === 'png' &&
     normalizedParams.transparent_output &&
-    !isGeminiNativeModel(activeProfile.model)
+    !usesGeminiImageParams(activeProfile.model)
   const taskParams = shouldUseTransparentOutput
     ? getTransparentRequestParams(normalizedParams)
     : { ...normalizedParams, transparent_output: false }
@@ -3500,18 +3500,37 @@ async function executeAgentRound(
       maskDataUrl?: string
       onPartialImage?: (event: { image: string; partialImageIndex?: number }) => void | Promise<void>
     }) => {
-      const result = await callImageApi({
-        settings: imageRequestSettings,
-        prompt: replaceImageMentionsForApi(opts.prompt, opts.referenceImageDataUrls.length),
-        params: opts.taskParams,
-        inputImageDataUrls: opts.referenceImageDataUrls,
-        maskDataUrl: opts.maskDataUrl,
-        onPartialImage: opts.onPartialImage
-          ? (partial) => {
-              void opts.onPartialImage?.({ image: partial.image, partialImageIndex: partial.partialImageIndex ?? partial.requestIndex })
-            }
-          : undefined,
-      })
+      let result: Awaited<ReturnType<typeof callImageApi>>
+      try {
+        result = await callImageApi({
+          settings: imageRequestSettings,
+          prompt: replaceImageMentionsForApi(opts.prompt, opts.referenceImageDataUrls.length),
+          params: opts.taskParams,
+          inputImageDataUrls: opts.referenceImageDataUrls,
+          maskDataUrl: opts.maskDataUrl,
+          onPartialImage: opts.onPartialImage
+            ? (partial) => {
+                void opts.onPartialImage?.({ image: partial.image, partialImageIndex: partial.partialImageIndex ?? partial.requestIndex })
+              }
+            : undefined,
+        })
+      } catch (err) {
+        const rawPayload = getRawErrorPayload(err).rawResponsePayload
+        if (import.meta.env.DEV) {
+          console.debug('[agent image request failed]', {
+            model: imageProfile.model,
+            apiMode: imageProfile.apiMode,
+            message: err instanceof Error ? err.message : String(err),
+            rawResponsePayloadLength: rawPayload?.length ?? 0,
+            rawResponsePayloadPreview: rawPayload?.slice(0, 1200),
+          })
+        }
+        return {
+          image: null,
+          error: err instanceof Error ? err.message : String(err),
+          rawResponsePayload: rawPayload,
+        }
+      }
       if (opts.signal.aborted) throw createAgentAbortError()
       const dataUrl = result.images[0]
       const failedRequests = 'failedRequests' in result && Array.isArray((result as Record<string, unknown>).failedRequests)
@@ -4317,7 +4336,7 @@ export async function retryTask(task: TaskRecord) {
   const shouldUseTransparentOutput =
     normalizedParams.output_format === 'png' &&
     normalizedParams.transparent_output &&
-    !isGeminiNativeModel(activeProfile.model)
+    !usesGeminiImageParams(activeProfile.model)
   const taskParams = shouldUseTransparentOutput
     ? getTransparentRequestParams(normalizedParams)
     : { ...normalizedParams, transparent_output: false }
