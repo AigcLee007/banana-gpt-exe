@@ -1561,7 +1561,7 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const requestHeaders = createRequestHeaders(profile)
   const isGalleryVipResponses = opts.sourceMode === 'gallery' &&
-    normalizeBananaModelId(profile.model) === 'gpt-5.5' &&
+    (normalizeBananaModelId(profile.model) === 'gpt-5.5' || normalizeBananaModelId(profile.model) === 'gpt-5.5-pro') &&
     getBananaModelRoute(profile.model) === 'openai-responses'
   // Gallery VIP uses non-stream responses for compatibility with vip.aittco.com.
   const shouldStreamResponses = Boolean(profile.streamImages) && !isGalleryVipResponses

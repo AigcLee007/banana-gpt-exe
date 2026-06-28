@@ -14,7 +14,7 @@ import type {
   ReferenceImageEditAction,
 } from '../types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES } from '../types'
-import { AGENT_FIXED_MODEL, DEFAULT_GALLERY_MODEL, getBananaModelById, normalizeBananaModelId } from './bananaModels'
+import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, normalizeBananaModelId } from './bananaModels'
 import { readRuntimeEnv } from './runtimeEnv'
 
 const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://vip.aittco.com'
@@ -457,7 +457,7 @@ function validateImportedProfileRecord(input: unknown) {
 function normalizeAgentImageModel(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) return DEFAULT_GALLERY_MODEL
   const normalized = normalizeBananaModelId(value)
-  return getBananaModelById(normalized) ? normalized : DEFAULT_GALLERY_MODEL
+  return BANANA_GALLERY_MODELS.some((item) => item.model === normalized) ? normalized : DEFAULT_GALLERY_MODEL
 }
 
 export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {

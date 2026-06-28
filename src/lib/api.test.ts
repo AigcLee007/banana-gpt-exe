@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi, queryApiKeyBalance } from './api'
-import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, normalizeBananaModelId } from './bananaModels'
+import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, normalizeBananaModelId } from './bananaModels'
 
 function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   return {
@@ -1602,10 +1602,9 @@ describe('bananaModels', () => {
     expect(normalizeBananaModelId('GPT-Image-2(High)')).toBe('gpt-image-2-svip')
   })
 
-  it('shows GPT-Image-2（Agent线路） and maps it to gpt-5.5 responses route', () => {
+  it('hides GPT-Image-2 Agent line from visible model list while preserving legacy mapping', () => {
     const model = getBananaModelByDisplayName('GPT-Image-2（Agent线路）')
-    expect(model?.model).toBe('gpt-5.5')
-    expect(model?.providerRoute).toBe('openai-responses')
+    expect(model).toBeUndefined()
     expect(getBananaModelRoute('gpt-5.5')).toBe('openai-responses')
     expect(normalizeBananaModelId('GPT-Image-2(VIP)')).toBe('gpt-5.5')
   })
@@ -1638,13 +1637,17 @@ describe('bananaModels', () => {
     expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-7')
   })
 
-  it('shows GPT-Image-2(VIP) and hides Nano Banana 2 in the visible model list', () => {
+  it('shows GPT-Image-2(VIP) and hides Nano Banana 2 plus GPT Agent line in the visible model list', () => {
     const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
     expect(visibleModels[0]).toBe('nano-banana-pro-official-t3')
     expect(visibleModels).toContain('nano-banana-pro-official-t3')
     expect(visibleModels).toContain('gpt-image-2-svip')
-    expect(visibleModels).toContain('gpt-5.5')
+    expect(visibleModels).not.toContain('gpt-5.5')
     expect(visibleModels).not.toContain('gemini-3.1-flash-image-preview')
+  })
+
+  it('uses gpt-5.5-pro as the fixed Agent text model', () => {
+    expect(AGENT_FIXED_MODEL).toBe('gpt-5.5-pro')
   })
 
   it('keeps the discount Nano Banana Pro as the default gallery model', () => {

@@ -1731,7 +1731,7 @@ describe('agent image model selection', () => {
         apiKey: 'test-key',
         apiMode: 'responses',
         model: DEFAULT_RESPONSES_MODEL,
-        agentImageModel: 'gemini-3.1-flash-image-preview',
+        agentImageModel: 'gpt-image-2',
         profiles: [responsesProfile],
         activeProfileId: responsesProfile.id,
       }),
@@ -1805,7 +1805,7 @@ describe('agent image model selection', () => {
     expect(callImageApi).toHaveBeenCalled()
     expect(callBatchImageSingle).not.toHaveBeenCalled()
     const imageSettings = vi.mocked(callImageApi).mock.calls[0]?.[0]?.settings
-    expect(imageSettings.model).toBe('gemini-3.1-flash-image-preview')
+    expect(imageSettings.model).toBe('gpt-image-2')
     expect(imageSettings.apiMode).toBe('images')
   })
 

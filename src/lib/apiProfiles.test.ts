@@ -579,7 +579,7 @@ describe('custom providers', () => {
     })
 
     expect(normalized.model).toBe('gemini-3-pro-image-preview')
-    expect(normalized.agentImageModel).toBe(DEFAULT_RESPONSES_MODEL)
+    expect(normalized.agentImageModel).toBe(DEFAULT_IMAGES_MODEL)
   })
 
   it('does not let legacy responses model override agentImageModel default', () => {
@@ -589,6 +589,14 @@ describe('custom providers', () => {
     })
 
     expect(normalized.model).toBe(DEFAULT_RESPONSES_MODEL)
+    expect(normalized.agentImageModel).toBe(DEFAULT_IMAGES_MODEL)
+  })
+
+  it('falls back when a hidden legacy Agent image model is restored from settings', () => {
+    const normalized = normalizeSettings({
+      agentImageModel: 'gpt-5.5',
+    })
+
     expect(normalized.agentImageModel).toBe(DEFAULT_IMAGES_MODEL)
   })
 
