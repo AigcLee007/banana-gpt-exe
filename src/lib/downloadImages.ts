@@ -6,6 +6,7 @@ const MIME_EXTENSIONS: Record<string, string> = {
   'image/webp': 'webp',
   'image/gif': 'gif',
 }
+const OBJECT_URL_REVOKE_DELAY_MS = 60_000
 
 export interface DownloadImagesResult {
   successCount: number
@@ -30,13 +31,8 @@ export async function downloadImageIds(imageIds: string[], fileNameBase = 'image
       const order = String(index + 1).padStart(2, '0')
       const baseName = multiple ? `${fileNameBase}-${order}` : fileNameBase
 
-      try {
-        const blob = await getImageBlob(getDownloadFetchUrl(src))
-        triggerBlobDownload(blob, `${baseName}.${getBlobExtension(blob)}`)
-      } catch (err) {
-        if (!isHttpUrl(src)) throw err
-        triggerDirectDownload(src, `${baseName}.${getUrlExtension(src)}`)
-      }
+      const blob = await getImageBlob(getDownloadFetchUrl(src))
+      triggerBlobDownload(blob, `${baseName}.${getBlobExtension(blob)}`)
 
       successCount++
       if (multiple) await delay(100)
@@ -56,7 +52,9 @@ async function resolveImageSource(imageIdOrUrl: string): Promise<string> {
 
 async function getImageBlob(src: string): Promise<Blob> {
   const res = await fetch(src)
+  const contentType = res.headers.get('Content-Type')?.toLowerCase() ?? ''
   if (!res.ok && !isDataUrl(src)) throw new Error('读取图片失败')
+  if (!isDataUrl(src) && !contentType.startsWith('image/')) throw new Error('读取图片失败')
   return await res.blob()
 }
 
@@ -67,17 +65,13 @@ function getDownloadFetchUrl(src: string): string {
 function triggerBlobDownload(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob)
   triggerDirectDownload(url, fileName)
-  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+  window.setTimeout(() => URL.revokeObjectURL(url), OBJECT_URL_REVOKE_DELAY_MS)
 }
 
 function triggerDirectDownload(url: string, fileName: string) {
   const a = document.createElement('a')
   a.href = url
   a.download = fileName
-  if (isHttpUrl(url)) {
-    a.target = '_blank'
-    a.rel = 'noopener'
-  }
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -85,15 +79,6 @@ function triggerDirectDownload(url: string, fileName: string) {
 
 function getBlobExtension(blob: Blob): string {
   return MIME_EXTENSIONS[blob.type.toLowerCase()] ?? blob.type.split('/')[1] ?? 'png'
-}
-
-function getUrlExtension(url: string): string {
-  try {
-    const ext = new URL(url).pathname.split('.').pop()?.toLowerCase()
-    return ext && /^[a-z0-9]+$/.test(ext) ? ext : 'png'
-  } catch {
-    return 'png'
-  }
 }
 
 function isDataUrl(value: string): boolean {

@@ -23,6 +23,12 @@ export const BANANA_MODEL_REGISTRY = [
     supportsReferenceImages: true,
   },
   {
+    displayName: 'Nano Banana Pro（备选）',
+    model: 'nano-banana-pro',
+    providerRoute: 'gemini-native',
+    supportsReferenceImages: true,
+  },
+  {
     displayName: 'Nano Banana 2',
     model: 'gemini-3.1-flash-image-preview',
     providerRoute: 'gemini-native',
@@ -71,6 +77,7 @@ export function normalizeBananaModelId(model: string): string {
   if (byDisplayName) return byDisplayName.model
 
   if (lookup === 'nanobananapro') return 'gemini-3-pro-image-preview'
+  if (lookup === 'nanobananapro备选') return 'nano-banana-pro'
   if (lookup === 'nanobananapro官方t3' || lookup === 'nanobananaproofficialt3' || lookup === 'nanobananaprot3') return 'nano-banana-pro-official-t3'
   if (lookup === 'nanobanana2') return 'gemini-3.1-flash-image-preview'
   if (lookup === 'gptimage2' || lookup === 'gptimage24k线路') return 'gpt-image-2'

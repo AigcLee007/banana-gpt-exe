@@ -132,13 +132,14 @@ async function probeNoCorsReachability(url: string, timeoutMs = 8000): Promise<'
   }
 }
 
-export async function fetchImageUrlAsDataUrl(url: string, fallbackMime: string, signal?: AbortSignal): Promise<string> {
+export async function fetchImageUrlAsDataUrl(url: string, fallbackMime: string, signal?: AbortSignal, headers?: Record<string, string>): Promise<string> {
   if (isDataUrl(url)) return url
 
   let response: Response
   try {
     response = await fetch(url, {
       cache: 'no-store',
+      ...(headers ? { headers } : {}),
       signal,
     })
   } catch (err) {

@@ -51,7 +51,7 @@ function createOpenAIResponsesSettingsWithModel(model: string, overrides: Record
   }
 }
 
-function createGeminiSettings(model: 'gemini-3-pro-image-preview' | 'gemini-3.1-flash-image-preview' | 'nano-banana-pro-official-t3', overrides: Record<string, unknown> = {}) {
+function createGeminiSettings(model: 'gemini-3-pro-image-preview' | 'nano-banana-pro' | 'gemini-3.1-flash-image-preview' | 'nano-banana-pro-official-t3', overrides: Record<string, unknown> = {}) {
   return {
     ...DEFAULT_SETTINGS,
     ...overrides,
@@ -415,6 +415,59 @@ describe('callImageApi', () => {
     })
 
     expect(result.images).toEqual([imageUrl])
+    expect(result.rawImageUrls).toEqual([imageUrl])
+  })
+
+  it('routes backup Nano Banana Pro through nano-banana-pro and stores URL results as data URLs', async () => {
+    const imageUrl = 'https://visionary.beer/api/generations/result.png'
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.includes('/v1beta/models/nano-banana-pro:generateContent')) {
+        return new Response(JSON.stringify({
+          id: '560276cf-aa3a-40cd-ba22-f3882b126d4a',
+          results: [
+            {
+              url: imageUrl,
+              content: '',
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url === `/download-proxy?url=${encodeURIComponent(imageUrl)}`) {
+        if ((init?.headers as Record<string, string> | undefined)?.Authorization !== 'Bearer test-key') {
+          return new Response('Unauthorized', { status: 401 })
+        }
+        return new Response(new Blob(['image'], { type: 'image/png' }), {
+          status: 200,
+          headers: { 'Content-Type': 'image/png' },
+        })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    const result = await callImageApi({
+      settings: createGeminiSettings('nano-banana-pro'),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        n: 1,
+        geminiAspectRatio: '9:16',
+        geminiImageSize: '4K',
+      },
+      inputImageDataUrls: [],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1beta/models/nano-banana-pro:generateContent')
+    expect(fetchMock).toHaveBeenCalledWith(`/download-proxy?url=${encodeURIComponent(imageUrl)}`, expect.objectContaining({
+      cache: 'no-store',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer test-key',
+      }),
+    }))
+    expect(result.images[0]).toMatch(/^data:image\/png;base64,/)
     expect(result.rawImageUrls).toEqual([imageUrl])
   })
 
@@ -1656,6 +1709,17 @@ describe('bananaModels', () => {
     expect(model?.model).toBe(DEFAULT_GALLERY_MODEL)
     expect(model?.providerRoute).toBe('gemini-native')
     expect(normalizeBananaModelId('Nano Banana Pro')).toBe(DEFAULT_GALLERY_MODEL)
+  })
+
+  it('shows backup Nano Banana Pro as a separate visible Gemini line', () => {
+    const model = getBananaModelByDisplayName('Nano Banana Pro（备选）')
+    const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
+    expect(model?.model).toBe('nano-banana-pro')
+    expect(model?.providerRoute).toBe('gemini-native')
+    expect(model?.supportsReferenceImages).toBe(true)
+    expect(visibleModels).toContain('nano-banana-pro')
+    expect(normalizeBananaModelId('Nano Banana Pro（备选）')).toBe('nano-banana-pro')
+    expect(getActiveBananaModelRouteForMode('agent', 'gpt-image-2', 'nano-banana-pro')).toBe('gemini-native')
   })
 
   it('maps Nano Banana Pro official T3 display name to the banana T3 images route', () => {
