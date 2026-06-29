@@ -43,6 +43,7 @@ function loadDevProxyConfig() {
 const DOWNLOAD_PROXY_ALLOWED_HOSTS = new Set([
   'file1.aitohumanize.com',
   'file2.aitohumanize.com',
+  'file4.aitohumanize.com',
   'file5.aitohumanize.com',
   'visionary.beer',
 ])
@@ -65,7 +66,9 @@ function proxyDownloadUrl(targetUrl: URL, req: IncomingMessage, res: ServerRespo
     return
   }
 
-  const authorization = typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined
+  const authorization = targetUrl.hostname === 'visionary.beer' && typeof req.headers.authorization === 'string'
+    ? req.headers.authorization
+    : undefined
   const upstream = request(targetUrl, {
     method: 'GET',
     headers: authorization ? { Authorization: authorization } : undefined,

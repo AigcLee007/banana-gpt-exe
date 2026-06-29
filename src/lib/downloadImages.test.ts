@@ -116,6 +116,30 @@ describe('downloadImageIds', () => {
     expect(dom.anchor.click).toHaveBeenCalledTimes(1)
   })
 
+  it('downloads file4 images through the same-origin proxy blob path', async () => {
+    const dom = installDownloadDomMock()
+    const imageUrl = 'https://file4.aitohumanize.com/file/result.png'
+    const imageBlob = new Blob(['image'], { type: 'image/png' })
+    vi.mocked(ensureImageCached).mockResolvedValue(imageUrl)
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === `/download-proxy?url=${encodeURIComponent(imageUrl)}`) {
+        return new Response(imageBlob, { status: 200, headers: { 'Content-Type': 'image/png' } })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await downloadImageIds(['image-id'], 'task-file4')
+
+    expect(result).toEqual({ successCount: 1, failCount: 0 })
+    expect(fetchMock).toHaveBeenCalledWith(`/download-proxy?url=${encodeURIComponent(imageUrl)}`)
+    expect(dom.anchor.href).toBe('blob:download-url')
+    expect(dom.anchor.download).toBe('task-file4.png')
+    expect((dom.anchor as unknown as { target?: string }).target).not.toBe('_blank')
+    expect(dom.anchor.click).toHaveBeenCalledTimes(1)
+  })
+
   it('downloads file5 images through the same-origin proxy blob path', async () => {
     const dom = installDownloadDomMock()
     const imageUrl = 'https://file5.aitohumanize.com/file/result.png'
