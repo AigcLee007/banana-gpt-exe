@@ -64,6 +64,10 @@ export default function DetailModal() {
     () => tasks.find((t) => t.id === detailTaskId) ?? null,
     [tasks, detailTaskId],
   )
+  const taskDownloadApiKey = useMemo(() => {
+    if (!task?.apiProfileId) return ''
+    return settings.profiles.find((profile) => profile.id === task.apiProfileId)?.apiKey?.trim() ?? ''
+  }, [settings.profiles, task?.apiProfileId])
   const streamPreviewItems = useMemo(() => {
     const slotEntries = streamPreviewSlots
       ? Object.entries(streamPreviewSlots)
@@ -355,7 +359,7 @@ export default function DetailModal() {
     if (!currentOutputImageId || !task) return
 
     try {
-      const result = await downloadImageIds([currentOutputImageId], `task-${task.id}`)
+      const result = await downloadImageIds([currentOutputImageId], `task-${task.id}`, { apiKey: taskDownloadApiKey })
       if (result.successCount === 0) {
         showToast('下载失败', 'error')
       } else {
@@ -372,7 +376,7 @@ export default function DetailModal() {
     if (!task?.outputImages?.length) return
 
     try {
-      const result = await downloadImageIds(task.outputImages, `task-${task.id}`)
+      const result = await downloadImageIds(task.outputImages, `task-${task.id}`, { apiKey: taskDownloadApiKey })
       if (result.successCount === 0) {
         showToast('下载失败', 'error')
       } else if (result.failCount > 0) {
@@ -391,7 +395,7 @@ export default function DetailModal() {
     if (!currentOriginalOutputImageId || !task) return
 
     try {
-      const result = await downloadImageIds([currentOriginalOutputImageId], `task-${task.id}-orig`)
+      const result = await downloadImageIds([currentOriginalOutputImageId], `task-${task.id}-orig`, { apiKey: taskDownloadApiKey })
       if (result.successCount === 0) {
         showToast('下载失败', 'error')
       } else {
@@ -407,7 +411,7 @@ export default function DetailModal() {
     if (!task || !streamPartialImageIds.length) return
 
     try {
-      const result = await downloadImageIds(streamPartialImageIds, `task-${task.id}-partial`)
+      const result = await downloadImageIds(streamPartialImageIds, `task-${task.id}-partial`, { apiKey: taskDownloadApiKey })
       if (result.successCount === 0) {
         showToast('下载失败', 'error')
       } else if (result.failCount > 0) {
