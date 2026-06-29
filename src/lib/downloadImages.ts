@@ -36,6 +36,13 @@ export async function downloadImageIds(imageIds: string[], fileNameBase = 'image
       const order = String(index + 1).padStart(2, '0')
       const baseName = multiple ? `${fileNameBase}-${order}` : fileNameBase
 
+      if (shouldOpenInNewTab(src)) {
+        openImageInNewTab(src)
+        successCount++
+        if (multiple) await delay(100)
+        continue
+      }
+
       const blob = await getImageBlob(getDownloadFetchUrl(src), getDownloadRequestInit(src, imageId, options))
       triggerBlobDownload(blob, `${baseName}.${getBlobExtension(blob)}`)
 
@@ -74,6 +81,14 @@ function getDownloadRequestInit(src: string, imageIdOrUrl: string, options: Down
 
 function shouldForwardDownloadApiKey(src: string): boolean {
   return src.startsWith('https://visionary.beer/')
+}
+
+function shouldOpenInNewTab(src: string): boolean {
+  return src.startsWith('https://visionary.beer/')
+}
+
+function openImageInNewTab(src: string) {
+  window.open(src, '_blank', 'noopener,noreferrer')
 }
 
 function getTaskApiKeyForImage(imageId: string): string {

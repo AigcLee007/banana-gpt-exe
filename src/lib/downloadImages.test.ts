@@ -33,6 +33,7 @@ function installDownloadDomMock() {
     },
   })
   vi.stubGlobal('window', {
+    open: vi.fn(),
     setTimeout: vi.fn(),
   })
   vi.stubGlobal('URL', {
@@ -49,35 +50,24 @@ describe('downloadImageIds', () => {
     vi.unstubAllGlobals()
   })
 
-  it('downloads a cached remote image through the same-origin proxy after validating the response is an image', async () => {
+  it('opens visionary image URLs in a new tab without waiting for proxy blob download', async () => {
     const dom = installDownloadDomMock()
     const imageUrl = 'https://visionary.beer/api/generations/result.png'
-    const imageBlob = new Blob(['image'], { type: 'image/png' })
     vi.mocked(ensureImageCached).mockResolvedValue(imageUrl)
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url === `/download-proxy?url=${imageUrl}`) {
-        return new Response(imageBlob, { status: 200, headers: { 'Content-Type': 'image/png' } })
-      }
-      throw new Error(`unexpected fetch: ${url}`)
-    })
+    const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await downloadImageIds(['image-id'], 'task-a')
 
     expect(result).toEqual({ successCount: 1, failCount: 0 })
-    expect(fetchMock).toHaveBeenCalledWith(`/download-proxy?url=${imageUrl}`)
-    expect(dom.anchor.href).toBe('blob:download-url')
-    expect(dom.anchor.download).toBe('task-a.png')
-    expect((dom.anchor as unknown as { target?: string }).target).not.toBe('_blank')
-    expect(dom.anchor.click).toHaveBeenCalledTimes(1)
-    expect(window.setTimeout).toHaveBeenCalledWith(expect.any(Function), 60000)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(window.open).toHaveBeenCalledWith(imageUrl, '_blank', 'noopener,noreferrer')
+    expect(dom.anchor.click).not.toHaveBeenCalled()
   })
 
-  it('sends the task API key when downloading visionary image URLs through the proxy', async () => {
+  it('opens visionary image URLs with tokens in a new tab without proxy authorization', async () => {
     const dom = installDownloadDomMock()
     const imageUrl = 'https://visionary.beer/api/generations/result.png?token=image-token'
-    const imageBlob = new Blob(['image'], { type: 'image/png' })
     vi.mocked(ensureImageCached).mockResolvedValue(imageUrl)
     vi.mocked(useStore.getState).mockReturnValue({
       settings: {
@@ -98,27 +88,15 @@ describe('downloadImageIds', () => {
         },
       ],
     } as any)
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      if (url === `/download-proxy?url=${imageUrl}`) {
-        if ((init?.headers as Record<string, string> | undefined)?.Authorization !== 'Bearer test-key') {
-          return new Response('Unauthorized', { status: 401 })
-        }
-        return new Response(imageBlob, { status: 200, headers: { 'Content-Type': 'image/png' } })
-      }
-      throw new Error(`unexpected fetch: ${url}`)
-    })
+    const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await downloadImageIds(['image-id'], 'task-a', { apiKey: 'test-key' })
 
     expect(result).toEqual({ successCount: 1, failCount: 0 })
-    expect(fetchMock).toHaveBeenCalledWith(`/download-proxy?url=${imageUrl}`, expect.objectContaining({
-      headers: {
-        Authorization: 'Bearer test-key',
-      },
-    }))
-    expect(dom.anchor.click).toHaveBeenCalledTimes(1)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(window.open).toHaveBeenCalledWith(imageUrl, '_blank', 'noopener,noreferrer')
+    expect(dom.anchor.click).not.toHaveBeenCalled()
   })
 
   it('downloads file1 redirected images through the same-origin proxy blob path', async () => {
@@ -217,27 +195,18 @@ describe('downloadImageIds', () => {
     expect(dom.anchor.click).toHaveBeenCalledTimes(1)
   })
 
-  it('does not open the proxy error page when a remote image url has expired', async () => {
+  it('opens expired visionary URLs in a new tab instead of opening the proxy error page', async () => {
     const dom = installDownloadDomMock()
     const imageUrl = 'https://visionary.beer/api/generations/expired/image?token=expired'
     vi.mocked(ensureImageCached).mockResolvedValue(imageUrl)
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url === `/download-proxy?url=${imageUrl}`) {
-        return new Response('Download proxy upstream error', { status: 401 })
-      }
-      throw new Error(`unexpected fetch: ${url}`)
-    })
+    const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await downloadImageIds(['image-id'], 'task-expired')
 
-    expect(result).toEqual({ successCount: 0, failCount: 1 })
-    expect(fetchMock).toHaveBeenCalledWith(`/download-proxy?url=${imageUrl}`, expect.objectContaining({
-      headers: expect.objectContaining({
-        Authorization: 'Bearer test-key',
-      }),
-    }))
+    expect(result).toEqual({ successCount: 1, failCount: 0 })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(window.open).toHaveBeenCalledWith(imageUrl, '_blank', 'noopener,noreferrer')
     expect(dom.anchor.click).not.toHaveBeenCalled()
     expect((dom.anchor as unknown as { target?: string }).target).not.toBe('_blank')
   })
