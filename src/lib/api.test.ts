@@ -418,7 +418,7 @@ describe('callImageApi', () => {
     expect(result.rawImageUrls).toEqual([imageUrl])
   })
 
-  it('routes backup Nano Banana Pro through nano-banana-pro and stores URL results as data URLs', async () => {
+  it('routes backup Nano Banana Pro through nano-banana-pro and keeps URL results for later proxied download', async () => {
     const imageUrl = 'https://visionary.beer/api/generations/result.png'
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
@@ -434,15 +434,6 @@ describe('callImageApi', () => {
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
-        })
-      }
-      if (url === `/download-proxy?url=${encodeURIComponent(imageUrl)}`) {
-        if ((init?.headers as Record<string, string> | undefined)?.Authorization !== 'Bearer test-key') {
-          return new Response('Unauthorized', { status: 401 })
-        }
-        return new Response(new Blob(['image'], { type: 'image/png' }), {
-          status: 200,
-          headers: { 'Content-Type': 'image/png' },
         })
       }
       throw new Error(`unexpected fetch: ${url}`)
@@ -461,13 +452,8 @@ describe('callImageApi', () => {
     })
 
     expect(String(fetchMock.mock.calls[0][0])).toContain('/v1beta/models/nano-banana-pro:generateContent')
-    expect(fetchMock).toHaveBeenCalledWith(`/download-proxy?url=${encodeURIComponent(imageUrl)}`, expect.objectContaining({
-      cache: 'no-store',
-      headers: expect.objectContaining({
-        Authorization: 'Bearer test-key',
-      }),
-    }))
-    expect(result.images[0]).toMatch(/^data:image\/png;base64,/)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(result.images).toEqual([imageUrl])
     expect(result.rawImageUrls).toEqual([imageUrl])
   })
 

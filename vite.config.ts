@@ -43,8 +43,14 @@ function loadDevProxyConfig() {
 const DOWNLOAD_PROXY_ALLOWED_HOSTS = new Set([
   'file1.aitohumanize.com',
   'file2.aitohumanize.com',
+  'file3.aitohumanize.com',
   'file4.aitohumanize.com',
   'file5.aitohumanize.com',
+  'file6.aitohumanize.com',
+  'file7.aitohumanize.com',
+  'file8.aitohumanize.com',
+  'file9.aitohumanize.com',
+  'file10.aitohumanize.com',
   'visionary.beer',
 ])
 

@@ -203,22 +203,6 @@ function normalizeGeminiImageResult(payload: unknown): CallApiResult {
   }
 }
 
-function shouldMaterializeGeminiUrlOutputs(model: string): boolean {
-  return normalizeBananaModelId(model) === 'nano-banana-pro'
-}
-
-async function materializeGeminiUrlOutputs(images: string[], profile: ApiProfile, signal?: AbortSignal): Promise<string[]> {
-  return Promise.all(images.map((image) => {
-    if (!isHttpUrl(image)) return Promise.resolve(image)
-    return fetchImageUrlAsDataUrl(
-      `/download-proxy?url=${encodeURIComponent(image)}`,
-      'image/png',
-      signal,
-      createRequestHeaders(profile),
-    )
-  }))
-}
-
 async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
@@ -260,11 +244,8 @@ async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: Ap
     }
 
     const result = normalizeGeminiImageResult(await response.json())
-    const outputImages = result.images.slice(-1)
-    const images = shouldMaterializeGeminiUrlOutputs(profile.model)
-      ? await materializeGeminiUrlOutputs(outputImages, profile, controller.signal)
-      : outputImages
-    const rawImageUrls = result.rawImageUrls?.filter((url) => outputImages.includes(url))
+    const images = result.images.slice(-1)
+    const rawImageUrls = result.rawImageUrls?.filter((url) => images.includes(url))
     const actualParams = mergeActualParams(result.actualParams, {
       geminiAspectRatio: requestSpec.aspectRatio,
       geminiImageSize: requestSpec.imageSize,
