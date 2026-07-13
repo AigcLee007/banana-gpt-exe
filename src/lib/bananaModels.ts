@@ -35,8 +35,20 @@ export const BANANA_MODEL_REGISTRY = [
     supportsReferenceImages: true,
   },
   {
+    displayName: 'Nano Banana 2 Lite',
+    model: 'gemini-3.1-flash-lite-image',
+    providerRoute: 'gemini-native',
+    supportsReferenceImages: true,
+  },
+  {
     displayName: 'GPT-Image-2(4K线路）',
     model: 'gpt-image-2',
+    providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+  },
+  {
+    displayName: 'GPT-Image-2(官转线路，支持高质量4K）',
+    model: 'gpt-image-2-official',
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
   },
@@ -55,7 +67,6 @@ export const BANANA_MODEL_REGISTRY = [
 ] as const satisfies readonly BananaGalleryModel[]
 
 export const BANANA_GALLERY_MODELS = BANANA_MODEL_REGISTRY.filter((item) =>
-  item.model !== 'gemini-3.1-flash-image-preview' &&
   item.model !== 'gpt-5.5'
 )
 

@@ -51,7 +51,7 @@ function createOpenAIResponsesSettingsWithModel(model: string, overrides: Record
   }
 }
 
-function createGeminiSettings(model: 'gemini-3-pro-image-preview' | 'nano-banana-pro' | 'gemini-3.1-flash-image-preview' | 'nano-banana-pro-official-t3', overrides: Record<string, unknown> = {}) {
+function createGeminiSettings(model: 'gemini-3-pro-image-preview' | 'nano-banana-pro' | 'gemini-3.1-flash-image-preview' | 'gemini-3.1-flash-lite-image' | 'nano-banana-pro-official-t3', overrides: Record<string, unknown> = {}) {
   return {
     ...DEFAULT_SETTINGS,
     ...overrides,
@@ -547,6 +547,45 @@ describe('callImageApi', () => {
     expect(body.generationConfig).toBeUndefined()
     expect(body.responseModalities).toBeUndefined()
     expect(body.imageConfig).toBeUndefined()
+  })
+
+  it('routes Nano Banana 2 Lite through Gemini native generateContent', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] } }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createGeminiSettings('gemini-3.1-flash-lite-image'),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1beta/models/gemini-3.1-flash-lite-image:generateContent')
+  })
+
+  it('routes the official GPT-Image-2 model through images generations', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIImagesSettingsWithModel('gpt-image-2-official'),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/images/generations')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.model).toBe('gpt-image-2-official')
   })
 
   it('routes GPT-Image-2(High) text-to-image to images generations', async () => {
@@ -1633,6 +1672,29 @@ describe('callImageApi', () => {
 })
 
 describe('bananaModels', () => {
+  it('shows Nano Banana 2 and the new image model lines', () => {
+    const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
+    const nanoBanana2 = getBananaModelByDisplayName('Nano Banana 2')
+    const nanoBanana2Lite = getBananaModelByDisplayName('Nano Banana 2 Lite')
+    const officialGptImage2 = getBananaModelByDisplayName('GPT-Image-2(官转线路，支持高质量4K）')
+
+    expect(nanoBanana2?.model).toBe('gemini-3.1-flash-image-preview')
+    expect(nanoBanana2?.providerRoute).toBe('gemini-native')
+    expect(nanoBanana2Lite?.model).toBe('gemini-3.1-flash-lite-image')
+    expect(nanoBanana2Lite?.providerRoute).toBe('gemini-native')
+    expect(nanoBanana2Lite?.supportsReferenceImages).toBe(true)
+    expect(officialGptImage2?.model).toBe('gpt-image-2-official')
+    expect(officialGptImage2?.providerRoute).toBe('openai-images')
+    expect(officialGptImage2?.supportsReferenceImages).toBe(true)
+    expect(visibleModels).toEqual(expect.arrayContaining([
+      'gemini-3.1-flash-image-preview',
+      'gemini-3.1-flash-lite-image',
+      'gpt-image-2-official',
+    ]))
+    expect(getBananaModelRoute('gemini-3.1-flash-lite-image')).toBe('gemini-native')
+    expect(getBananaModelRoute('gpt-image-2-official')).toBe('openai-images')
+  })
+
   it('maps GPT-Image-2（备用） display name to gpt-image-2-svip with images route', () => {
     const model = getBananaModelByDisplayName('GPT-Image-2（备用）')
     expect(model?.model).toBe('gpt-image-2-svip')
@@ -1676,13 +1738,13 @@ describe('bananaModels', () => {
     expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-7')
   })
 
-  it('shows GPT-Image-2(VIP) and hides Nano Banana 2 plus GPT Agent line in the visible model list', () => {
+  it('shows the configured gallery models and hides the legacy GPT Agent line', () => {
     const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
     expect(visibleModels[0]).toBe('nano-banana-pro-official-t3')
     expect(visibleModels).toContain('nano-banana-pro-official-t3')
     expect(visibleModels).toContain('gpt-image-2-svip')
+    expect(visibleModels).toContain('gemini-3.1-flash-image-preview')
     expect(visibleModels).not.toContain('gpt-5.5')
-    expect(visibleModels).not.toContain('gemini-3.1-flash-image-preview')
   })
 
   it('uses gpt-5.6-sol as the fixed Agent text model', () => {
