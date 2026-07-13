@@ -7,7 +7,7 @@ export interface BananaGalleryModel {
   supportsReferenceImages: boolean
 }
 
-export const AGENT_FIXED_MODEL = 'gpt-5.5-pro'
+export const AGENT_FIXED_MODEL = 'gpt-5.6-sol'
 
 export const BANANA_MODEL_REGISTRY = [
   {

@@ -1685,8 +1685,8 @@ describe('bananaModels', () => {
     expect(visibleModels).not.toContain('gemini-3.1-flash-image-preview')
   })
 
-  it('uses gpt-5.5-pro as the fixed Agent text model', () => {
-    expect(AGENT_FIXED_MODEL).toBe('gpt-5.5-pro')
+  it('uses gpt-5.6-sol as the fixed Agent text model', () => {
+    expect(AGENT_FIXED_MODEL).toBe('gpt-5.6-sol')
   })
 
   it('keeps the discount Nano Banana Pro as the default gallery model', () => {
