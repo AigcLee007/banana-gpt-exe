@@ -4,6 +4,8 @@ import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi, queryApiKeyBalance } from './api'
 import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, getBananaSupportedSizeTiers, normalizeBananaModelId } from './bananaModels'
 
+const NEW_OPENAI_IMAGE_MODELS = ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'seedream-5-pro'] as const
+
 function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   return {
     ...DEFAULT_SETTINGS,
@@ -588,6 +590,39 @@ describe('callImageApi', () => {
     expect(body.model).toBe('gpt-image-2-official')
   })
 
+  it.each(NEW_OPENAI_IMAGE_MODELS)('routes %s text-to-image through the existing Images API payload', async (model) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIImagesSettingsWithModel(model),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        size: '2048x2048',
+        quality: 'high',
+        output_format: 'webp',
+      },
+      inputImageDataUrls: [],
+    })
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/images/generations')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body).toMatchObject({
+      model,
+      prompt: 'prompt',
+      size: '2048x2048',
+      quality: 'high',
+      output_format: 'webp',
+      moderation: 'auto',
+    })
+  })
+
   it('routes GPT-Image-2(High) text-to-image to images generations', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'aW1hZ2U=' }],
@@ -751,6 +786,35 @@ describe('callImageApi', () => {
     const editCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/v1/images/edits'))
     const formData = editCall?.[1] && (editCall[1] as RequestInit).body as FormData
     expect(formData?.get('model')).toBe('gpt-image-2-svip')
+  })
+
+  it.each(NEW_OPENAI_IMAGE_MODELS)('routes %s reference images through the existing Images edit payload', async (model) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: createOpenAIImagesSettingsWithModel(model),
+      prompt: 'prompt',
+      params: {
+        ...DEFAULT_PARAMS,
+        size: '2048x2048',
+        quality: 'high',
+        output_format: 'webp',
+      },
+      inputImageDataUrls: ['data:image/png;base64,aW5wdXQ='],
+    })
+
+    const editCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/v1/images/edits'))
+    const formData = editCall?.[1] && (editCall[1] as RequestInit).body as FormData
+    expect(formData?.get('model')).toBe(model)
+    expect(formData?.get('prompt')).toBe('prompt')
+    expect(formData?.get('size')).toBe('2048x2048')
+    expect(formData?.get('quality')).toBe('high')
+    expect(formData?.get('output_format')).toBe('webp')
   })
 
   it('splits GPT-Image-2 multi-image edits into parallel single-image requests', async () => {
@@ -969,7 +1033,7 @@ describe('callImageApi', () => {
     ])
   })
 
-  it.each(['gpt-image-2', 'gpt-image-2-svip'])(
+  it.each(['gpt-image-2', 'gpt-image-2-svip', ...NEW_OPENAI_IMAGE_MODELS])(
     'does not send stream fields for %s Images API requests',
     async (model) => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
