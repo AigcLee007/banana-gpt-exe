@@ -22,6 +22,7 @@
 - `src/lib/paramCompatibility.test.ts`: Seedream downgrade and legacy behavior coverage.
 - `src/lib/apiProfiles.test.ts`: persisted Agent model normalization coverage.
 - `package.json`: increment the patch release from `0.4.6-banana.9` to `0.4.6-banana.10`.
+- `package-lock.json`: keep the root package version aligned with `package.json`.
 - `docs/releases/2026-09-09-v0.4.6-banana.10.md`: record the model additions and Seedream size restriction.
 
 ### Task 1: Add capability-aware size primitives and model registry
@@ -227,6 +228,7 @@ git commit -m "test: cover new image model request routing"
 
 **Files:**
 - Modify: `package.json`
+- Modify: `package-lock.json`
 - Create: `docs/releases/2026-09-09-v0.4.6-banana.10.md`
 
 - [ ] **Step 1: Update the patch version**
@@ -251,7 +253,7 @@ Expected result: all tests pass, the build succeeds, the diff has no whitespace 
 - [ ] **Step 4: Commit release metadata**
 
 ```powershell
-git add package.json docs/releases/2026-09-09-v0.4.6-banana.10.md
+git add package.json package-lock.json docs/releases/2026-09-09-v0.4.6-banana.10.md
 git commit -m "chore: release image model capability upgrade"
 ```
 
