@@ -1838,7 +1838,19 @@ describe('bananaModels', () => {
 
   it('shows the configured gallery models and hides the legacy GPT Agent line', () => {
     const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
-    expect(visibleModels[0]).toBe('nano-banana-pro-official-t3')
+    expect(visibleModels).toEqual([
+      'gemini-3-pro-image-preview',
+      'gpt-image-2.5-sunburst',
+      'gpt-image-2.5-flare',
+      'gpt-image-2',
+      'seedream-5-pro',
+      'gemini-3.1-flash-image-preview',
+      'gemini-3.1-flash-lite-image',
+      'nano-banana-pro-official-t3',
+      'gpt-image-2-official',
+      'nano-banana-pro',
+      'gpt-image-2-svip',
+    ])
     expect(visibleModels).toContain('nano-banana-pro-official-t3')
     expect(visibleModels).toContain('gpt-image-2-svip')
     expect(visibleModels).toContain('gemini-3.1-flash-image-preview')

@@ -14,39 +14,9 @@ export const AGENT_FIXED_MODEL = 'gpt-5.6-sol'
 
 export const BANANA_MODEL_REGISTRY = [
   {
-    displayName: 'Nano Banana Pro（官方T3）',
-    model: 'nano-banana-pro-official-t3',
-    providerRoute: 'banana-t3-images',
-    supportsReferenceImages: true,
-  },
-  {
     displayName: 'Nano Banana Pro（优惠线路）',
     model: 'gemini-3-pro-image-preview',
     providerRoute: 'gemini-native',
-    supportsReferenceImages: true,
-  },
-  {
-    displayName: 'Nano Banana Pro（备选）',
-    model: 'nano-banana-pro',
-    providerRoute: 'gemini-native',
-    supportsReferenceImages: true,
-  },
-  {
-    displayName: 'Nano Banana 2',
-    model: 'gemini-3.1-flash-image-preview',
-    providerRoute: 'gemini-native',
-    supportsReferenceImages: true,
-  },
-  {
-    displayName: 'Nano Banana 2 Lite',
-    model: 'gemini-3.1-flash-lite-image',
-    providerRoute: 'gemini-native',
-    supportsReferenceImages: true,
-  },
-  {
-    displayName: 'GPT-Image-2(4K线路）',
-    model: 'gpt-image-2',
-    providerRoute: 'openai-images',
     supportsReferenceImages: true,
   },
   {
@@ -64,6 +34,12 @@ export const BANANA_MODEL_REGISTRY = [
     supportedSizeTiers: SIZE_TIERS,
   },
   {
+    displayName: 'GPT-Image-2(4K线路）',
+    model: 'gpt-image-2',
+    providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+  },
+  {
     displayName: 'Seedream 5 Pro (1K/2K)',
     model: 'seedream-5-pro',
     providerRoute: 'openai-images',
@@ -71,9 +47,33 @@ export const BANANA_MODEL_REGISTRY = [
     supportedSizeTiers: ['1K', '2K'],
   },
   {
+    displayName: 'Nano Banana 2',
+    model: 'gemini-3.1-flash-image-preview',
+    providerRoute: 'gemini-native',
+    supportsReferenceImages: true,
+  },
+  {
+    displayName: 'Nano Banana 2 Lite',
+    model: 'gemini-3.1-flash-lite-image',
+    providerRoute: 'gemini-native',
+    supportsReferenceImages: true,
+  },
+  {
+    displayName: 'Nano Banana Pro（官方T3）',
+    model: 'nano-banana-pro-official-t3',
+    providerRoute: 'banana-t3-images',
+    supportsReferenceImages: true,
+  },
+  {
     displayName: 'GPT-Image-2(官转线路，支持高质量4K）',
     model: 'gpt-image-2-official',
     providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+  },
+  {
+    displayName: 'Nano Banana Pro（备选）',
+    model: 'nano-banana-pro',
+    providerRoute: 'gemini-native',
     supportsReferenceImages: true,
   },
   {
