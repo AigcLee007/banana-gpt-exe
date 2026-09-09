@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { calculateImageSize, normalizeImageSize, parseRatio, type SizeTier } from '../lib/size'
+import { calculateImageSize, normalizeImageSize, parseRatio, SIZE_TIERS, type SizeTier } from '../lib/size'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import ViewportTooltip from './ViewportTooltip'
 
-const TIERS: SizeTier[] = ['1K', '2K', '4K']
 const SIZE_LIMIT_TEXT = '由于模型限制，最终输出会自动规整到合法尺寸：\n宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
 const RATIOS = [
   { label: '1:1', value: '1:1' },
@@ -21,6 +20,7 @@ interface Props {
   onSelect: (size: string) => void
   onClose: () => void
   allowAuto?: boolean
+  supportedTiers?: readonly SizeTier[]
 }
 
 type Mode = 'auto' | 'ratio' | 'resolution'
@@ -31,9 +31,9 @@ function parseSize(size: string) {
   return { width: match[1], height: match[2] }
 }
 
-function findPresetForSize(size: string) {
+function findPresetForSize(size: string, tiers: readonly SizeTier[]) {
   const normalized = normalizeImageSize(size)
-  for (const tier of TIERS) {
+  for (const tier of tiers) {
     for (const ratio of RATIOS) {
       if (calculateImageSize(tier, ratio.value) === normalized) {
         return { tier, ratio: ratio.value }
@@ -43,7 +43,7 @@ function findPresetForSize(size: string) {
   return null
 }
 
-export default function SizePickerModal({ currentSize, onSelect, onClose, allowAuto = true }: Props) {
+export default function SizePickerModal({ currentSize, onSelect, onClose, allowAuto = true, supportedTiers = SIZE_TIERS }: Props) {
   usePreventBackgroundScroll(true)
 
   const modalRef = useRef<HTMLDivElement>(null)
@@ -69,7 +69,9 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
     mouseDownTargetRef.current = null
   }
 
-  const currentPreset = findPresetForSize(currentSize)
+  const availableTiers = supportedTiers.length ? supportedTiers : SIZE_TIERS
+  const maxTier = availableTiers.includes('4K') ? '4K' : availableTiers.includes('2K') ? '2K' : '1K'
+  const currentPreset = findPresetForSize(currentSize, availableTiers)
   const currentParsedSize = parseSize(currentSize)
   const [mode, setMode] = useState<Mode>(() => {
     if (!currentSize || currentSize === 'auto') return allowAuto ? 'auto' : 'ratio'
@@ -78,7 +80,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
   })
 
   // Ratio mode state
-  const [tier, setTier] = useState<SizeTier>(currentPreset?.tier ?? '1K')
+  const [tier, setTier] = useState<SizeTier>(currentPreset?.tier ?? availableTiers[0] ?? '1K')
   const [ratio, setRatio] = useState(currentPreset?.ratio ?? (allowAuto ? '1:1' : '4:3'))
   const [customRatio, setCustomRatio] = useState('16:9')
 
@@ -114,13 +116,13 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
       const w = parseInt(customW, 10)
       const h = parseInt(customH, 10)
       if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
-        return normalizeImageSize(`${w}x${h}`)
+        return normalizeImageSize(`${w}x${h}`, { maxTier })
       }
       return ''
     }
     
     return ''
-  }, [mode, tier, activeRatio, customW, customH])
+  }, [mode, tier, activeRatio, customW, customH, maxTier])
 
   const isClamped = useMemo(() => {
     if (!previewSize || previewSize === 'auto') return false
@@ -242,7 +244,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
                 <section>
                   <div className="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">基准分辨率</div>
                   <div className="grid grid-cols-3 gap-2">
-                    {TIERS.map((item) => (
+                    {availableTiers.map((item) => (
                       <button key={item} className={buttonClass(tier === item)} onClick={() => setTier(item)}>
                         {item}
                       </button>

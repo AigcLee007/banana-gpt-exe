@@ -11,7 +11,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelRoute, normalizeBananaModelId, usesGeminiImageParams } from '../lib/bananaModels'
+import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelRoute, getBananaSupportedSizeTiers, normalizeBananaModelId, usesGeminiImageParams } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import Select from './Select'
@@ -669,6 +669,8 @@ export default function InputBar() {
   const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === resolvedGalleryModel)
     ? resolvedGalleryModel
     : DEFAULT_GALLERY_MODEL
+  const activeImageModel = getActiveBananaModelForMode(appMode, galleryModel, agentImageModel)
+  const supportedSizeTiers = getBananaSupportedSizeTiers(activeImageModel)
   const activeImageModelRoute = getActiveBananaModelRouteForMode(appMode, galleryModel, agentImageModel)
   const usesGeminiParamControls = activeImageModelRoute === 'gemini-native' || activeImageModelRoute === 'banana-t3-images'
   const usesGeminiGalleryParams = appMode === 'gallery' && usesGeminiImageParams(galleryModel)
@@ -2123,6 +2125,7 @@ export default function InputBar() {
       {showSizePicker && !usesGeminiParamControls && (
         <SizePickerModal
           currentSize={isFalTextToImage && params.size === 'auto' ? DEFAULT_FAL_IMAGE_SIZE : params.size}
+          supportedTiers={supportedSizeTiers}
           onSelect={(size) => setParams({ size })}
           onClose={() => setShowSizePicker(false)}
           allowAuto={!isFalTextToImage}

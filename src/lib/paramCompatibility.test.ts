@@ -91,4 +91,50 @@ describe('parameter compatibility', () => {
       transparent_output: false,
     })
   })
+
+  it('limits Seedream explicit sizes to 2K while preserving other OpenAI model behavior', () => {
+    const seedreamProfile = createDefaultOpenAIProfile({
+      apiKey: 'test-key',
+      model: 'seedream-5-pro',
+      streamImages: false,
+    })
+    const seedreamSettings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [seedreamProfile],
+      activeProfileId: seedreamProfile.id,
+    })
+
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: '4096x4096' }, seedreamSettings).size).toBe('2048x2048')
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: '2048x2048' }, seedreamSettings).size).toBe('2048x2048')
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: 'auto' }, seedreamSettings).size).toBe('auto')
+
+    const seedreamRatioSize = normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: '4096x2048' }, seedreamSettings).size
+    const [width, height] = seedreamRatioSize.split('x').map(Number)
+    expect(width * height).toBeLessThanOrEqual(4_194_304)
+    expect(Math.abs(width / height - 2) / 2).toBeLessThanOrEqual(0.01)
+
+    const sunburstProfile = createDefaultOpenAIProfile({
+      apiKey: 'test-key',
+      model: 'gpt-image-2.5-sunburst',
+      streamImages: false,
+    })
+    const sunburstSettings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [sunburstProfile],
+      activeProfileId: sunburstProfile.id,
+    })
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: '4096x4096' }, sunburstSettings).size).toBe('2880x2880')
+
+    const customProfile = createDefaultOpenAIProfile({
+      apiKey: 'test-key',
+      model: 'custom-image-model',
+      streamImages: false,
+    })
+    const customSettings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [customProfile],
+      activeProfileId: customProfile.id,
+    })
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: '4096x4096' }, customSettings).size).toBe('2880x2880')
+  })
 })

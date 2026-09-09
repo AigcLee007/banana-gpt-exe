@@ -582,6 +582,14 @@ describe('custom providers', () => {
     expect(normalized.agentImageModel).toBe(DEFAULT_IMAGES_MODEL)
   })
 
+  it('keeps the new Seedream model when restoring Agent image settings', () => {
+    const normalized = normalizeSettings({
+      agentImageModel: 'Seedream 5 Pro (1K/2K)',
+    })
+
+    expect(normalized.agentImageModel).toBe('seedream-5-pro')
+  })
+
   it('does not let legacy responses model override agentImageModel default', () => {
     const normalized = normalizeSettings({
       model: DEFAULT_RESPONSES_MODEL,

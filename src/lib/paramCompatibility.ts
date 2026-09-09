@@ -1,6 +1,6 @@
 import { DEFAULT_PARAMS, type AppSettings, type TaskParams } from '../types'
 import { getActiveApiProfile } from './apiProfiles'
-import { usesGeminiImageParams } from './bananaModels'
+import { getBananaMaxSizeTier, usesGeminiImageParams } from './bananaModels'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import { normalizeImageSize } from './size'
 
@@ -21,7 +21,9 @@ export function normalizeParamsForSettings(
   const outputImageLimit = getOutputImageLimitForSettings(settings)
   const nextParams: TaskParams = {
     ...params,
-    size: normalizeImageSize(params.size) || DEFAULT_PARAMS.size,
+    size: normalizeImageSize(params.size, {
+      maxTier: getBananaMaxSizeTier(activeProfile.model),
+    }) || DEFAULT_PARAMS.size,
     n: Math.min(outputImageLimit, Math.max(1, params.n || DEFAULT_PARAMS.n)),
   }
 
