@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi, queryApiKeyBalance } from './api'
-import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, normalizeBananaModelId } from './bananaModels'
+import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, getBananaSupportedSizeTiers, normalizeBananaModelId } from './bananaModels'
 
 function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   return {
@@ -1672,6 +1672,40 @@ describe('callImageApi', () => {
 })
 
 describe('bananaModels', () => {
+  it('registers the GPT Image 2.5 and Seedream model capabilities', () => {
+    const sunburst = getBananaModelByDisplayName('GPT-Image-2.5 Sunburst')
+    const flare = getBananaModelByDisplayName('GPT-Image-2.5 Flare')
+    const seedream = getBananaModelByDisplayName('Seedream 5 Pro (1K/2K)')
+    const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
+
+    expect(sunburst).toMatchObject({
+      model: 'gpt-image-2.5-sunburst',
+      providerRoute: 'openai-images',
+      supportsReferenceImages: true,
+      supportedSizeTiers: ['1K', '2K', '4K'],
+    })
+    expect(flare).toMatchObject({
+      model: 'gpt-image-2.5-flare',
+      providerRoute: 'openai-images',
+      supportsReferenceImages: true,
+      supportedSizeTiers: ['1K', '2K', '4K'],
+    })
+    expect(seedream).toMatchObject({
+      model: 'seedream-5-pro',
+      providerRoute: 'openai-images',
+      supportsReferenceImages: true,
+      supportedSizeTiers: ['1K', '2K'],
+    })
+    expect(visibleModels).toEqual(expect.arrayContaining([
+      'gpt-image-2.5-sunburst',
+      'gpt-image-2.5-flare',
+      'seedream-5-pro',
+    ]))
+    expect(getBananaSupportedSizeTiers('gpt-image-2.5-sunburst')).toEqual(['1K', '2K', '4K'])
+    expect(getBananaSupportedSizeTiers('seedream-5-pro')).toEqual(['1K', '2K'])
+    expect(normalizeBananaModelId('GPT Image 2.5 Sunburst')).toBe('gpt-image-2.5-sunburst')
+  })
+
   it('shows Nano Banana 2 and the new image model lines', () => {
     const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
     const nanoBanana2 = getBananaModelByDisplayName('Nano Banana 2')

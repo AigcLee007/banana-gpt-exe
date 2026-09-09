@@ -6,7 +6,8 @@ const MAX_ASPECT_RATIO = 3
 const MIN_PIXELS = 655_360
 const MAX_PIXELS = 8_294_400
 
-export type SizeTier = '1K' | '2K' | '4K'
+export const SIZE_TIERS = ['1K', '2K', '4K'] as const
+export type SizeTier = typeof SIZE_TIERS[number]
 
 function roundToMultiple(value: number, multiple: number) {
   return Math.max(multiple, Math.round(value / multiple) * multiple)
@@ -20,7 +21,7 @@ function ceilToMultiple(value: number, multiple: number) {
   return Math.max(multiple, Math.ceil(value / multiple) * multiple)
 }
 
-function normalizeDimensions(width: number, height: number) {
+function normalizeDimensions(width: number, height: number, maxPixels = MAX_PIXELS) {
   let normalizedWidth = roundToMultiple(width, SIZE_MULTIPLE)
   let normalizedHeight = roundToMultiple(height, SIZE_MULTIPLE)
 
@@ -47,8 +48,8 @@ function normalizeDimensions(width: number, height: number) {
     }
 
     const pixels = normalizedWidth * normalizedHeight
-    if (pixels > MAX_PIXELS) {
-      scaleToFit(Math.sqrt(MAX_PIXELS / pixels))
+    if (pixels > maxPixels) {
+      scaleToFit(Math.sqrt(maxPixels / pixels))
     } else if (pixels < MIN_PIXELS) {
       scaleToFill(Math.sqrt(MIN_PIXELS / pixels))
     }
@@ -57,12 +58,13 @@ function normalizeDimensions(width: number, height: number) {
   return { width: normalizedWidth, height: normalizedHeight }
 }
 
-export function normalizeImageSize(size: string) {
+export function normalizeImageSize(size: string, options: { maxTier?: SizeTier } = {}) {
   const trimmed = size.trim()
   const match = trimmed.match(SIZE_PATTERN)
   if (!match) return trimmed
 
-  const { width, height } = normalizeDimensions(Number(match[1]), Number(match[2]))
+  const maxPixels = options.maxTier ? TIER_PIXEL_BUDGET[options.maxTier] : MAX_PIXELS
+  const { width, height } = normalizeDimensions(Number(match[1]), Number(match[2]), maxPixels)
   return `${width}x${height}`
 }
 

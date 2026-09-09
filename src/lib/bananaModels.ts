@@ -1,3 +1,5 @@
+import { SIZE_TIERS, type SizeTier } from './size'
+
 export type BananaModelRoute = 'gemini-native' | 'banana-t3-images' | 'openai-images' | 'openai-responses'
 
 export interface BananaGalleryModel {
@@ -5,6 +7,7 @@ export interface BananaGalleryModel {
   model: string
   providerRoute: BananaModelRoute
   supportsReferenceImages: boolean
+  supportedSizeTiers?: readonly SizeTier[]
 }
 
 export const AGENT_FIXED_MODEL = 'gpt-5.6-sol'
@@ -45,6 +48,27 @@ export const BANANA_MODEL_REGISTRY = [
     model: 'gpt-image-2',
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
+  },
+  {
+    displayName: 'GPT-Image-2.5 Sunburst',
+    model: 'gpt-image-2.5-sunburst',
+    providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+    supportedSizeTiers: SIZE_TIERS,
+  },
+  {
+    displayName: 'GPT-Image-2.5 Flare',
+    model: 'gpt-image-2.5-flare',
+    providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+    supportedSizeTiers: SIZE_TIERS,
+  },
+  {
+    displayName: 'Seedream 5 Pro (1K/2K)',
+    model: 'seedream-5-pro',
+    providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+    supportedSizeTiers: ['1K', '2K'],
   },
   {
     displayName: 'GPT-Image-2(官转线路，支持高质量4K）',
@@ -101,6 +125,17 @@ export function normalizeBananaModelId(model: string): string {
 export function getBananaModelById(model: string): BananaGalleryModel | undefined {
   const normalized = normalizeBananaModelId(model)
   return BANANA_MODEL_REGISTRY.find((item) => item.model === normalized)
+}
+
+export function getBananaSupportedSizeTiers(model: string): readonly SizeTier[] {
+  return getBananaModelById(model)?.supportedSizeTiers ?? SIZE_TIERS
+}
+
+export function getBananaMaxSizeTier(model: string): SizeTier {
+  const tiers = getBananaSupportedSizeTiers(model)
+  if (tiers.includes('4K')) return '4K'
+  if (tiers.includes('2K')) return '2K'
+  return '1K'
 }
 
 export function getBananaModelByDisplayName(displayName: string): BananaGalleryModel | undefined {
