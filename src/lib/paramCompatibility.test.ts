@@ -137,4 +137,33 @@ describe('parameter compatibility', () => {
     })
     expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: '4096x4096' }, customSettings).size).toBe('2880x2880')
   })
+
+  it('preserves xhigh and max only for the official Sunburst max-quality line', () => {
+    const officialProfile = createDefaultOpenAIProfile({
+      apiKey: 'test-key',
+      model: 'gpt-image-2.5-sunburst-官渠（支持max）',
+      streamImages: false,
+    })
+    const officialSettings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [officialProfile],
+      activeProfileId: officialProfile.id,
+    })
+
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, quality: 'xhigh' }, officialSettings).quality).toBe('xhigh')
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, quality: 'max' }, officialSettings).quality).toBe('max')
+
+    const standardProfile = createDefaultOpenAIProfile({
+      apiKey: 'test-key',
+      model: 'gpt-image-2.5-sunburst',
+      streamImages: false,
+    })
+    const standardSettings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [standardProfile],
+      activeProfileId: standardProfile.id,
+    })
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, quality: 'xhigh' }, standardSettings).quality).toBe('auto')
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, quality: 'max' }, standardSettings).quality).toBe('auto')
+  })
 })

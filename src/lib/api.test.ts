@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi, queryApiKeyBalance } from './api'
-import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, getBananaSupportedSizeTiers, normalizeBananaModelId } from './bananaModels'
+import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, getBananaQualityOptions, getBananaSupportedSizeTiers, normalizeBananaModelId } from './bananaModels'
 
-const NEW_OPENAI_IMAGE_MODELS = ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'seedream-5-pro'] as const
+const NEW_OPENAI_IMAGE_MODELS = ['gpt-image-2.5-sunburst', 'gpt-image-2.5-sunburst-官渠（支持max）', 'gpt-image-2.5-flare', 'seedream-5-pro'] as const
 
 function createOpenAIImagesSettings(overrides: Record<string, unknown> = {}) {
   return {
@@ -1770,6 +1770,26 @@ describe('bananaModels', () => {
     expect(normalizeBananaModelId('GPT Image 2.5 Sunburst')).toBe('gpt-image-2.5-sunburst')
   })
 
+  it('registers the official Sunburst max-quality line in the third position', () => {
+    const modelId = 'gpt-image-2.5-sunburst-官渠（支持max）'
+    const model = getBananaModelByDisplayName('GPT-Image-2.5 Sunburst(官渠，支持max）')
+    const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
+
+    expect(model).toMatchObject({
+      displayName: 'GPT-Image-2.5 Sunburst(官渠，支持max）',
+      model: modelId,
+      providerRoute: 'openai-images',
+      supportsReferenceImages: true,
+      supportedSizeTiers: ['1K', '2K', '4K'],
+    })
+    expect(visibleModels[2]).toBe(modelId)
+    expect(getBananaModelRoute(modelId)).toBe('openai-images')
+    expect(normalizeBananaModelId('GPT-Image-2.5 Sunburst(官渠，支持max）')).toBe(modelId)
+    expect(getBananaQualityOptions(modelId)).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
+    expect(getBananaQualityOptions('gpt-image-2.5-sunburst')).toEqual(['auto', 'low', 'medium', 'high'])
+    expect(getBananaQualityOptions('gpt-image-2.5-flare')).toEqual(['auto', 'low', 'medium', 'high'])
+  })
+
   it('shows Nano Banana 2 and the new image model lines', () => {
     const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
     const nanoBanana2 = getBananaModelByDisplayName('Nano Banana 2')
@@ -1841,6 +1861,7 @@ describe('bananaModels', () => {
     expect(visibleModels).toEqual([
       'gemini-3-pro-image-preview',
       'gpt-image-2.5-sunburst',
+      'gpt-image-2.5-sunburst-官渠（支持max）',
       'gpt-image-2.5-flare',
       'gpt-image-2',
       'seedream-5-pro',

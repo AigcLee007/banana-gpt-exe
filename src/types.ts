@@ -110,7 +110,7 @@ export interface TaskParams {
   geminiAspectRatio?: GeminiAspectRatio
   geminiImageSize?: GeminiImageSize
   geminiOutputPixels?: string
-  quality: 'auto' | 'low' | 'medium' | 'high'
+  quality: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   output_format: 'png' | 'jpeg' | 'webp'
   output_compression: number | null
   moderation: 'auto' | 'low'

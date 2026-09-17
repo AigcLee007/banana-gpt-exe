@@ -1,6 +1,6 @@
 import { DEFAULT_PARAMS, type AppSettings, type TaskParams } from '../types'
 import { getActiveApiProfile } from './apiProfiles'
-import { getBananaMaxSizeTier, usesGeminiImageParams } from './bananaModels'
+import { getBananaMaxSizeTier, getBananaQualityOptions, usesGeminiImageParams } from './bananaModels'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import { normalizeImageSize } from './size'
 
@@ -59,6 +59,10 @@ export function normalizeParamsForSettings(
 
   if (nextParams.output_format === 'png') {
     nextParams.output_compression = DEFAULT_PARAMS.output_compression
+  }
+
+  if (!getBananaQualityOptions(activeProfile.model).includes(nextParams.quality)) {
+    nextParams.quality = DEFAULT_PARAMS.quality
   }
 
   if (nextParams.output_format !== 'png') {

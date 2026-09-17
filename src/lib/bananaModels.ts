@@ -1,6 +1,7 @@
 import { SIZE_TIERS, type SizeTier } from './size'
 
 export type BananaModelRoute = 'gemini-native' | 'banana-t3-images' | 'openai-images' | 'openai-responses'
+export type BananaQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface BananaGalleryModel {
   displayName: string
@@ -8,6 +9,7 @@ export interface BananaGalleryModel {
   providerRoute: BananaModelRoute
   supportsReferenceImages: boolean
   supportedSizeTiers?: readonly SizeTier[]
+  qualityOptions?: readonly BananaQuality[]
 }
 
 export const AGENT_TEXT_MODELS = [
@@ -31,6 +33,14 @@ export const BANANA_MODEL_REGISTRY = [
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     supportedSizeTiers: SIZE_TIERS,
+  },
+  {
+    displayName: 'GPT-Image-2.5 Sunburst(官渠，支持max）',
+    model: 'gpt-image-2.5-sunburst-官渠（支持max）',
+    providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+    supportedSizeTiers: SIZE_TIERS,
+    qualityOptions: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
   },
   {
     displayName: 'GPT-Image-2.5 Flare',
@@ -135,6 +145,10 @@ export function getBananaModelById(model: string): BananaGalleryModel | undefine
 
 export function getBananaSupportedSizeTiers(model: string): readonly SizeTier[] {
   return getBananaModelById(model)?.supportedSizeTiers ?? SIZE_TIERS
+}
+
+export function getBananaQualityOptions(model: string): readonly BananaQuality[] {
+  return getBananaModelById(model)?.qualityOptions ?? ['auto', 'low', 'medium', 'high']
 }
 
 export function getBananaMaxSizeTier(model: string): SizeTier {
