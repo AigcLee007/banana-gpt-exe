@@ -28,6 +28,7 @@ import { queryApiKeyBalance, type ApiKeyBalanceInfo } from '../lib/api'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
+import { AGENT_TEXT_MODELS, type AgentTextModel } from '../lib/bananaModels'
 import Select from './Select'
 import { Checkbox } from './Checkbox'
 import ViewportTooltip from './ViewportTooltip'
@@ -1337,6 +1338,18 @@ export default function SettingsModal() {
 
             {activeTab === 'agent' && (
               <div className="space-y-4">
+                <label className="block">
+                  <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">文本模型</span>
+                  <Select
+                    value={draft.agentTextModel}
+                    onChange={(value) => commitSettings({ ...draft, agentTextModel: String(value) as AgentTextModel })}
+                    options={AGENT_TEXT_MODELS.map((item) => ({ label: item.label, value: item.model }))}
+                    className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200"
+                  />
+                  <div data-selectable-text className="mt-1.5 text-xs leading-relaxed text-gray-500 dark:text-gray-500">
+                    用于后续 Agent 对话、标题生成和工具调用。
+                  </div>
+                </label>
                 <div className="block">
                   <div className="mb-1 flex items-center justify-between gap-3">
                     <span className="block text-sm text-gray-600 dark:text-gray-300">数学公式格式提示</span>

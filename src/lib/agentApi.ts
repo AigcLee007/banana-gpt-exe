@@ -1,5 +1,6 @@
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { AGENT_FIXED_MODEL } from './bananaModels'
+import { normalizeSettings } from './apiProfiles'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { appendStreamingFormatHint, getApiErrorMessage, maybeAppendStreamingHint, MIME_MAP, normalizeBase64Image, pickActualParams } from './imageApiShared'
 
@@ -28,6 +29,10 @@ export interface AgentApiResult {
   images: AgentApiResultImage[]
   outputItems: ResponsesApiResponse['output']
   rawResponsePayload?: string
+}
+
+function getAgentTextModel(settings: Partial<AppSettings> | unknown): string {
+  return normalizeSettings(settings).agentTextModel || AGENT_FIXED_MODEL
 }
 
 const AGENT_IMAGE_INSTRUCTIONS = [
@@ -697,7 +702,7 @@ export async function callAgentResponsesApi(opts: {
 
   try {
     const body: Record<string, unknown> = {
-      model: AGENT_FIXED_MODEL,
+      model: getAgentTextModel(settings),
       instructions: createAgentInstructions(settings),
       input,
       tools: createAgentTools(params, profile, settings, maskDataUrl),
@@ -767,7 +772,7 @@ export async function callAgentConversationTitleApi(opts: {
       headers: createHeaders(profile),
       cache: 'no-store',
       body: JSON.stringify({
-        model: AGENT_FIXED_MODEL,
+        model: getAgentTextModel(settings),
         instructions: AGENT_TITLE_INSTRUCTIONS,
         input: [{ role: 'user', content }],
         max_output_tokens: 32,
@@ -810,6 +815,7 @@ export interface BatchImageCallResult {
  * This mirrors the gallery mode's callResponsesImageApiSingle pattern.
  */
 export async function callBatchImageSingle(opts: {
+  settings?: AppSettings
   profile: ApiProfile
   params: TaskParams
   batchItemId: string
@@ -821,7 +827,7 @@ export async function callBatchImageSingle(opts: {
   onPartialImage?: (event: { image: string; partialImageIndex?: number }) => void | Promise<void>
   onImageToolCompleted?: (image: AgentApiResultImage) => void | Promise<void>
 }): Promise<BatchImageCallResult> {
-  const { profile, params, batchItemId, prompt, referenceImageDataUrls, referenceIds, signal, onImageToolStarted, onPartialImage, onImageToolCompleted } = opts
+  const { settings, profile, params, batchItemId, prompt, referenceImageDataUrls, referenceIds, signal, onImageToolStarted, onPartialImage, onImageToolCompleted } = opts
   const mime = MIME_MAP[params.output_format] || 'image/png'
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
@@ -870,7 +876,7 @@ export async function callBatchImageSingle(opts: {
     }
 
     const body: Record<string, unknown> = {
-      model: AGENT_FIXED_MODEL,
+      model: getAgentTextModel(settings ?? {}),
       input,
       tools: [tool],
       tool_choice: 'required',

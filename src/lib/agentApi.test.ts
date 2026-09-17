@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { createDefaultOpenAIProfile, DEFAULT_SETTINGS } from './apiProfiles'
-import { callAgentConversationTitleApi, callAgentResponsesApi } from './agentApi'
+import { callAgentConversationTitleApi, callAgentResponsesApi, callBatchImageSingle } from './agentApi'
 import { AGENT_FIXED_MODEL } from './bananaModels'
 
 describe('callAgentResponsesApi', () => {
@@ -447,6 +447,58 @@ describe('callAgentResponsesApi', () => {
       },
     })
     expect(body.tools[0].parameters.required).toEqual(['id', 'prompt'])
+  })
+
+  it('uses the selected Agent text model for conversation requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'OK' }] }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const profile = createDefaultOpenAIProfile({ apiKey: 'test-key', apiMode: 'responses' })
+
+    await callAgentResponsesApi({
+      settings: { ...DEFAULT_SETTINGS, agentTextModel: 'gpt-6-astra' },
+      profile,
+      params: DEFAULT_PARAMS,
+      input: [{ role: 'user', content: [{ type: 'input_text', text: 'prompt' }] }],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(JSON.parse(String((init as RequestInit).body)).model).toBe('gpt-6-astra')
+  })
+
+  it('uses the selected Agent text model for title requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      output: [{ type: 'message', content: [{ type: 'output_text', text: '<title>Test</title>' }] }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const profile = createDefaultOpenAIProfile({ apiKey: 'test-key', apiMode: 'responses' })
+
+    await callAgentConversationTitleApi({
+      settings: { ...DEFAULT_SETTINGS, agentTextModel: 'gpt-6-astra' },
+      profile,
+      prompt: 'prompt',
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(JSON.parse(String((init as RequestInit).body)).model).toBe('gpt-6-astra')
+  })
+
+  it('uses the selected Agent text model for batch image helper requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      output: [{ type: 'image_generation_call', id: 'img_1', result: 'ZmlsZQ==' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const profile = createDefaultOpenAIProfile({ apiKey: 'test-key', apiMode: 'responses', streamImages: false })
+
+    await callBatchImageSingle({
+      settings: { ...DEFAULT_SETTINGS, agentTextModel: 'gpt-6-astra' },
+      profile,
+      params: DEFAULT_PARAMS,
+      batchItemId: 'item_1',
+      prompt: 'prompt',
+      referenceImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(JSON.parse(String((init as RequestInit).body)).model).toBe('gpt-6-astra')
   })
 
   it('injects configurable math formatting instructions', async () => {

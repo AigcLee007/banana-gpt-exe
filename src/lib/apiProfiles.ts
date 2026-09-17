@@ -14,7 +14,7 @@ import type {
   ReferenceImageEditAction,
 } from '../types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES } from '../types'
-import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, normalizeBananaModelId } from './bananaModels'
+import { AGENT_FIXED_MODEL, AGENT_TEXT_MODELS, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, normalizeBananaModelId, type AgentTextModel } from './bananaModels'
 import { readRuntimeEnv } from './runtimeEnv'
 
 const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://vip.aittco.com'
@@ -460,11 +460,18 @@ function normalizeAgentImageModel(value: unknown): string {
   return BANANA_GALLERY_MODELS.some((item) => item.model === normalized) ? normalized : DEFAULT_GALLERY_MODEL
 }
 
+function normalizeAgentTextModel(value: unknown): AgentTextModel {
+  return AGENT_TEXT_MODELS.some((item) => item.model === value)
+    ? value as AgentTextModel
+    : AGENT_FIXED_MODEL
+}
+
 export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
   const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
   const customProviderIds = new Set(customProviders.map((provider) => provider.id))
   const agentImageModel = normalizeAgentImageModel(record.agentImageModel)
+  const agentTextModel = normalizeAgentTextModel(record.agentTextModel)
   const legacyProfile = createDefaultOpenAIProfile({
     baseUrl: typeof record.baseUrl === 'string' ? normalizeOpenAIBaseUrl(record.baseUrl) : DEFAULT_BASE_URL,
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : '',
@@ -490,6 +497,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     apiKey: active.apiKey,
     model: active.model,
     agentImageModel,
+    agentTextModel,
     timeout: active.timeout,
     apiMode: active.apiMode,
     codexCli: active.codexCli,
@@ -786,6 +794,7 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   apiKey: '',
   model: DEFAULT_IMAGES_MODEL,
   agentImageModel: DEFAULT_GALLERY_MODEL,
+  agentTextModel: AGENT_FIXED_MODEL,
   timeout: DEFAULT_API_TIMEOUT,
   apiMode: 'images',
   codexCli: false,

@@ -10,7 +10,13 @@ export interface BananaGalleryModel {
   supportedSizeTiers?: readonly SizeTier[]
 }
 
-export const AGENT_FIXED_MODEL = 'gpt-5.6-sol'
+export const AGENT_TEXT_MODELS = [
+  { model: 'gpt-5.6-sol', label: 'GPT-5.6-sol' },
+  { model: 'gpt-6-astra', label: 'GPT-6-astra' },
+] as const
+
+export type AgentTextModel = typeof AGENT_TEXT_MODELS[number]['model']
+export const AGENT_FIXED_MODEL: AgentTextModel = AGENT_TEXT_MODELS[0].model
 
 export const BANANA_MODEL_REGISTRY = [
   {
