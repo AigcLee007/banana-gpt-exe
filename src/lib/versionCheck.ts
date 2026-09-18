@@ -68,6 +68,18 @@ export function isDesktopUpdateAvailable(current: VersionSnapshot, remote: Versi
   return Boolean(remoteBuildId && remoteBuildId !== current.buildId)
 }
 
+export function shouldShowUpdatePrompt(
+  updateAvailable: boolean,
+  isDesktop: boolean,
+  manual: boolean,
+  dismissedVersion: string | null,
+  latestVersion: string,
+): boolean {
+  if (!updateAvailable) return false
+  if (!isDesktop || manual) return true
+  return dismissedVersion !== latestVersion
+}
+
 export function shouldRunDesktopAutoCheck(
   now: number,
   lastAutoCheckAt: number | null,

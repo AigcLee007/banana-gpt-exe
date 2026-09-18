@@ -13,6 +13,7 @@ import {
   isWebUpdateAvailable,
   shouldRunDesktopAutoCheck,
   shouldRunWebAutoCheck,
+  shouldShowUpdatePrompt,
   type VersionManifest,
 } from './lib/versionCheck'
 import Header from './components/Header'
@@ -114,8 +115,13 @@ export default function App() {
       const webUpdate = !isDesktop && isWebUpdateAvailable(current, remote)
       const desktopUpdate = isDesktop && isDesktopUpdateAvailable(current, remote)
       const latestVersion = remote.version || current.version
-      const alreadyDismissed = isDesktop && dismissedDesktopVersion === latestVersion
-      if ((webUpdate || desktopUpdate) && !alreadyDismissed) {
+      if (shouldShowUpdatePrompt(
+        webUpdate || desktopUpdate,
+        isDesktop,
+        manual,
+        dismissedDesktopVersion,
+        latestVersion,
+      )) {
         setUpdatePrompt({
           remote,
           currentVersion: current.version,
@@ -209,9 +215,9 @@ export default function App() {
               <br />
               最新版本：{updatePrompt.latestVersion}
             </p>
-            {updatePrompt.remote.notes && (
+            {(updatePrompt.remote.notes || updatePrompt.remote.desktop?.notes) && (
               <p className="mt-2 whitespace-pre-wrap text-sm text-[color:var(--app-text-muted)]">
-                {updatePrompt.remote.notes}
+                {updatePrompt.remote.notes || updatePrompt.remote.desktop?.notes}
               </p>
             )}
             {!updatePrompt.isDesktop && (

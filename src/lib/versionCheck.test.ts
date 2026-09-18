@@ -10,6 +10,7 @@ import {
   isWebUpdateAvailable,
   shouldRunDesktopAutoCheck,
   shouldRunWebAutoCheck,
+  shouldShowUpdatePrompt,
   type VersionSnapshot,
 } from './versionCheck'
 
@@ -93,6 +94,13 @@ describe('versionCheck', () => {
       'https://m.aittco.com/downloads/',
     )
     expect(getDesktopDownloadPageUrl({})).toBe('https://m.aittco.com/downloads/')
+  })
+
+  it('lets manual checks bypass a dismissed desktop version', () => {
+    expect(shouldShowUpdatePrompt(true, true, false, '0.4.6', '0.4.6')).toBe(false)
+    expect(shouldShowUpdatePrompt(true, true, true, '0.4.6', '0.4.6')).toBe(true)
+    expect(shouldShowUpdatePrompt(true, true, false, '0.4.5', '0.4.6')).toBe(true)
+    expect(shouldShowUpdatePrompt(false, true, true, null, '0.4.6')).toBe(false)
   })
 })
 
