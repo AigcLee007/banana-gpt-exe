@@ -261,6 +261,25 @@ npm run build
 
 构建输出的文件位于 `dist/` 目录下，可将其部署至任何静态文件服务器（如普通 Nginx、GitHub Pages、Netlify 等）。
 
+**桌面客户端版本更新提示**
+
+Windows 和 macOS 桌面客户端会定期检查自有下载站的
+`https://m.aittco.com/downloads/version.json`。当清单中的 `version` 高于客户端版本时，客户端会显示更新提示；点击“下载新版本”只会打开
+`desktop.downloadPage` 指向的下载页面，由用户手动选择并安装对应系统的安装包，不会自动下载或安装。
+
+每次发布桌面版本时，请在下载站同步更新 `version.json`，并确保该地址通过 HTTPS 返回 `application/json`，允许桌面客户端跨域 GET。可参考
+[`docs/download-pages/version.json.example`](docs/download-pages/version.json.example)：
+
+```json
+{
+  "version": "0.4.6-banana.11",
+  "notes": "新增功能与问题修复",
+  "desktop": {
+    "downloadPage": "https://m.aittco.com/downloads/"
+  }
+}
+```
+
 </details>
 
 ---

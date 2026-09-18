@@ -5,8 +5,9 @@ import { buildSettingsFromUrlParams, clearUrlSettingParams, hasUrlSettingParams 
 import { useDockerApiUrlMigrationNotice } from './hooks/useDockerApiUrlMigrationNotice'
 import {
   createCurrentVersionSnapshot,
+  DESKTOP_VERSION_MANIFEST_URL,
   fetchVersionManifest,
-  getDesktopDownloadUrl,
+  getDesktopDownloadPageUrl,
   isDesktopRuntime,
   isDesktopUpdateAvailable,
   isWebUpdateAvailable,
@@ -45,6 +46,7 @@ export default function App() {
     isDesktop: boolean
   } | null>(null)
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
+  const [dismissedDesktopVersion, setDismissedDesktopVersion] = useState<string | null>(null)
   const currentVersionRef = useRef(createCurrentVersionSnapshot())
   const isDesktop = isDesktopRuntime()
   const hasRunningTasks = tasks.some((task) => task.status === 'running')
@@ -102,16 +104,22 @@ export default function App() {
 
     try {
       setIsCheckingUpdate(true)
-      const remote = await fetchVersionManifest(fetch, now)
+      const remote = await fetchVersionManifest(
+        fetch,
+        now,
+        isDesktop ? DESKTOP_VERSION_MANIFEST_URL : '/version.json',
+      )
       if (!manual) window.localStorage.setItem('update:lastAutoCheckAt', String(now))
       const current = currentVersionRef.current
       const webUpdate = !isDesktop && isWebUpdateAvailable(current, remote)
       const desktopUpdate = isDesktop && isDesktopUpdateAvailable(current, remote)
-      if (webUpdate || desktopUpdate) {
+      const latestVersion = remote.version || current.version
+      const alreadyDismissed = isDesktop && dismissedDesktopVersion === latestVersion
+      if ((webUpdate || desktopUpdate) && !alreadyDismissed) {
         setUpdatePrompt({
           remote,
           currentVersion: current.version,
-          latestVersion: remote.version || current.version,
+          latestVersion,
           isDesktop,
         })
         return
@@ -125,7 +133,7 @@ export default function App() {
     } finally {
       setIsCheckingUpdate(false)
     }
-  }, [isCheckingUpdate, isDesktop, showToast])
+  }, [dismissedDesktopVersion, isCheckingUpdate, isDesktop, showToast])
 
   useEffect(() => {
     const onCheckUpdate = (event: Event) => {
@@ -164,13 +172,9 @@ export default function App() {
   }, [])
 
   const handleOpenDesktopDownload = useCallback(() => {
-    const url = updatePrompt ? getDesktopDownloadUrl(updatePrompt.remote) : null
-    if (url) {
-      window.open(url, '_blank', 'noopener,noreferrer')
-      return
-    }
-    showToast('请前往官网下载最新版', 'info')
-  }, [showToast, updatePrompt])
+    if (!updatePrompt) return
+    window.open(getDesktopDownloadPageUrl(updatePrompt.remote), '_blank', 'noopener,noreferrer')
+  }, [updatePrompt])
 
   return (
     <>
@@ -205,6 +209,11 @@ export default function App() {
               <br />
               最新版本：{updatePrompt.latestVersion}
             </p>
+            {updatePrompt.remote.notes && (
+              <p className="mt-2 whitespace-pre-wrap text-sm text-[color:var(--app-text-muted)]">
+                {updatePrompt.remote.notes}
+              </p>
+            )}
             {!updatePrompt.isDesktop && (
               <p className="mt-2 text-xs text-[color:var(--app-text-subtle)]">
                 系统已更新，为避免继续使用旧缓存，请刷新到最新版本。
@@ -228,7 +237,10 @@ export default function App() {
                   <button
                     type="button"
                     className="rounded-xl border border-[color:var(--app-border)] px-3 py-2 text-sm text-[color:var(--app-text-muted)] transition hover:bg-[color:var(--app-bg-soft)]"
-                    onClick={() => setUpdatePrompt(null)}
+                    onClick={() => {
+                      setDismissedDesktopVersion(updatePrompt.latestVersion)
+                      setUpdatePrompt(null)
+                    }}
                   >
                     稍后提醒
                   </button>

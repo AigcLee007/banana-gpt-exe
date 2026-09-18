@@ -1,0 +1,7 @@
+{
+  "version": "0.4.6-banana.11",
+  "notes": "新增功能与问题修复",
+  "desktop": {
+    "downloadPage": "https://m.aittco.com/downloads/"
+  }
+}

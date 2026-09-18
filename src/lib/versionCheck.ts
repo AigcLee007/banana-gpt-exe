@@ -1,6 +1,7 @@
 export interface VersionManifestDesktopInfo {
   windowsUrl?: string
   macosUrl?: string
+  downloadPage?: string
   notes?: string
 }
 
@@ -9,6 +10,7 @@ export interface VersionManifest {
   buildId?: string
   commit?: string
   force?: boolean
+  notes?: string
   desktop?: VersionManifestDesktopInfo
 }
 
@@ -76,6 +78,9 @@ export function shouldRunDesktopAutoCheck(
   return now - lastAutoCheckAt >= DAY_MS
 }
 
+export const DESKTOP_VERSION_MANIFEST_URL = 'https://m.aittco.com/downloads/version.json'
+export const DEFAULT_DESKTOP_DOWNLOAD_PAGE = 'https://m.aittco.com/downloads/'
+
 export function shouldRunWebAutoCheck(now: number, lastAutoCheckAt: number | null): boolean {
   if (lastAutoCheckAt == null) return true
   return now - lastAutoCheckAt >= HOUR_MS
@@ -86,8 +91,12 @@ export function getVersionManifestUrl(basePath = '/version.json', now = Date.now
   return `${basePath}${sep}ts=${now}`
 }
 
-export async function fetchVersionManifest(fetchImpl: typeof fetch, now = Date.now()): Promise<VersionManifest> {
-  const response = await fetchImpl(getVersionManifestUrl('/version.json', now), {
+export async function fetchVersionManifest(
+  fetchImpl: typeof fetch,
+  now = Date.now(),
+  basePath = '/version.json',
+): Promise<VersionManifest> {
+  const response = await fetchImpl(getVersionManifestUrl(basePath, now), {
     cache: 'no-store',
   })
   if (!response.ok) {
@@ -102,5 +111,17 @@ export function getDesktopDownloadUrl(remote: VersionManifest, platform = naviga
   if (!desktop) return null
   if (/mac/i.test(platform)) return desktop.macosUrl?.trim() || null
   return desktop.windowsUrl?.trim() || null
+}
+
+export function getDesktopDownloadPageUrl(remote: VersionManifest): string {
+  const candidate = remote.desktop?.downloadPage?.trim()
+  if (!candidate) return DEFAULT_DESKTOP_DOWNLOAD_PAGE
+
+  try {
+    const url = new URL(candidate)
+    return url.protocol === 'https:' ? url.toString() : DEFAULT_DESKTOP_DOWNLOAD_PAGE
+  } catch {
+    return DEFAULT_DESKTOP_DOWNLOAD_PAGE
+  }
 }
 
