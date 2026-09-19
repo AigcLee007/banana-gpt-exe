@@ -30,7 +30,7 @@ The hidden legacy `gpt-5.5` entry remains out of the selectable image-model list
 
 ## Official T3 route
 
-Correct the current invalid `nano-banana-pro-official-t3` request ID. Keep one user-facing option, `Nano Banana Pro（官方T3）`, but resolve its actual request ID and cost from the selected image-size tier:
+Keep one user-facing option, `Nano Banana Pro（官方T3）`. Its registry value, `nano-banana-pro-official-t3`, is an internal route-selection key rather than an upstream model ID. The existing request path already resolves the actual request model from the selected image-size tier; price display must reuse that same mapping:
 
 | Selected tier | Request model ID | RMB / image | Credits / image |
 | --- | --- | ---: | ---: |
@@ -38,7 +38,7 @@ Correct the current invalid `nano-banana-pro-official-t3` request ID. Keep one u
 | 2K | `Nano-banana-pro-2K` | 0.60 | 7.5 |
 | 4K | `Nano-banana-pro-4K` | 0.70 | 8.75 |
 
-This option supports 1K, 2K, and 4K. When its size changes, both the request model ID and visible diamond amount change together. Existing Gemini-native request routing stays in use; only the requested model ID is resolved dynamically for this route.
+This option supports 1K, 2K, and 4K. When its size changes, both the already-resolved request model ID and visible diamond amount change together. The existing `banana-t3-images` request routing and dynamic upstream-ID resolution remain unchanged.
 
 ## UI behavior
 
@@ -52,13 +52,13 @@ This option supports 1K, 2K, and 4K. When its size changes, both the request mod
 ## Architecture
 
 1. Extend the existing `BananaGalleryModel` metadata and add narrowly scoped pure helpers for model-price lookup, RMB-to-credit conversion, and formatted option labels.
-2. Add an explicit resolver for the official-T3 size-to-request-ID and size-to-price mappings. Use it wherever the actual image request model is chosen, preserving the display registry key as the saved selection.
+2. Move or expose the existing official-T3 size-to-request-ID mapping from a shared pricing-safe location, then derive the matching price from it. Preserve the display registry key as the saved selection and leave API dispatch behavior unchanged.
 3. Build selector options from the shared helpers in `InputBar`, so Gallery and Agent use the same labels and no duplicated pricing logic.
 
 ## Error handling and compatibility
 
 - Unknown model IDs, missing price entries, and unsupported size values return an unavailable-price state rather than throwing or inventing a price.
-- Existing selections normalize as before. The only corrected route is the official-T3 request model, which becomes a valid size-specific model ID at submission time.
+- Existing selections normalize as before. The official-T3 API path continues submitting its existing valid size-specific model ID.
 - Other providers, parameter compatibility, stored credit balances, and API settings are untouched.
 
 ## Verification
@@ -66,5 +66,5 @@ This option supports 1K, 2K, and 4K. When its size changes, both the request mod
 - Unit-test all configured ID-to-price mappings and conversion/formatting behavior, including `3.125 💎`.
 - Unit-test official-T3 mappings for 1K, 2K, and 4K: exact request ID and exact displayed credits.
 - Update selector tests to assert the price text appears in Gallery and Agent options and active labels.
-- Update API dispatch tests to assert the official-T3 route sends the size-specific ID.
+- Retain and run the existing API dispatch tests that assert the official-T3 route sends the size-specific ID; no API-dispatch behavior changes.
 - Run the full test suite and production build.
