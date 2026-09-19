@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getInputBarPresentation } from './inputBarPresentation'
+import { getInputBarExpandFocusTarget, getInputBarPresentation } from './inputBarPresentation'
 
 describe('getInputBarPresentation', () => {
   it('keeps the composer interactive and the capsule out of the tab order when expanded', () => {
@@ -20,5 +20,15 @@ describe('getInputBarPresentation', () => {
       collapseAriaExpanded: false,
       expandAriaExpanded: false,
     })
+  })
+})
+
+describe('getInputBarExpandFocusTarget', () => {
+  it('selects the visible mobile collapse control on mobile', () => {
+    expect(getInputBarExpandFocusTarget(true)).toBe('mobile')
+  })
+
+  it('selects the desktop collapse control on desktop', () => {
+    expect(getInputBarExpandFocusTarget(false)).toBe('desktop')
   })
 })

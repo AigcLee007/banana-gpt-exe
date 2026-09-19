@@ -15,7 +15,7 @@ import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMo
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import { getInputBarClearance } from '../lib/inputBarLayout'
-import { getInputBarPresentation } from '../lib/inputBarPresentation'
+import { getInputBarExpandFocusTarget, getInputBarPresentation } from '../lib/inputBarPresentation'
 import Select from './Select'
 import SizePickerModal from './SizePickerModal'
 import ViewportTooltip from './ViewportTooltip'
@@ -508,6 +508,7 @@ export default function InputBar() {
   const composerRef = useRef<HTMLDivElement>(null)
   const expandButtonRef = useRef<HTMLButtonElement>(null)
   const collapseButtonRef = useRef<HTMLButtonElement>(null)
+  const mobileCollapseButtonRef = useRef<HTMLButtonElement>(null)
   const capsuleRef = useRef<HTMLButtonElement>(null)
   const imagesRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(42)
@@ -526,7 +527,7 @@ export default function InputBar() {
   const [atImageMenuIndex, setAtImageMenuIndex] = useState(0)
   const [atImageMenuDismissed, setAtImageMenuDismissed] = useState(false)
   const [touchDragPreview, setTouchDragPreview] = useState<{ src: string; x: number; y: number } | null>(null)
-  const handleRef = useRef<HTMLDivElement>(null)
+  const handleRef = useRef<HTMLButtonElement>(null)
   const dragTouchRef = useRef({ startY: 0, moved: false })
   const suppressHandleClickUntilRef = useRef(0)
   const imageDragIndexRef = useRef<number | null>(null)
@@ -541,6 +542,7 @@ export default function InputBar() {
   const [cursorPos, setCursorPos] = useState(0)
   const [menuLeft, setMenuLeft] = useState(0)
   const maskConflictNoticeShownRef = useRef(false)
+  const isMobile = useIsMobile()
   const inputBarPresentation = getInputBarPresentation(isComposerCollapsed)
 
   const collapseComposer = useCallback(() => {
@@ -555,8 +557,14 @@ export default function InputBar() {
 
   const expandComposer = useCallback(() => {
     setIsComposerCollapsed(false)
-    window.requestAnimationFrame(() => collapseButtonRef.current?.focus())
-  }, [])
+    const focusTarget = getInputBarExpandFocusTarget(isMobile)
+    window.requestAnimationFrame(() => {
+      const collapseControl = focusTarget === 'mobile'
+        ? mobileCollapseButtonRef.current
+        : collapseButtonRef.current
+      collapseControl?.focus()
+    })
+  }, [isMobile])
 
   const updateInputBarClearance = useCallback(() => {
     const visibleElement = isComposerCollapsed ? capsuleRef.current : composerRef.current
@@ -595,7 +603,6 @@ export default function InputBar() {
   const [nInput, setNInput] = useState(String(params.n))
   const [nInputFocused, setNInputFocused] = useState(false)
   const dragCounter = useRef(0)
-  const isMobile = useIsMobile()
 
   const currentActiveProfile = useMemo(() => getActiveApiProfile(settings), [settings])
   const activeProfile = useMemo(() => (
@@ -2243,8 +2250,12 @@ export default function InputBar() {
           </button>
 
           {/* 移动端拖动条 */}
-          <div
-            ref={handleRef}
+          <button
+            ref={(node) => {
+              handleRef.current = node
+              mobileCollapseButtonRef.current = node
+            }}
+            type="button"
             className="sm:hidden flex justify-center pt-0.5 pb-2 -mt-1 cursor-pointer touch-none"
             onClick={() => {
               if (Date.now() < suppressHandleClickUntilRef.current) {
@@ -2253,9 +2264,12 @@ export default function InputBar() {
               }
               collapseComposer()
             }}
+            aria-label="收起输入框"
+            aria-controls="image-generation-composer"
+            aria-expanded={inputBarPresentation.collapseAriaExpanded}
           >
             <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200" />
-          </div>
+          </button>
 
           {/* 输入图片行 */}
           {inputImages.length > 0 && renderImageThumbs()}

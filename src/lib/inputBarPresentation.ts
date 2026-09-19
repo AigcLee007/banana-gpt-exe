@@ -9,3 +9,7 @@ export function getInputBarPresentation(isComposerCollapsed: boolean) {
     expandAriaExpanded: ariaExpanded,
   }
 }
+
+export function getInputBarExpandFocusTarget(isMobile: boolean) {
+  return isMobile ? 'mobile' : 'desktop'
+}
