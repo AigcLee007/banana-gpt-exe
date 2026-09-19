@@ -1737,24 +1737,22 @@ describe('callImageApi', () => {
 
 describe('bananaModels', () => {
   it.each([
-    ['gemini-3-pro-image-preview', 5],
-    ['gpt-image-2.5-sunburst', 3.75],
-    ['gpt-image-2.5-sunburst-官渠（支持max）', 8.75],
-    ['gpt-image-2.5-flare', 3.75],
-    ['gpt-image-2', 3.75],
-    ['seedream-5-pro', 3.125],
-    ['gemini-3.1-flash-image-preview', 2.5],
-    ['gemini-3.1-flash-lite-image', 1.25],
-    ['gpt-image-2-official', 10],
-    ['nano-banana-pro', 5],
-    ['gpt-image-2-svip', 3.75],
-  ] as const)('calculates %s static image-model credits', (model, credits) => {
+    ['gemini-3-pro-image-preview', 5, '5.0 💎'],
+    ['gpt-image-2.5-sunburst', 3.75, '3.7 💎'],
+    ['gpt-image-2.5-sunburst-官渠（支持max）', 8.75, '8.7 💎'],
+    ['gpt-image-2.5-flare', 3.75, '3.7 💎'],
+    ['gpt-image-2', 3.75, '3.7 💎'],
+    ['gemini-3.1-flash-lite-image', 1.25, '1.2 💎'],
+    ['gpt-image-2-official', 10, '10.0 💎'],
+    ['nano-banana-pro', 5, '5.0 💎'],
+    ['gpt-image-2-svip', 3.75, '3.7 💎'],
+  ] as const)('calculates %s static image-model credits', (model, credits, label) => {
     expect(getBananaModelCreditsPerImage(model)).toBe(credits)
-    expect(getBananaModelCreditLabel(model)).toBe(`${credits} 💎`)
+    expect(getBananaModelCreditLabel(model)).toBe(label)
   })
 
   it('formats the Seedream credit label precisely', () => {
-    expect(getBananaModelCreditLabel('seedream-5-pro')).toBe('3.125 💎')
+    expect(getBananaModelCreditLabel('seedream-5-pro')).toBe('3.1 💎')
   })
 
   it.each([
@@ -1764,7 +1762,8 @@ describe('bananaModels', () => {
   ] as const)('maps official T3 %s to %s and charges %s credits', (imageSize, requestModel, credits) => {
     expect(getBananaT3RequestModelForSize(imageSize)).toBe(requestModel)
     expect(getBananaModelCreditsPerImage(OFFICIAL_T3_MODEL, imageSize)).toBe(credits)
-    expect(getBananaModelCreditLabel(OFFICIAL_T3_MODEL, imageSize)).toBe(`${credits} 💎`)
+    const expectedLabels = { '1K': '6.2 💎', '2K': '7.5 💎', '4K': '8.7 💎' } as const
+    expect(getBananaModelCreditLabel(OFFICIAL_T3_MODEL, imageSize)).toBe(expectedLabels[imageSize])
   })
 
   it('normalizes official T3 aliases and falls back for unknown or unpriced models', () => {

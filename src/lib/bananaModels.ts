@@ -176,9 +176,13 @@ export function getBananaModelCreditsPerImage(model: string, imageSize: SizeTier
   return yuan === undefined ? undefined : Number((yuan * CREDITS_PER_YUAN).toFixed(3))
 }
 
+export function formatBananaModelCredits(credits: number): string {
+  return (Math.trunc(credits * 10) / 10).toFixed(1)
+}
+
 export function getBananaModelCreditLabel(model: string, imageSize: SizeTier = '2K'): string {
   const credits = getBananaModelCreditsPerImage(model, imageSize)
-  return credits === undefined ? '价格待配置' : `${credits} 💎`
+  return credits === undefined ? '价格待配置' : `${formatBananaModelCredits(credits)} 💎`
 }
 
 export function getBananaSupportedSizeTiers(model: string): readonly SizeTier[] {
