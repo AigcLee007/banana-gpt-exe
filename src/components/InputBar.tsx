@@ -14,10 +14,12 @@ import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
 import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelRoute, getBananaQualityOptions, getBananaSupportedSizeTiers, normalizeBananaModelId, usesGeminiImageParams } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
+import { getInputBarClearance } from '../lib/inputBarLayout'
+import { getInputBarPresentation } from '../lib/inputBarPresentation'
 import Select from './Select'
 import SizePickerModal from './SizePickerModal'
 import ViewportTooltip from './ViewportTooltip'
-import { CloseIcon } from './icons'
+import { ChevronDownIcon, CloseIcon } from './icons'
 
 
 function getMentionTagTextLength(el: Element) {
@@ -503,6 +505,10 @@ export default function InputBar() {
   const replaceFileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
+  const expandButtonRef = useRef<HTMLButtonElement>(null)
+  const collapseButtonRef = useRef<HTMLButtonElement>(null)
+  const capsuleRef = useRef<HTMLButtonElement>(null)
   const imagesRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(42)
 
@@ -511,7 +517,7 @@ export default function InputBar() {
   const [submitHover, setSubmitHover] = useState(false)
   const [attachHover, setAttachHover] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
-  const [mobileCollapsed, setMobileCollapsed] = useState(false)
+  const [isComposerCollapsed, setIsComposerCollapsed] = useState(false)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [showMobileUploadMenu, setShowMobileUploadMenu] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
@@ -535,23 +541,38 @@ export default function InputBar() {
   const [cursorPos, setCursorPos] = useState(0)
   const [menuLeft, setMenuLeft] = useState(0)
   const maskConflictNoticeShownRef = useRef(false)
+  const inputBarPresentation = getInputBarPresentation(isComposerCollapsed)
 
-  const updateInputBarClearance = useCallback(() => {
-    const bar = cardRef.current?.closest<HTMLElement>('[data-input-bar]')
-    if (!bar) return
-
-    const rect = bar.getBoundingClientRect()
-    const clearance = Math.max(0, window.innerHeight - rect.top)
-    document.documentElement.style.setProperty('--input-bar-clearance', `${Math.ceil(clearance)}px`)
+  const collapseComposer = useCallback(() => {
+    setAtImageMenuDismissed(true)
+    setAtImageMenuIndex(0)
+    setShowMobileUploadMenu(false)
+    setShowSizePicker(false)
+    dismissAllTooltips()
+    setIsComposerCollapsed(true)
+    window.requestAnimationFrame(() => expandButtonRef.current?.focus())
   }, [])
 
+  const expandComposer = useCallback(() => {
+    setIsComposerCollapsed(false)
+    window.requestAnimationFrame(() => collapseButtonRef.current?.focus())
+  }, [])
+
+  const updateInputBarClearance = useCallback(() => {
+    const visibleElement = isComposerCollapsed ? capsuleRef.current : composerRef.current
+    if (!visibleElement) return
+
+    const clearance = getInputBarClearance(window.innerHeight, visibleElement.getBoundingClientRect())
+    document.documentElement.style.setProperty('--input-bar-clearance', `${clearance}px`)
+  }, [isComposerCollapsed])
+
   useLayoutEffect(() => {
-    const bar = cardRef.current?.closest<HTMLElement>('[data-input-bar]')
-    if (!bar) return
+    const visibleElement = isComposerCollapsed ? capsuleRef.current : composerRef.current
+    if (!visibleElement) return
 
     const frame = window.requestAnimationFrame(updateInputBarClearance)
     const observer = new ResizeObserver(updateInputBarClearance)
-    observer.observe(bar)
+    observer.observe(visibleElement)
 
     const visualViewport = window.visualViewport
     window.addEventListener('resize', updateInputBarClearance)
@@ -566,7 +587,7 @@ export default function InputBar() {
       visualViewport?.removeEventListener('scroll', updateInputBarClearance)
       document.documentElement.style.removeProperty('--input-bar-clearance')
     }
-  }, [updateInputBarClearance])
+  }, [isComposerCollapsed, updateInputBarClearance])
   const imageHintTimerRef = useRef<number | null>(null)
   const [outputCompressionInput, setOutputCompressionInput] = useState(
     params.output_compression == null ? '' : String(params.output_compression),
@@ -1443,8 +1464,8 @@ export default function InputBar() {
     const onTouchMove = (e: TouchEvent) => {
       const dy = e.touches[0].clientY - dragTouchRef.current.startY
       if (Math.abs(dy) > 10) dragTouchRef.current.moved = true
-      if (dy > 30) setMobileCollapsed(true)
-      if (dy < -30) setMobileCollapsed(false)
+      if (dy > 30) collapseComposer()
+      if (dy < -30) expandComposer()
     }
     const onTouchEnd = () => {
       if (dragTouchRef.current.moved) {
@@ -1459,7 +1480,7 @@ export default function InputBar() {
       el.removeEventListener('touchmove', onTouchMove)
       el.removeEventListener('touchend', onTouchEnd)
     }
-  }, [])
+  }, [collapseComposer, expandComposer])
 
   const selectClass = 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] text-xs transition-all duration-200 shadow-sm'
 
@@ -2127,7 +2148,11 @@ export default function InputBar() {
         />
       )}
 
-      <div data-input-bar className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-4xl px-3 sm:px-4 transition-all duration-300">
+      <div
+        data-input-bar
+        data-composer-state={isComposerCollapsed ? 'collapsed' : 'expanded'}
+        className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-4xl px-3 sm:px-4 transition-all duration-300"
+      >
         {selectedTaskIds.length > 0 && (
           <div className="flex justify-center mb-3">
             <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-lg rounded-full flex items-center p-1 border border-gray-200/50 dark:border-white/10 pointer-events-auto">
@@ -2196,7 +2221,27 @@ export default function InputBar() {
             </div>
           </div>
         )}
-        <div ref={cardRef} className="bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10">
+        <div
+          id="image-generation-composer"
+          ref={composerRef}
+          aria-hidden={inputBarPresentation.composerAriaHidden}
+          inert={inputBarPresentation.composerInert}
+          className="input-bar-composer"
+        >
+        <div ref={cardRef} className="input-bar-card bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10">
+          <button
+            ref={collapseButtonRef}
+            type="button"
+            onClick={collapseComposer}
+            className="input-bar-collapse-button hidden sm:flex"
+            aria-label="收起输入框"
+            aria-controls="image-generation-composer"
+            aria-expanded={inputBarPresentation.collapseAriaExpanded}
+            title="收起输入框"
+          >
+            <ChevronDownIcon className="h-4 w-4" />
+          </button>
+
           {/* 移动端拖动条 */}
           <div
             ref={handleRef}
@@ -2206,31 +2251,14 @@ export default function InputBar() {
                 suppressHandleClickUntilRef.current = 0
                 return
               }
-              setMobileCollapsed((v) => !v)
+              collapseComposer()
             }}
           >
-            <div className={`w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200 ${mobileCollapsed ? 'scale-x-75' : ''}`} />
+            <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200" />
           </div>
 
-          {/* 输入图片行（移动端可折叠） */}
-          {inputImages.length > 0 && (
-            isMobile ? (
-              <>
-                <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
-                  <div className="collapse-inner">
-                    {renderImageThumbs()}
-                  </div>
-                </div>
-                {mobileCollapsed && (
-                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-2 ml-1">
-                    {maskDraft ? `1 张遮罩主图 · ${referenceImages.length} 张参考图` : `${inputImages.length} 张参考图`}
-                  </div>
-                )}
-              </>
-            ) : (
-              renderImageThumbs()
-            )
-          )}
+          {/* 输入图片行 */}
+          {inputImages.length > 0 && renderImageThumbs()}
 
           {/* 输入框 */}
           <div className="relative grid">
@@ -2388,12 +2416,8 @@ export default function InputBar() {
 
             {/* 移动端布局 */}
             <div className="sm:hidden flex flex-col gap-2">
-              <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
-                <div className="collapse-inner">
-                  {renderParams('grid-cols-2')}
-                  <div className="h-2" />
-                </div>
-              </div>
+              {renderParams('grid-cols-2')}
+              <div className="h-2" />
 
               <div className="flex items-center gap-2">
                 <div
@@ -2520,6 +2544,23 @@ export default function InputBar() {
             onChange={handleReplaceFileUpload}
           />
         </div>
+        </div>
+        <button
+          ref={(node) => {
+            capsuleRef.current = node
+            expandButtonRef.current = node
+          }}
+          type="button"
+          onClick={expandComposer}
+          className="input-bar-expand-capsule"
+          aria-label="展开输入框"
+          aria-controls="image-generation-composer"
+          aria-expanded={inputBarPresentation.expandAriaExpanded}
+          tabIndex={inputBarPresentation.capsuleTabIndex}
+        >
+          <ChevronDownIcon className="h-4 w-4 rotate-180" />
+          <span>展开输入框</span>
+        </button>
       </div>
     </>
   )
