@@ -709,7 +709,8 @@ export default function InputBar() {
   const geminiAspectRatio = normalizeGeminiAspectRatio(params.geminiAspectRatio ?? params.size)
   const geminiImageSize = normalizeGeminiImageSize(params.geminiImageSize ?? '2K')
   const imageModelOptions = BANANA_GALLERY_MODELS.map((item) => ({
-    label: `${item.displayName} · ${getBananaModelCreditLabel(item.model, geminiImageSize)}`,
+    label: item.displayName,
+    secondaryLabel: getBananaModelCreditLabel(item.model, geminiImageSize),
     value: item.model,
   }))
   const getImageModelOptionLabel = (model: string) => {

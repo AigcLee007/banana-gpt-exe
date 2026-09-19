@@ -5,6 +5,7 @@ import { ChevronDownIcon, EditIcon, PlusIcon, TrashIcon, DragHandleIcon } from '
 
 interface Option {
   label: ReactNode
+  secondaryLabel?: ReactNode
   value: string | number
   variant?: 'action' | 'danger'
   draggable?: boolean
@@ -377,7 +378,12 @@ export default function Select({
                     <DragHandleIcon className="h-3.5 w-3.5" />
                   </div>
                 )}
-                <span className={`min-w-0 ${truncateOptionLabel ? 'truncate' : 'whitespace-nowrap'}`}>{option.label}</span>
+                <span className={`min-w-0 flex-1 ${truncateOptionLabel ? 'truncate' : 'whitespace-nowrap'}`}>{option.label}</span>
+                {option.secondaryLabel && (
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-[color:var(--app-text-subtle)]">
+                    {option.secondaryLabel}
+                  </span>
+                )}
               </div>
               {option.actions?.length ? (
                 <span className="ml-auto flex shrink-0 items-center gap-1">
