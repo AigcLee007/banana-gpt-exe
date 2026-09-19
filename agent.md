@@ -64,3 +64,7 @@ Use this instead:
 ```bash
 docker build -f deploy/Dockerfile -t gpt-image-playground:latest .
 ```
+
+## Release Reminder
+
+When the user asks to release, deploy, publish, or update a version, read and follow [`版本更新说明.md`](版本更新说明.md). Remind the user that Web deployment, desktop installation packages, and the download site's `version.json` are separate release steps.
