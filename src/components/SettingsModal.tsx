@@ -25,6 +25,7 @@ import {
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type CustomProviderDefinition } from '../types'
 import { queryApiKeyBalance, type ApiKeyBalanceInfo } from '../lib/api'
+import { formatBalanceCredits } from '../lib/balanceCredits'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
@@ -1475,9 +1476,9 @@ export default function SettingsModal() {
                     {balanceInfo && (
                       <div className="mt-3 rounded-xl border border-gray-200/70 bg-white/70 p-3 dark:border-white/[0.08] dark:bg-white/[0.04]">
                         <div className="text-xs text-gray-500 dark:text-gray-400">剩余积分</div>
-                        <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{balanceInfo.remaining_points}</div>
-                        <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">总积分：{balanceInfo.total_points}</div>
-                        <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">已用积分：{balanceInfo.used_points}</div>
+                        <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{formatBalanceCredits(balanceInfo.remaining_points)}</div>
+                        <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">总积分：{formatBalanceCredits(balanceInfo.total_points)}</div>
+                        <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">已用积分：{formatBalanceCredits(balanceInfo.used_points)}</div>
                         {balanceUpdatedAt && (
                           <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">更新时间：{formatBalanceUpdatedAt(balanceUpdatedAt)}</div>
                         )}
@@ -1815,9 +1816,9 @@ export default function SettingsModal() {
                   {balanceInfo && (
                     <div className="mt-3 rounded-xl border border-gray-200/70 bg-white/70 p-3 dark:border-white/[0.08] dark:bg-white/[0.04]">
                       <div className="text-xs text-gray-500 dark:text-gray-400">剩余积分</div>
-                      <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{balanceInfo.remaining_points}</div>
-                      <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">总积分：{balanceInfo.total_points}</div>
-                      <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">已用积分：{balanceInfo.used_points}</div>
+                      <div className="mt-1 text-lg font-semibold text-gray-800 dark:text-gray-100">{formatBalanceCredits(balanceInfo.remaining_points)}</div>
+                      <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">总积分：{formatBalanceCredits(balanceInfo.total_points)}</div>
+                      <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">已用积分：{formatBalanceCredits(balanceInfo.used_points)}</div>
                       {balanceUpdatedAt && (
                         <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">更新时间：{formatBalanceUpdatedAt(balanceUpdatedAt)}</div>
                       )}
