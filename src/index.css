@@ -60,6 +60,11 @@ body {
   --app-text-muted: #4b5563;
   --app-text-subtle: #6b7280;
   --app-shadow: 0 8px 30px rgb(0 0 0 / 0.1);
+  --composer-surface: rgba(255, 255, 255, 0.97);
+  --composer-input: #f8fafc;
+  --composer-border: rgba(100, 116, 139, 0.48);
+  --composer-shadow: 0 2px 8px rgb(15 23 42 / 0.10), 0 18px 48px rgb(15 23 42 / 0.16);
+  --composer-fade: rgb(248 250 252 / 0.88);
 }
 
 :root[data-theme="dark"] {
@@ -75,6 +80,11 @@ body {
   --app-text-muted: #d3d8e2;
   --app-text-subtle: #9ca3af;
   --app-shadow: 0 10px 34px rgb(0 0 0 / 0.45);
+  --composer-surface: rgba(27, 31, 42, 0.98);
+  --composer-input: rgba(15, 17, 23, 0.72);
+  --composer-border: rgba(119, 134, 165, 0.64);
+  --composer-shadow: 0 2px 10px rgb(0 0 0 / 0.38), 0 20px 52px rgb(0 0 0 / 0.52);
+  --composer-fade: rgb(15 17 23 / 0.84);
 }
 
 :root[data-theme="sepia"],
@@ -91,15 +101,128 @@ body {
   --app-text-muted: #5c4d3c;
   --app-text-subtle: #83715f;
   --app-shadow: 0 10px 28px rgb(101 79 49 / 0.14);
+  --composer-surface: rgba(255, 251, 244, 0.98);
+  --composer-input: #f8eedf;
+  --composer-border: rgba(177, 147, 111, 0.62);
+  --composer-shadow: 0 2px 9px rgb(101 79 49 / 0.16), 0 18px 46px rgb(101 79 49 / 0.24);
+  --composer-fade: rgb(246 239 227 / 0.88);
 }
 
 :root[data-theme] header,
-:root[data-theme] [data-input-bar] > div > div,
 :root[data-theme] [data-home-main] > div,
 :root[data-theme] [data-no-drag-select] .bg-white\/90,
 :root[data-theme] [data-no-drag-select] .bg-white\/95,
 :root[data-theme] [data-no-drag-select] .bg-white\/70 {
   background-color: var(--app-surface-elevated) !important;
+}
+
+[data-input-bar]::before {
+  content: '';
+  position: absolute;
+  inset: -28px 0 -16px;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--composer-fade) 58%, var(--composer-fade));
+  opacity: 0.72;
+  transition: opacity 180ms ease-out;
+}
+
+.input-bar-composer {
+  transform: translateY(0);
+  opacity: 1;
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms ease-out;
+}
+
+.input-bar-card,
+.input-bar-expand-capsule {
+  border: 1px solid var(--composer-border);
+  background: var(--composer-surface) !important;
+  box-shadow: var(--composer-shadow);
+  backdrop-filter: blur(24px);
+}
+
+.input-bar-card {
+  position: relative;
+}
+
+.input-bar-card [contenteditable="true"] {
+  border-color: var(--app-border-strong);
+  background: var(--composer-input) !important;
+}
+
+.input-bar-card [contenteditable="true"]:focus {
+  border-color: rgb(59 130 246 / 0.72);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.14);
+}
+
+.input-bar-collapse-button {
+  position: absolute;
+  top: -13px;
+  right: 18px;
+  z-index: 2;
+  height: 28px;
+  width: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--composer-border);
+  border-radius: 999px;
+  background: var(--composer-surface);
+  color: var(--app-text-subtle);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+}
+
+.input-bar-collapse-button:focus-visible,
+.input-bar-expand-capsule:focus-visible {
+  outline: 2px solid rgb(59 130 246 / 0.78);
+  outline-offset: 3px;
+}
+
+.input-bar-expand-capsule {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  display: flex;
+  min-height: 44px;
+  min-width: 148px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  color: var(--app-text-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 12px);
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms ease-out;
+}
+
+[data-composer-state="collapsed"] {
+  pointer-events: none;
+}
+
+[data-composer-state="collapsed"] .input-bar-composer {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(100% + 2rem));
+}
+
+[data-composer-state="collapsed"] .input-bar-expand-capsule {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+[data-composer-state="collapsed"]::before {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-input-bar]::before,
+  .input-bar-composer,
+  .input-bar-expand-capsule {
+    transition-duration: 1ms;
+  }
 }
 
 :root[data-theme] .bg-white,
@@ -484,24 +607,6 @@ input[type="number"] {
 }
 .animate-confirm-in {
   animation: confirm-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* 移动端折叠区域收起/展开 */
-.collapse-section {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 0.25s ease-out, opacity 0.2s ease-out;
-  opacity: 1;
-}
-.collapse-section.collapsed {
-  grid-template-rows: 0fr;
-  opacity: 0;
-}
-.collapse-section > .collapse-inner {
-  overflow: visible;
-}
-.collapse-section.collapsed > .collapse-inner {
-  overflow: hidden;
 }
 
 /* 下拉菜单：向下展开 */

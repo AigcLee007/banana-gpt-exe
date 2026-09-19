@@ -188,7 +188,11 @@ export default function App() {
       {appMode === 'agent' ? (
         <AgentWorkspace />
       ) : (
-        <main data-home-main data-drag-select-surface className="pb-48">
+        <main
+          data-home-main
+          data-drag-select-surface
+          className="pb-[calc(var(--input-bar-clearance,12rem)+1.5rem)] transition-[padding-bottom] duration-300 motion-reduce:transition-none"
+        >
           <div className="safe-area-x max-w-7xl mx-auto">
             <SearchBar />
             <TaskGrid />
