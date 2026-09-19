@@ -1736,35 +1736,39 @@ describe('callImageApi', () => {
 })
 
 describe('bananaModels', () => {
-  it('calculates fixed image-model credit prices and official T3 size mappings', () => {
-    const staticPrices = {
-      'gemini-3-pro-image-preview': 5,
-      'gpt-image-2.5-sunburst': 3.75,
-      'gpt-image-2.5-sunburst-官渠（支持max）': 8.75,
-      'gpt-image-2.5-flare': 3.75,
-      'gpt-image-2': 3.75,
-      'seedream-5-pro': 3.125,
-      'gemini-3.1-flash-image-preview': 2.5,
-      'gemini-3.1-flash-lite-image': 1.25,
-      'gpt-image-2-official': 10,
-      'nano-banana-pro': 5,
-      'gpt-image-2-svip': 3.75,
-    } as const
+  it.each([
+    ['gemini-3-pro-image-preview', 5],
+    ['gpt-image-2.5-sunburst', 3.75],
+    ['gpt-image-2.5-sunburst-官渠（支持max）', 8.75],
+    ['gpt-image-2.5-flare', 3.75],
+    ['gpt-image-2', 3.75],
+    ['seedream-5-pro', 3.125],
+    ['gemini-3.1-flash-image-preview', 2.5],
+    ['gemini-3.1-flash-lite-image', 1.25],
+    ['gpt-image-2-official', 10],
+    ['nano-banana-pro', 5],
+    ['gpt-image-2-svip', 3.75],
+  ] as const)('calculates %s static image-model credits', (model, credits) => {
+    expect(getBananaModelCreditsPerImage(model)).toBe(credits)
+    expect(getBananaModelCreditLabel(model)).toBe(`${credits} 💎`)
+  })
 
-    for (const [model, credits] of Object.entries(staticPrices)) {
-      expect(getBananaModelCreditsPerImage(model)).toBe(credits)
-      expect(getBananaModelCreditLabel(model)).toBe(`${credits} 💎`)
-    }
+  it('formats the Seedream credit label precisely', () => {
     expect(getBananaModelCreditLabel('seedream-5-pro')).toBe('3.125 💎')
+  })
 
-    expect(getBananaT3RequestModelForSize('1K')).toBe('Nano-banana-pro-1K')
-    expect(getBananaT3RequestModelForSize('2K')).toBe('Nano-banana-pro-2K')
-    expect(getBananaT3RequestModelForSize('4K')).toBe('Nano-banana-pro-4K')
-    expect(getBananaModelCreditsPerImage(OFFICIAL_T3_MODEL, '1K')).toBe(6.25)
-    expect(getBananaModelCreditsPerImage(OFFICIAL_T3_MODEL, '2K')).toBe(7.5)
-    expect(getBananaModelCreditsPerImage(OFFICIAL_T3_MODEL, '4K')).toBe(8.75)
-    expect(getBananaModelCreditLabel(OFFICIAL_T3_MODEL, '4K')).toBe('8.75 💎')
+  it.each([
+    ['1K', 'Nano-banana-pro-1K', 6.25],
+    ['2K', 'Nano-banana-pro-2K', 7.5],
+    ['4K', 'Nano-banana-pro-4K', 8.75],
+  ] as const)('maps official T3 %s to %s and charges %s credits', (imageSize, requestModel, credits) => {
+    expect(getBananaT3RequestModelForSize(imageSize)).toBe(requestModel)
+    expect(getBananaModelCreditsPerImage(OFFICIAL_T3_MODEL, imageSize)).toBe(credits)
+    expect(getBananaModelCreditLabel(OFFICIAL_T3_MODEL, imageSize)).toBe(`${credits} 💎`)
+  })
 
+  it('normalizes official T3 aliases and falls back for unknown or unpriced models', () => {
+    expect(getBananaModelCreditLabel(' Nano Banana Pro（官方T3） ', '2K')).toBe('7.5 💎')
     expect(getBananaModelCreditsPerImage('unknown-model')).toBeUndefined()
     expect(getBananaModelCreditsPerImage('gpt-5.5')).toBeUndefined()
     expect(getBananaModelCreditLabel('unknown-model')).toBe('价格待配置')

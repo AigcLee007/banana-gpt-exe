@@ -94,7 +94,7 @@ export const BANANA_MODEL_REGISTRY = [
   },
   {
     displayName: 'Nano Banana Pro（官方T3）',
-    model: 'nano-banana-pro-official-t3',
+    model: OFFICIAL_T3_MODEL,
     providerRoute: 'banana-t3-images',
     supportsReferenceImages: true,
   },
@@ -169,9 +169,10 @@ export function getBananaT3RequestModelForSize(imageSize: SizeTier): string {
 }
 
 export function getBananaModelCreditsPerImage(model: string, imageSize: SizeTier = '2K'): number | undefined {
-  const yuan = model === OFFICIAL_T3_MODEL
+  const normalizedModel = normalizeBananaModelId(model)
+  const yuan = normalizedModel === OFFICIAL_T3_MODEL
     ? BANANA_T3_BY_SIZE[imageSize].yuan
-    : getBananaModelById(model)?.pricePerImageYuan
+    : BANANA_MODEL_REGISTRY.find((item) => item.model === normalizedModel)?.pricePerImageYuan
   return yuan === undefined ? undefined : Number((yuan * CREDITS_PER_YUAN).toFixed(3))
 }
 
