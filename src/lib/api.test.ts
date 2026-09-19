@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi, queryApiKeyBalance } from './api'
-import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelRoute, getBananaQualityOptions, getBananaSupportedSizeTiers, normalizeBananaModelId } from './bananaModels'
+import { AGENT_FIXED_MODEL, BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelByDisplayName, getBananaModelCreditLabel, getBananaModelCreditsPerImage, getBananaModelRoute, getBananaQualityOptions, getBananaSupportedSizeTiers, getBananaT3RequestModelForSize, normalizeBananaModelId, OFFICIAL_T3_MODEL } from './bananaModels'
 
 const NEW_OPENAI_IMAGE_MODELS = ['gpt-image-2.5-sunburst', 'gpt-image-2.5-sunburst-官渠（支持max）', 'gpt-image-2.5-flare', 'seedream-5-pro'] as const
 
@@ -1736,6 +1736,41 @@ describe('callImageApi', () => {
 })
 
 describe('bananaModels', () => {
+  it('calculates fixed image-model credit prices and official T3 size mappings', () => {
+    const staticPrices = {
+      'gemini-3-pro-image-preview': 5,
+      'gpt-image-2.5-sunburst': 3.75,
+      'gpt-image-2.5-sunburst-官渠（支持max）': 8.75,
+      'gpt-image-2.5-flare': 3.75,
+      'gpt-image-2': 3.75,
+      'seedream-5-pro': 3.125,
+      'gemini-3.1-flash-image-preview': 2.5,
+      'gemini-3.1-flash-lite-image': 1.25,
+      'gpt-image-2-official': 10,
+      'nano-banana-pro': 5,
+      'gpt-image-2-svip': 3.75,
+    } as const
+
+    for (const [model, credits] of Object.entries(staticPrices)) {
+      expect(getBananaModelCreditsPerImage(model)).toBe(credits)
+      expect(getBananaModelCreditLabel(model)).toBe(`${credits} 💎`)
+    }
+    expect(getBananaModelCreditLabel('seedream-5-pro')).toBe('3.125 💎')
+
+    expect(getBananaT3RequestModelForSize('1K')).toBe('Nano-banana-pro-1K')
+    expect(getBananaT3RequestModelForSize('2K')).toBe('Nano-banana-pro-2K')
+    expect(getBananaT3RequestModelForSize('4K')).toBe('Nano-banana-pro-4K')
+    expect(getBananaModelCreditsPerImage(OFFICIAL_T3_MODEL, '1K')).toBe(6.25)
+    expect(getBananaModelCreditsPerImage(OFFICIAL_T3_MODEL, '2K')).toBe(7.5)
+    expect(getBananaModelCreditsPerImage(OFFICIAL_T3_MODEL, '4K')).toBe(8.75)
+    expect(getBananaModelCreditLabel(OFFICIAL_T3_MODEL, '4K')).toBe('8.75 💎')
+
+    expect(getBananaModelCreditsPerImage('unknown-model')).toBeUndefined()
+    expect(getBananaModelCreditsPerImage('gpt-5.5')).toBeUndefined()
+    expect(getBananaModelCreditLabel('unknown-model')).toBe('价格待配置')
+    expect(getBananaModelCreditLabel('gpt-5.5')).toBe('价格待配置')
+  })
+
   it('registers the GPT Image 2.5 and Seedream model capabilities', () => {
     const sunburst = getBananaModelByDisplayName('GPT-Image-2.5 Sunburst')
     const flare = getBananaModelByDisplayName('GPT-Image-2.5 Flare')

@@ -3,6 +3,15 @@ import { SIZE_TIERS, type SizeTier } from './size'
 export type BananaModelRoute = 'gemini-native' | 'banana-t3-images' | 'openai-images' | 'openai-responses'
 export type BananaQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
+export const CREDITS_PER_YUAN = 12.5
+export const OFFICIAL_T3_MODEL = 'nano-banana-pro-official-t3'
+
+const BANANA_T3_BY_SIZE: Record<SizeTier, { requestModel: string; yuan: number }> = {
+  '1K': { requestModel: 'Nano-banana-pro-1K', yuan: 0.5 },
+  '2K': { requestModel: 'Nano-banana-pro-2K', yuan: 0.6 },
+  '4K': { requestModel: 'Nano-banana-pro-4K', yuan: 0.7 },
+}
+
 export interface BananaGalleryModel {
   displayName: string
   model: string
@@ -10,6 +19,7 @@ export interface BananaGalleryModel {
   supportsReferenceImages: boolean
   supportedSizeTiers?: readonly SizeTier[]
   qualityOptions?: readonly BananaQuality[]
+  pricePerImageYuan?: number
 }
 
 export const AGENT_TEXT_MODELS = [
@@ -26,6 +36,7 @@ export const BANANA_MODEL_REGISTRY = [
     model: 'gemini-3-pro-image-preview',
     providerRoute: 'gemini-native',
     supportsReferenceImages: true,
+    pricePerImageYuan: 0.4,
   },
   {
     displayName: 'GPT-Image-2.5 Sunburst',
@@ -33,6 +44,7 @@ export const BANANA_MODEL_REGISTRY = [
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     supportedSizeTiers: SIZE_TIERS,
+    pricePerImageYuan: 0.3,
   },
   {
     displayName: 'GPT-Image-2.5 Sunburst(官渠，支持max）',
@@ -41,6 +53,7 @@ export const BANANA_MODEL_REGISTRY = [
     supportsReferenceImages: true,
     supportedSizeTiers: SIZE_TIERS,
     qualityOptions: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
+    pricePerImageYuan: 0.7,
   },
   {
     displayName: 'GPT-Image-2.5 Flare',
@@ -48,12 +61,14 @@ export const BANANA_MODEL_REGISTRY = [
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     supportedSizeTiers: SIZE_TIERS,
+    pricePerImageYuan: 0.3,
   },
   {
     displayName: 'GPT-Image-2(4K线路）',
     model: 'gpt-image-2',
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
+    pricePerImageYuan: 0.3,
   },
   {
     displayName: 'Seedream 5 Pro (1K/2K)',
@@ -61,18 +76,21 @@ export const BANANA_MODEL_REGISTRY = [
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     supportedSizeTiers: ['1K', '2K'],
+    pricePerImageYuan: 0.25,
   },
   {
     displayName: 'Nano Banana 2',
     model: 'gemini-3.1-flash-image-preview',
     providerRoute: 'gemini-native',
     supportsReferenceImages: true,
+    pricePerImageYuan: 0.2,
   },
   {
     displayName: 'Nano Banana 2 Lite',
     model: 'gemini-3.1-flash-lite-image',
     providerRoute: 'gemini-native',
     supportsReferenceImages: true,
+    pricePerImageYuan: 0.1,
   },
   {
     displayName: 'Nano Banana Pro（官方T3）',
@@ -85,18 +103,21 @@ export const BANANA_MODEL_REGISTRY = [
     model: 'gpt-image-2-official',
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
+    pricePerImageYuan: 0.8,
   },
   {
     displayName: 'Nano Banana Pro（备选）',
     model: 'nano-banana-pro',
     providerRoute: 'gemini-native',
     supportsReferenceImages: true,
+    pricePerImageYuan: 0.4,
   },
   {
     displayName: 'GPT-Image-2（备用）',
     model: 'gpt-image-2-svip',
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
+    pricePerImageYuan: 0.3,
   },
   {
     displayName: 'GPT-Image-2（Agent线路）',
@@ -141,6 +162,22 @@ export function normalizeBananaModelId(model: string): string {
 export function getBananaModelById(model: string): BananaGalleryModel | undefined {
   const normalized = normalizeBananaModelId(model)
   return BANANA_MODEL_REGISTRY.find((item) => item.model === normalized)
+}
+
+export function getBananaT3RequestModelForSize(imageSize: SizeTier): string {
+  return BANANA_T3_BY_SIZE[imageSize].requestModel
+}
+
+export function getBananaModelCreditsPerImage(model: string, imageSize: SizeTier = '2K'): number | undefined {
+  const yuan = model === OFFICIAL_T3_MODEL
+    ? BANANA_T3_BY_SIZE[imageSize].yuan
+    : getBananaModelById(model)?.pricePerImageYuan
+  return yuan === undefined ? undefined : Number((yuan * CREDITS_PER_YUAN).toFixed(3))
+}
+
+export function getBananaModelCreditLabel(model: string, imageSize: SizeTier = '2K'): string {
+  const credits = getBananaModelCreditsPerImage(model, imageSize)
+  return credits === undefined ? '价格待配置' : `${credits} 💎`
 }
 
 export function getBananaSupportedSizeTiers(model: string): readonly SizeTier[] {
