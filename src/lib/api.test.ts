@@ -1742,6 +1742,7 @@ describe('bananaModels', () => {
     ['gpt-image-2.5-sunburst-官渠（支持max）', 8.75, '8.7 💎'],
     ['gpt-image-2.5-flare', 3.75, '3.7 💎'],
     ['gpt-image-2', 3.75, '3.7 💎'],
+    ['seedream-5-pro', 3.125, '3.1 💎'],
     ['gemini-3.1-flash-image-preview', 2.5, '2.5 💎'],
     ['gemini-3.1-flash-lite-image', 1.25, '1.2 💎'],
     ['gpt-image-2-official', 10, '10.0 💎'],
