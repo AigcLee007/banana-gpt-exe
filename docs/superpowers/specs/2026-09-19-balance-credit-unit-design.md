@@ -12,7 +12,7 @@ Show all three API Key balance values with the diamond credit unit and exactly o
 
 ## Design
 
-Use one local presentation helper in `SettingsModal.tsx` to truncate a numeric value toward zero to one decimal and append ` 💎`. Both repeated balance-card renderings call that helper for `remaining_points`, `total_points`, and `used_points`.
+Use one small, presentation-only helper in `src/lib/balanceCredits.ts` to truncate a numeric value toward zero to one decimal and append ` 💎`. Both repeated balance-card renderings call that helper for `remaining_points`, `total_points`, and `used_points`.
 
 Examples: `5` becomes `5.0 💎`; `1.25` becomes `1.2 💎`; `8.75` becomes `8.7 💎`.
 
