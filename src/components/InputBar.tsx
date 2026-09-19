@@ -11,7 +11,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelRoute, getBananaQualityOptions, getBananaSupportedSizeTiers, normalizeBananaModelId, usesGeminiImageParams } from '../lib/bananaModels'
+import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelCreditLabel, getBananaModelRoute, getBananaQualityOptions, getBananaSupportedSizeTiers, normalizeBananaModelId, usesGeminiImageParams } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import { getInputBarClearance } from '../lib/inputBarLayout'
@@ -708,6 +708,16 @@ export default function InputBar() {
   const transparentOutputEnabled = showTransparentOutputControl && params.transparent_output
   const geminiAspectRatio = normalizeGeminiAspectRatio(params.geminiAspectRatio ?? params.size)
   const geminiImageSize = normalizeGeminiImageSize(params.geminiImageSize ?? '2K')
+  const imageModelOptions = BANANA_GALLERY_MODELS.map((item) => ({
+    label: `${item.displayName} · ${getBananaModelCreditLabel(item.model, geminiImageSize)}`,
+    value: item.model,
+  }))
+  const getImageModelOptionLabel = (model: string) => {
+    const item = BANANA_GALLERY_MODELS.find((candidate) => candidate.model === model)
+    return item
+      ? `${item.displayName} · ${getBananaModelCreditLabel(item.model, geminiImageSize)}`
+      : String(model)
+  }
   const geminiRatioOptions = GEMINI_ASPECT_RATIOS.map((ratio) => ({
     label: (
       <span className="inline-flex items-center gap-2">
@@ -1847,13 +1857,10 @@ export default function InputBar() {
               const patch = getChangedParams(params, nextParams)
               if (Object.keys(patch).length) setParams(patch)
             }}
-            options={BANANA_GALLERY_MODELS.map((item) => ({
-              label: item.displayName,
-              value: item.model,
-            }))}
+            options={imageModelOptions}
             className={selectClass}
             menuClassName="min-w-max"
-            triggerTitle={BANANA_GALLERY_MODELS.find((item) => item.model === galleryModel)?.displayName ?? String(galleryModel)}
+            triggerTitle={getImageModelOptionLabel(galleryModel)}
             truncateOptionLabel={false}
           />
         </label>
@@ -1867,13 +1874,10 @@ export default function InputBar() {
               const nextModel = normalizeBananaModelId(String(model))
               setSettings({ agentImageModel: nextModel })
             }}
-            options={BANANA_GALLERY_MODELS.map((item) => ({
-              label: item.displayName,
-              value: item.model,
-            }))}
+            options={imageModelOptions}
             className={selectClass}
             menuClassName="min-w-max"
-            triggerTitle={BANANA_GALLERY_MODELS.find((item) => item.model === agentImageModel)?.displayName ?? String(agentImageModel)}
+            triggerTitle={getImageModelOptionLabel(agentImageModel)}
             truncateOptionLabel={false}
           />
         </label>

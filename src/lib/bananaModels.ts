@@ -172,7 +172,7 @@ export function getBananaModelCreditsPerImage(model: string, imageSize: SizeTier
   const normalizedModel = normalizeBananaModelId(model)
   const yuan = normalizedModel === OFFICIAL_T3_MODEL
     ? BANANA_T3_BY_SIZE[imageSize].yuan
-    : BANANA_MODEL_REGISTRY.find((item) => item.model === normalizedModel)?.pricePerImageYuan
+    : getBananaModelById(normalizedModel)?.pricePerImageYuan
   return yuan === undefined ? undefined : Number((yuan * CREDITS_PER_YUAN).toFixed(3))
 }
 

@@ -1,6 +1,6 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
-import { getBananaModelRoute, isBananaT3ImagesModel, isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
+import { getBananaModelRoute, getBananaT3RequestModelForSize, isBananaT3ImagesModel, isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
 import { buildApiUrl, isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import {
@@ -263,10 +263,6 @@ async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: Ap
   }
 }
 
-function getBananaT3ModelForImageSize(imageSize: ReturnType<typeof normalizeGeminiImageSize>): string {
-  return `Nano-banana-pro-${imageSize}`
-}
-
 async function normalizeBananaT3InputImages(inputImages: string[], signal: AbortSignal): Promise<string[]> {
   return Promise.all(inputImages.map((image) => {
     if (!isHttpUrl(image)) return Promise.resolve(image)
@@ -277,7 +273,7 @@ async function normalizeBananaT3InputImages(inputImages: string[], signal: Abort
 function buildBananaT3ImagesPayload(opts: CallApiOptions, inputImages = opts.inputImageDataUrls): Record<string, unknown> {
   const requestSpec = resolveGeminiRequestSpec(opts.params)
   const payload: Record<string, unknown> = {
-    model: getBananaT3ModelForImageSize(requestSpec.imageSize),
+    model: getBananaT3RequestModelForSize(requestSpec.imageSize),
     prompt: opts.prompt,
     aspect_ratio: requestSpec.aspectRatio,
     aspectRatio: requestSpec.aspectRatio,
@@ -340,7 +336,7 @@ async function callBananaT3ImagesGenerateContent(opts: CallApiOptions, profile: 
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
   const requestUrl = buildApiUrl(profile.baseUrl, 'images/generations', proxyConfig, useApiProxy)
   const requestSpec = resolveGeminiRequestSpec(opts.params)
-  const requestModel = getBananaT3ModelForImageSize(requestSpec.imageSize)
+  const requestModel = getBananaT3RequestModelForSize(requestSpec.imageSize)
 
   try {
     if (import.meta.env.DEV) {
