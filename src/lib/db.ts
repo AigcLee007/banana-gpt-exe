@@ -40,10 +40,19 @@ export function openAppDatabase(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION)
+    let abandoned = false
     req.onupgradeneeded = () => ensureObjectStores(req.result)
-    req.onblocked = () => reject(new Error('数据库升级被已有连接阻塞，请刷新页面后重试'))
+    req.onblocked = () => {
+      abandoned = true
+      dbPromise = null
+      reject(new Error('数据库升级被已有连接阻塞，请刷新页面后重试'))
+    }
     req.onsuccess = () => {
       const db = req.result
+      if (abandoned) {
+        db.close()
+        return
+      }
       db.onversionchange = () => db.close()
       resolve(db)
     }

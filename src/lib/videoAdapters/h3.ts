@@ -16,7 +16,11 @@ function authHeaders(profile: VideoApiProfileSnapshot): Record<string, string> {
 }
 
 function normalizeRatio(value: string) {
-  return value === 'auto' ? '16:9' : value
+  return value === 'auto' ? 'adaptive' : value
+}
+
+function normalizeResolution(value: string) {
+  return value === '768p' ? '768P' : value === '2k' ? '2K' : value
 }
 
 export const h3Adapter: VideoAdapter = {
@@ -45,7 +49,7 @@ export const h3Adapter: VideoAdapter = {
         prompt,
         seconds: duration,
         metadata: {
-          metaso_resolution: resolution === '768p' ? '768P' : resolution,
+          metaso_resolution: normalizeResolution(resolution),
           metaso_ratio: normalizeRatio(aspectRatio),
         },
       }
@@ -70,7 +74,7 @@ export const h3Adapter: VideoAdapter = {
       }
       if (mode === 'i2v' || mode === 'flf2v') {
         body.metadata = {
-          metaso_resolution: resolution === '768p' ? '768P' : resolution,
+          metaso_resolution: normalizeResolution(resolution),
           metaso_ratio: normalizeRatio(aspectRatio),
           metaso_content: content,
         }
@@ -97,7 +101,7 @@ export const h3Adapter: VideoAdapter = {
       form.append('seconds', String(duration))
 
       const metadata: Record<string, unknown> = {
-        metaso_resolution: resolution === '768p' ? '768P' : resolution,
+        metaso_resolution: normalizeResolution(resolution),
         metaso_ratio: normalizeRatio(aspectRatio),
       }
       form.append('metadata', JSON.stringify(metadata))

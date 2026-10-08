@@ -1,5 +1,6 @@
 import { createServer, request, type IncomingMessage, type ServerResponse, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { gzipSync } from 'node:zlib'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import viteConfig from '../vite.config'
 
@@ -7,6 +8,7 @@ type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) 
 let server: Server
 let origin: string
 const upstreamFetch = vi.fn<typeof fetch>()
+const nativeFetch = globalThis.fetch
 
 beforeAll(async () => {
   const config = await (viteConfig as Function)({ command: 'serve', mode: 'development' })
@@ -52,11 +54,32 @@ function callProxy(path: string, method = 'GET', headers: Record<string, string>
       res.on('error', reject)
     })
     req.on('error', reject)
+    req.setTimeout(2000, () => req.destroy(new Error('Video proxy response timed out')))
     req.end(body)
   })
 }
 
 describe('user-key video proxy', () => {
+  it('returns complete JSON when the upstream gzip response is decompressed by fetch', async () => {
+    const json = JSON.stringify({ id: 'gzip-task', status: 'queued' })
+    const compressed = gzipSync(json)
+    const upstream = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip', 'Content-Length': compressed.length })
+      res.end(compressed)
+    })
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve))
+    vi.stubEnv('API_PROXY_URL', `http://127.0.0.1:${(upstream.address() as AddressInfo).port}/v1`)
+    upstreamFetch.mockImplementationOnce(nativeFetch)
+    try {
+      const response = await callProxy('/api-proxy/v1/videos/task-1', 'GET', { Authorization: 'Bearer mock-user-key' })
+      expect(response.body.toString()).toBe(json)
+      expect(response.headers['content-encoding']).toBeUndefined()
+      expect(Number(response.headers['content-length'])).toBe(Buffer.byteLength(json))
+    } finally {
+      await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()))
+    }
+  })
+
   it('forwards Omni JSON image arrays without changing the payload or credentials', async () => {
     const body = JSON.stringify({ model: 'gemini-omni-flash-10s', prompt: 'A fox', seconds: '10', aspect_ratio: '9:16', resolution: '720p', images: ['data:image/png;base64,ZmFrZQ==', 'https://example.test/image.png'] })
     await callProxy('/api-proxy/v1/videos', 'POST', { Authorization: 'Bearer mock-omni-key', 'Content-Type': 'application/json' }, body)

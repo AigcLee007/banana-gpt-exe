@@ -122,6 +122,21 @@ describe('h3Adapter', () => {
     expect(form.get('n')).toBeNull()
   })
 
+  it.each(['t2v', 'ref2v'] as const)('uses the documented 2K and adaptive values in %s requests', async (mode) => {
+    const task: VideoTaskRecord = {
+      id: 'protocol-test', prompt: 'A fox', model: 'MiniMax-H3', mode, adapter: 'h3', status: 'queued', error: null,
+      params: { duration: 4, resolution: '2k', aspectRatio: 'auto', audio: true, n: 1 },
+      inputs: { refImageIds: [], refVideoIds: [], refAudioIds: [] },
+      createdAt: 0, finishedAt: null, elapsed: null,
+    }
+    const spec = await h3Adapter.buildSubmit({ task, profile })
+    const metadata = spec.init.body instanceof FormData
+      ? JSON.parse(String(spec.init.body.get('metadata')))
+      : JSON.parse(String(spec.init.body)).metadata
+    expect(metadata.metaso_resolution).toBe('2K')
+    expect(metadata.metaso_ratio).toBe('adaptive')
+  })
+
   describe('parsePoll', () => {
     it('maps completed to succeeded', () => {
       const result = h3Adapter.parsePoll({ status: 'completed', progress: 100 })

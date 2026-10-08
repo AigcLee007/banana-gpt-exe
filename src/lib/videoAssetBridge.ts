@@ -14,7 +14,7 @@ export async function ensureGalleryImageAsset(imageId: string, metadata?: Partia
   if (!image) return undefined
   const id = imageAssetId(imageId)
   const existing = await getVideoAsset(id)
-  if (existing) return existing
+  if (existing) return existing.removedAt ? undefined : existing
   const now = Date.now()
   const asset: VideoAssetRecord = {
     id,

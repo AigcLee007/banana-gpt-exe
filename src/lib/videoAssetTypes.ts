@@ -16,6 +16,8 @@ export interface VideoAssetRecord {
   storage: 'media' | 'images'
   storageId: string
   derivedMediaId?: string | null
+  /** Retain a durable exclusion when shared media is removed from the library. */
+  removedAt?: number | null
 }
 
 export interface VideoAssetCategoryRecord {

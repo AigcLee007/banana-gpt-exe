@@ -26,6 +26,7 @@ export function normalizeVideoAsset(record: Partial<VideoAssetRecord> & Pick<Vid
     storage,
     storageId: record.storageId || record.id,
     derivedMediaId: record.derivedMediaId ?? null,
+    removedAt: record.removedAt ?? null,
   }
 }
 
@@ -47,6 +48,11 @@ export function deleteVideoAsset(id: string): Promise<undefined> {
   return dbTransaction(STORE_ASSETS, 'readwrite', (store) => store.delete(id))
 }
 
+export async function removeVideoAssetFromLibrary(id: string): Promise<void> {
+  const asset = await getVideoAsset(id)
+  if (asset) await putVideoAsset({ ...asset, removedAt: Date.now(), updatedAt: Date.now() })
+}
+
 export function getAllVideoAssetCategories(): Promise<VideoAssetCategoryRecord[]> {
   return dbTransaction(STORE_CATEGORIES, 'readonly', (store) => store.getAll())
 }
@@ -62,9 +68,10 @@ export function deleteVideoAssetCategory(id: string): Promise<undefined> {
 export async function ensureMediaAssets(media: MediaRecord[]): Promise<VideoAssetRecord[]> {
   const existing = await getAllVideoAssets()
   const existingIds = new Set(existing.map((asset) => asset.id))
+  const galleryMediaIds = new Set(existing.flatMap((asset) => asset.storage === 'images' && asset.derivedMediaId ? [asset.derivedMediaId] : []))
   const now = Date.now()
   const created = media.flatMap((record): VideoAssetRecord[] => {
-    if (existingIds.has(record.id)) return []
+    if (existingIds.has(record.id) || galleryMediaIds.has(record.id)) return []
     const type = mediaType(record.mime)
     if (!type) return []
     return [{
@@ -88,7 +95,7 @@ export async function ensureMediaAssets(media: MediaRecord[]): Promise<VideoAsse
   if (created.length) {
     await Promise.all(created.map(putVideoAsset))
   }
-  return [...existing, ...created]
+  return [...existing, ...created].filter((asset) => !asset.removedAt && !(asset.storage === 'media' && galleryMediaIds.has(asset.storageId)))
 }
 
 export function mediaType(mime: string) {

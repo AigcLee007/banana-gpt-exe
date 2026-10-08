@@ -85,10 +85,11 @@ async function proxyVideoRequest(req: IncomingMessage, res: ServerResponse) {
   const upstream = await fetch(target, { method: req.method, headers, body: body && body.length ? body : undefined })
   res.statusCode = upstream.status
   upstream.headers.forEach((value, name) => {
-    if (['connection', 'transfer-encoding', 'content-encoding'].includes(name.toLowerCase())) return
+    if (['connection', 'transfer-encoding', 'content-encoding', 'content-length'].includes(name.toLowerCase())) return
     res.setHeader(name, value)
   })
   const responseBody = Buffer.from(await upstream.arrayBuffer())
+  res.setHeader('Content-Length', responseBody.length)
   res.end(responseBody)
 }
 

@@ -3,7 +3,7 @@ import { createLocalId } from './lib/localId'
 import type { VideoAssetCategoryRecord, VideoAssetRecord } from './lib/videoAssetTypes'
 import { getAllMedia, uploadMediaFile } from './lib/videoDb'
 import {
-  deleteVideoAsset,
+  removeVideoAssetFromLibrary,
   deleteVideoAssetCategory,
   ensureMediaAssets,
   getAllVideoAssetCategories,
@@ -83,7 +83,7 @@ export const useVideoAssetStore = create<VideoAssetStore>((set, get) => ({
     set({ assets: next })
   },
   remove: async (ids) => {
-    await Promise.all(ids.map(deleteVideoAsset))
+    await Promise.all(ids.map(removeVideoAssetFromLibrary))
     const selected = new Set(ids)
     set((state) => ({ assets: state.assets.filter((asset) => !selected.has(asset.id)) }))
   },
