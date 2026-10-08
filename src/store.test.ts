@@ -1080,6 +1080,27 @@ describe('agent draft lifecycle', () => {
     expect(state.inputImages).toEqual([imageB])
   })
 
+  it('restores gallery images and mask after switching through agent and video modes', () => {
+    const galleryMask = { targetImageId: imageB.id, maskDataUrl: 'data:image/png;base64,gallery-mask', updatedAt: 2 }
+    useStore.setState({
+      appMode: 'gallery', prompt: 'gallery draft', inputImages: [imageB],
+      maskDraft: galleryMask, maskEditorImageId: imageB.id,
+      agentInputDrafts: { 'conversation-a': { ...draftState } },
+    })
+    useStore.getState().setAppMode('agent')
+    expect(useStore.getState().prompt).toBe(draftState.prompt)
+    useStore.getState().setAppMode('video')
+    useStore.getState().setAppMode('gallery')
+    const state = useStore.getState()
+    expect(state.prompt).toBe('gallery draft')
+    expect(state.inputImages).toEqual([imageB])
+    expect(state.maskDraft).toEqual(galleryMask)
+    expect(state.maskEditorImageId).toBe(imageB.id)
+    expect(state.agentInputDrafts['conversation-a'].prompt).toBe(draftState.prompt)
+    useStore.getState().setPrompt('gallery edited')
+    expect(useStore.getState().galleryInputDraft).toMatchObject({ prompt: 'gallery edited', inputImages: [imageB], maskDraft: galleryMask })
+  })
+
   it('persists the gallery draft while agent mode is active', () => {
     const galleryPrompt = 'gallery draft'
     useStore.setState({

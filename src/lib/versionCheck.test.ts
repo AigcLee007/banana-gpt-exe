@@ -68,6 +68,11 @@ describe('versionCheck', () => {
     expect(shouldRunDesktopAutoCheck(now, null, now - 30 * 60 * 1000)).toBe(false)
   })
 
+  it('respects 30min throttle between desktop auto checks', () => {
+    const now = 1_000_000
+    expect(shouldRunDesktopAutoCheck(now, now - 1_000, now - 31 * 60 * 1000)).toBe(false)
+  })
+
   it('web auto check throttles by 1h', () => {
     const now = 1_000_000
     expect(shouldRunWebAutoCheck(now, null)).toBe(true)

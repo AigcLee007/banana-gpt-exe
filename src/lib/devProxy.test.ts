@@ -88,4 +88,12 @@ describe('Docker API proxy config', () => {
     expect(nginxConfig).toContain('rewrite ^/api-proxy/v1/(.*)$ /v1/$1 break;')
     expect(nginxConfig).toContain('proxy_pass ${API_PROXY_LEGACY_V1_BASE_URL};')
   })
+
+  it('forwards the user Authorization header through the video proxy', () => {
+    expect(nginxConfig).toMatch(/location \^~ \/api-proxy\/v1\/videos/)
+    expect(nginxConfig).toContain('rewrite ^/api-proxy/v1/(.*)$ /v1/$1 break;')
+    expect(nginxConfig).toContain('proxy_pass ${API_PROXY_LEGACY_V1_BASE_URL};')
+    expect(nginxConfig).toContain('proxy_set_header Authorization $http_authorization;')
+    expect(nginxConfig).not.toContain('GROK_IMAGINE_VIDEO_API_KEY')
+  })
 })
