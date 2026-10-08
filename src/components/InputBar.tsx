@@ -697,12 +697,12 @@ export default function InputBar() {
   const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === resolvedGalleryModel)
     ? resolvedGalleryModel
     : DEFAULT_GALLERY_MODEL
-  const activeImageModel = getActiveBananaModelForMode(appMode, galleryModel, agentImageModel)
+  const activeImageModel = getActiveBananaModelForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
   const supportedSizeTiers = getBananaSupportedSizeTiers(activeImageModel)
-  const activeImageModelRoute = getActiveBananaModelRouteForMode(appMode, galleryModel, agentImageModel)
+  const activeImageModelRoute = getActiveBananaModelRouteForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
   const usesGeminiParamControls = activeImageModelRoute === 'gemini-native' || activeImageModelRoute === 'banana-t3-images'
   const usesGeminiGalleryParams = appMode === 'gallery' && usesGeminiImageParams(galleryModel)
-  const desktopParamGridColumns = getBananaDesktopParamGridColumnsForMode(appMode, galleryModel, agentImageModel)
+  const desktopParamGridColumns = getBananaDesktopParamGridColumnsForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
   const transparentOutputAvailable = appMode === 'gallery' && !usesGeminiGalleryParams
   const showTransparentOutputControl = transparentOutputAvailable && params.output_format === 'png'
   const transparentOutputEnabled = showTransparentOutputControl && params.transparent_output

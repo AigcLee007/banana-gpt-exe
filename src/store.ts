@@ -17,6 +17,7 @@ import type {
   ResponsesOutputItem,
 } from './types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_PARAMS } from './types'
+import { ensureGalleryImageAssets } from './lib/videoAssetBridge'
 import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
@@ -656,7 +657,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     typeof persisted.activeAgentConversationId === 'string' && (!hasPersistedAgentConversations || agentConversations.some((conversation) => conversation.id === persisted.activeAgentConversationId))
       ? persisted.activeAgentConversationId
       : agentConversations[0]?.id ?? null
-  const appMode = persisted.appMode === 'agent' ? 'agent' : 'gallery'
+  const appMode = persisted.appMode === 'agent' ? 'agent' : persisted.appMode === 'video' ? 'video' : 'gallery'
   const galleryInputDraft = settings.persistInputOnRestart
     ? normalizeAgentInputDraft(persisted.galleryInputDraft ?? {
         prompt: persisted.prompt,
@@ -1059,8 +1060,22 @@ export const useStore = create<AppState>()(
       // Mode
       appMode: 'gallery',
       setAppMode: (appMode) => {
+        const state = get()
+        if (appMode === 'video') {
+          const agentInputDrafts = saveActiveAgentInputDrafts(state)
+          const galleryInputDraft = saveGalleryInputDraft(state)
+          set({
+            appMode,
+            agentInputDrafts,
+            galleryInputDraft,
+            agentMobileHeaderVisible: true,
+            selectedTaskIds: [],
+            agentEditingRoundId: null,
+          })
+          return
+        }
+
         if (appMode === 'gallery') {
-          const state = get()
           const agentInputDrafts = saveActiveAgentInputDrafts(state)
           const galleryInputDraft = saveGalleryInputDraft(state)
           set((state) => ({
@@ -1070,12 +1085,11 @@ export const useStore = create<AppState>()(
             agentMobileHeaderVisible: true,
             selectedTaskIds: [],
             agentEditingRoundId: null,
-            ...(state.appMode === 'agent' ? restoreGalleryInputDraftState(galleryInputDraft) : {}),
+            ...(state.appMode !== 'gallery' ? restoreGalleryInputDraftState(galleryInputDraft) : {}),
           }))
           return
         }
 
-        const state = get()
         const settings = normalizeSettings(state.settings)
         const activeProfile = createFixedAgentProfile(getActiveApiProfile(settings))
 
@@ -2624,6 +2638,9 @@ async function storeTaskOutputImages(task: TaskRecord, images: string[]) {
       outputIds.push(imageId)
     }
 
+    if (task.sourceMode === 'gallery') {
+      await ensureGalleryImageAssets(outputIds).catch((error) => console.warn('画廊资产登记失败', error))
+    }
     return {
       outputIds,
       transparentOriginalImageIds: transparentOriginalImageIds.length ? transparentOriginalImageIds : undefined,

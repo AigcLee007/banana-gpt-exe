@@ -4,3 +4,9 @@ dist/
 dev-proxy.config.json
 .wrangler/
 release/
+.tmp-video-probe/
+.claude/
+.playwright-cli/
+.tmp-upstream/
+output/playwright/
+*.log

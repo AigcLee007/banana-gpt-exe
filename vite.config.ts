@@ -54,6 +54,45 @@ const DOWNLOAD_PROXY_ALLOWED_HOSTS = new Set([
   'visionary.beer',
 ])
 
+function readIncomingBody(req: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+    req.on('error', reject)
+  })
+}
+
+async function proxyVideoRequest(req: IncomingMessage, res: ServerResponse) {
+  const authorization = req.headers.authorization?.trim()
+  if (!authorization || !/^Bearer\s+\S+$/i.test(authorization)) {
+    res.statusCode = 401
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    res.end(JSON.stringify({ error: '请先在设置 → API 配置中填写 API Key' }))
+    return
+  }
+
+  const requestPath = req.url ?? '/api-proxy/v1/videos'
+  const upstreamBase = (process.env.API_PROXY_URL || 'https://vip.aittco.com').replace(/\/+$/, '').replace(/\/v1$/i, '')
+  const upstreamPath = requestPath.replace(/^\/api-proxy(?=\/)/, '')
+  const target = `${upstreamBase}${upstreamPath.startsWith('/v1/') ? upstreamPath : `/v1${upstreamPath}`}`
+  const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await readIncomingBody(req)
+  const headers: Record<string, string> = { Authorization: authorization }
+  const contentType = req.headers['content-type']
+  if (typeof contentType === 'string') headers['Content-Type'] = contentType
+  const range = req.headers.range
+  if (typeof range === 'string') headers.Range = range
+  const upstream = await fetch(target, { method: req.method, headers, body: body && body.length ? body : undefined })
+  res.statusCode = upstream.status
+  upstream.headers.forEach((value, name) => {
+    if (['connection', 'transfer-encoding', 'content-encoding', 'content-length'].includes(name.toLowerCase())) return
+    res.setHeader(name, value)
+  })
+  const responseBody = Buffer.from(await upstream.arrayBuffer())
+  res.setHeader('Content-Length', responseBody.length)
+  res.end(responseBody)
+}
+
 function isAllowedDownloadProxyUrl(value: string): URL | null {
   try {
     const url = new URL(value)
@@ -136,6 +175,33 @@ export default defineConfig(({ command }) => {
             }
 
             proxyDownloadUrl(targetUrl, req, res)
+          })
+          server.middlewares.use((req, res, next) => {
+            if (!req.url?.startsWith('/api-proxy/v1/videos')) {
+              next()
+              return
+            }
+            if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'POST' && req.method !== 'OPTIONS') {
+              res.statusCode = 405
+              res.end('Method Not Allowed')
+              return
+            }
+            if (req.method === 'OPTIONS') {
+              res.statusCode = 204
+              res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,POST,OPTIONS')
+              res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Range')
+              res.end()
+              return
+            }
+            void proxyVideoRequest(req, res).catch(() => {
+              if (!res.headersSent) {
+                res.statusCode = 502
+                res.setHeader('Content-Type', 'application/json; charset=utf-8')
+                res.end(JSON.stringify({ error: '视频代理请求失败' }))
+              } else {
+                res.end()
+              }
+            })
           })
         },
         generateBundle() {

@@ -20,6 +20,7 @@ import Header from './components/Header'
 import SearchBar from './components/SearchBar'
 import TaskGrid from './components/TaskGrid'
 import AgentWorkspace from './components/AgentWorkspace'
+import VideoWorkspace from './components/VideoWorkspace'
 import InputBar from './components/InputBar'
 import DetailModal from './components/DetailModal'
 import Lightbox from './components/Lightbox'
@@ -187,6 +188,8 @@ export default function App() {
       <Header />
       {appMode === 'agent' ? (
         <AgentWorkspace />
+      ) : appMode === 'video' ? (
+        <VideoWorkspace />
       ) : (
         <main
           data-home-main
@@ -199,8 +202,8 @@ export default function App() {
           </div>
         </main>
       )}
-      <InputBar />
-      <DetailModal />
+      {appMode !== 'video' && <InputBar />}
+      {appMode !== 'video' && <DetailModal />}
       <Lightbox />
       <SettingsModal />
       <ConfirmDialog />

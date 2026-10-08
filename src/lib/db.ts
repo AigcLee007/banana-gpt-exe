@@ -1,53 +1,121 @@
 import type { AgentConversation, TaskRecord, StoredImage, StoredImageThumbnail } from '../types'
 
 const DB_NAME = 'gpt-image-playground'
-const DB_VERSION = 3
+const DB_VERSION = 7
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
 const STORE_AGENT_CONVERSATIONS = 'agentConversations'
+const STORE_VIDEO_TASKS = 'videoTasks'
+const STORE_MEDIA = 'media'
+const STORE_MEDIA_POSTERS = 'mediaPosters'
+const STORE_VIDEO_ASSETS = 'videoAssets'
+const STORE_VIDEO_ASSET_CATEGORIES = 'videoAssetCategories'
 const THUMBNAIL_MAX_SIZE = 720
 const THUMBNAIL_QUALITY = 0.9
 const THUMBNAIL_VERSION = 2
 
 export const CURRENT_THUMBNAIL_VERSION = THUMBNAIL_VERSION
 
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
-    req.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result
-      if (!db.objectStoreNames.contains(STORE_TASKS)) {
-        db.createObjectStore(STORE_TASKS, { keyPath: 'id' })
-      }
-      if (!db.objectStoreNames.contains(STORE_IMAGES)) {
-        db.createObjectStore(STORE_IMAGES, { keyPath: 'id' })
-      }
-      if (!db.objectStoreNames.contains(STORE_THUMBNAILS)) {
-        db.createObjectStore(STORE_THUMBNAILS, { keyPath: 'id' })
-      }
-      if (!db.objectStoreNames.contains(STORE_AGENT_CONVERSATIONS)) {
-        db.createObjectStore(STORE_AGENT_CONVERSATIONS, { keyPath: 'id' })
-      }
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
+let dbPromise: Promise<IDBDatabase> | null = null
+
+function ensureObjectStores(db: IDBDatabase) {
+  const stores: Array<[string, IDBObjectStoreParameters]> = [
+    [STORE_TASKS, { keyPath: 'id' }],
+    [STORE_IMAGES, { keyPath: 'id' }],
+    [STORE_THUMBNAILS, { keyPath: 'id' }],
+    [STORE_AGENT_CONVERSATIONS, { keyPath: 'id' }],
+    [STORE_VIDEO_TASKS, { keyPath: 'id' }],
+    [STORE_MEDIA, { keyPath: 'id' }],
+    [STORE_MEDIA_POSTERS, { keyPath: 'id' }],
+    [STORE_VIDEO_ASSETS, { keyPath: 'id' }],
+    [STORE_VIDEO_ASSET_CATEGORIES, { keyPath: 'id' }],
+  ]
+  for (const [name, options] of stores) {
+    if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, options)
+  }
 }
 
-function dbTransaction<T>(
+export function openAppDatabase(): Promise<IDBDatabase> {
+  if (dbPromise) return dbPromise
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION)
+    let abandoned = false
+    req.onupgradeneeded = () => ensureObjectStores(req.result)
+    req.onblocked = () => {
+      abandoned = true
+      dbPromise = null
+      reject(new Error('数据库升级被已有连接阻塞，请刷新页面后重试'))
+    }
+    req.onsuccess = () => {
+      const db = req.result
+      if (abandoned) {
+        db.close()
+        return
+      }
+      db.onversionchange = () => db.close()
+      resolve(db)
+    }
+    req.onerror = () => {
+      dbPromise = null
+      reject(req.error)
+    }
+  })
+  return dbPromise
+}
+
+export function resetAppDatabaseConnection() {
+  dbPromise = null
+}
+
+function openDB(): Promise<IDBDatabase> {
+  return openAppDatabase()
+}
+
+export function dbTransaction<T>(
   storeName: string,
   mode: IDBTransactionMode,
   fn: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T>
+export function dbTransaction<T>(
+  storeName: string[],
+  mode: IDBTransactionMode,
+  fn: (stores: IDBObjectStore[]) => IDBRequest<T> | void,
+): Promise<T>
+export function dbTransaction<T>(
+  storeName: string | string[],
+  mode: IDBTransactionMode,
+  fn: ((store: IDBObjectStore) => IDBRequest<T>) | ((stores: IDBObjectStore[]) => IDBRequest<T> | void),
 ): Promise<T> {
   return openDB().then(
     (db) =>
       new Promise((resolve, reject) => {
-        const tx = db.transaction(storeName, mode)
-        const store = tx.objectStore(storeName)
-        const req = fn(store)
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
+        let tx: IDBTransaction
+        try {
+          tx = db.transaction(storeName, mode)
+          const stores = Array.isArray(storeName)
+            ? storeName.map((name) => tx.objectStore(name))
+            : tx.objectStore(storeName)
+          const request = Array.isArray(storeName)
+            ? (fn as (stores: IDBObjectStore[]) => IDBRequest<T> | void)(stores as IDBObjectStore[])
+            : (fn as (store: IDBObjectStore) => IDBRequest<T>)(stores as IDBObjectStore)
+          let requestResult: T
+          let requestDone = !request
+          if (request) {
+            request.onsuccess = () => {
+              requestResult = request.result
+              requestDone = true
+            }
+            request.onerror = () => reject(request.error)
+          }
+          tx.oncomplete = () => {
+            if (requestDone) resolve(request ? requestResult : undefined as T)
+          }
+          tx.onerror = () => reject(tx.error)
+          tx.onabort = () => reject(tx.error ?? new Error('数据库事务已中止'))
+        } catch (error) {
+          reject(error)
+        }
       }),
   )
 }
