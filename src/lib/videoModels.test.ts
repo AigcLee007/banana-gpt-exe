@@ -6,6 +6,8 @@ import {
   getVideoModelDefinition,
   getAllVideoModels,
   getVideoModelPriceLabel,
+  getVideoDurationSpec,
+  getVideoPricingMultiplier,
   type VideoMode,
 } from './videoModels'
 
@@ -85,7 +87,32 @@ describe('normalizeVideoParams', () => {
   })
   it('clamps duration to model limits', () => {
     const result = normalizeVideoParams({ duration: 100 }, 'MiniMax-H3', 't2v')
-    expect(result.duration).toBe(15)
+    expect(result.duration).toBe(30)
+  })
+
+  it('keeps H3 defaults while exposing four output resolutions', () => {
+    expect(getVideoModelDefinition('MiniMax-H3')?.resolutions).toEqual(['480p', '768p', '1080p', '2k'])
+    expect(normalizeVideoParams({}, 'MiniMax-H3', 't2v')).toMatchObject({ duration: 4, resolution: '768p' })
+  })
+
+  it.each([['480p', 30], ['768p', 30], ['1080p', 15], ['2k', 15]] as const)(
+    'limits H3 %s output to %s whole seconds', (resolution, max) => {
+      expect(getVideoDurationSpec('MiniMax-H3', false, resolution)).toMatchObject({ min: 4, max, step: 1, default: 4 })
+      expect(normalizeVideoParams({ resolution, duration: 99 }, 'MiniMax-H3', 't2v')).toMatchObject({ resolution, duration: max })
+      expect(normalizeVideoParams({ resolution, duration: 1 }, 'MiniMax-H3', 't2v').duration).toBe(4)
+      expect(normalizeVideoParams({ resolution, duration: 8.6 }, 'MiniMax-H3', 't2v').duration).toBe(9)
+      expect(getVideoDurationSpec('MiniMax-H3', true, resolution).max).toBe(max)
+    },
+  )
+
+  it('normalizes unsupported H3 resolution before choosing its duration limit', () => {
+    expect(normalizeVideoParams({ resolution: '720p', duration: 30 }, 'MiniMax-H3', 't2v'))
+      .toMatchObject({ resolution: '768p', duration: 30 })
+  })
+
+  it('retains WAN reference-video duration limits with resolution-aware duration lookup', () => {
+    expect(getVideoDurationSpec('wan3.0-video-720p', false, '720p').max).toBe(30)
+    expect(getVideoDurationSpec('wan3.0-video-720p', true, '720p').max).toBe(15)
   })
 
   it('uses default duration when not provided', () => {
@@ -158,7 +185,7 @@ describe('estimateVideoCredits', () => {
     expect(estimateVideoCredits('grok-imagine-video-1.5', 15, '1080p', 9, 30, 4)).toBe(15)
   })
 
-  it.each([['768p', 2.5], ['2k', 5]] as const)('uses the confirmed H3 credit rate at %s for duration and quantity', (resolution, rate) => {
+  it.each([['480p', 1.5], ['768p', 2.5], ['1080p', 3.75], ['2k', 5]] as const)('uses the confirmed H3 credit rate at %s for duration and quantity', (resolution, rate) => {
     for (const seconds of [4, 8, 15]) {
       for (const quantity of [1, 2, 4]) {
         expect(estimateVideoCredits('MiniMax-H3', seconds, resolution, 0, 0, quantity)).toBe(seconds * rate * quantity)
@@ -174,6 +201,8 @@ describe('estimateVideoCredits', () => {
     ['2k', 7, 10, 1, 46.25],
     ['768p', 7, 10, 2, 47.5],
     ['2k', 9, 4.5, 4, 135],
+    ['480p', 7, 10, 1, 17.25],
+    ['1080p', 7, 10, 1, 41.25],
   ] as const)('includes H3 %s reference materials (%s images, %ss video, quantity %s)', (resolution, images, seconds, quantity, credits) => {
     expect(estimateVideoCredits('MiniMax-H3', 4, resolution, images, seconds, quantity)).toBe(credits)
   })
@@ -183,12 +212,46 @@ describe('estimateVideoCredits', () => {
     const triple = estimateVideoCredits('MiniMax-H3', 4, '768p', 0, 0, 3)
     expect(triple).toBeCloseTo(single * 3, 0)
   })
+
+  it.each([['480p', 1.5, 1], ['768p', 2.5, 1.25]] as const)(
+    'doubles all H3 %s usage costs after 15 seconds', (resolution, outputRate, inputVideoRate) => {
+      for (const duration of [15, 16, 30]) {
+        const multiplier = duration > 15 ? 2 : 1
+        for (const images of [0, 5, 6, 9]) {
+          for (const quantity of [1, 2, 4]) {
+            const credits = (duration * outputRate + 10 * inputVideoRate + Math.max(images - 5, 0) * 0.625) * multiplier * quantity
+            expect(estimateVideoCredits('MiniMax-H3', duration, resolution, images, 10, quantity)).toBe(credits)
+          }
+        }
+      }
+    },
+  )
+
+  it('does not double WAN or per-request model prices for long output durations', () => {
+    expect(estimateVideoCredits('wan3.0-video-720p', 30, '720p', 9, 10, 1)).toBe(150)
+    expect(estimateVideoCredits('sd2.5-30s', 30, '1080p', 9, 10, 4)).toBe(38)
+  })
 })
 
 describe('video model price labels', () => {
+  it('derives duration multipliers from model pricing configuration', () => {
+    expect(getVideoPricingMultiplier('MiniMax-H3', 15)).toBe(1)
+    expect(getVideoPricingMultiplier('MiniMax-H3', 16)).toBe(2)
+    expect(getVideoPricingMultiplier('wan3.0-video-720p', 30)).toBe(1)
+    expect(getVideoPricingMultiplier('unknown', 30)).toBe(1)
+  })
   it('shows the per-second credit rate for the selected H3 resolution', () => {
     expect(getVideoModelPriceLabel('MiniMax-H3', '768p')).toBe('2.5 积分/秒起')
     expect(getVideoModelPriceLabel('MiniMax-H3', '2k')).toBe('5 积分/秒起')
+    expect(getVideoModelPriceLabel('MiniMax-H3', '480p')).toBe('1.5 积分/秒起')
+    expect(getVideoModelPriceLabel('MiniMax-H3', '1080p')).toBe('3.75 积分/秒起')
+  })
+
+  it('shows H3 long-duration rates from the current duration', () => {
+    expect(getVideoModelPriceLabel('MiniMax-H3', '480p', 15)).toBe('1.5 积分/秒起')
+    expect(getVideoModelPriceLabel('MiniMax-H3', '480p', 16)).toBe('3 积分/秒起')
+    expect(getVideoModelPriceLabel('MiniMax-H3', '768p', 30)).toBe('5 积分/秒起')
+    expect(getVideoModelPriceLabel('wan3.0-video-720p', '720p', 30)).toBe('5 积分/秒')
   })
 
   it('uses an option model default when the active model resolution is unsupported', () => {

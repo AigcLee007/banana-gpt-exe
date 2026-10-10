@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { VIDEO_MODELS, formatVideoResolution, type VideoModelDefinition } from '../lib/videoModels'
+import { VIDEO_MODELS, formatVideoResolution, getVideoDurationSpec, getVideoPricingMultiplier, type VideoModelDefinition } from '../lib/videoModels'
 import { CloseIcon } from './icons'
 import VideoModelLogo from './VideoModelLogo'
 
@@ -12,18 +12,32 @@ function rateLabel(credits: number, unit: string) {
   return `${credits} 积分/${unit}`
 }
 
-function resolutionRates(def: VideoModelDefinition, rates: VideoModelDefinition['pricePerSecondCredits']) {
-  return def.resolutions.map(resolution => <p key={resolution}>{`${formatVideoResolution(resolution)}：${rates?.[resolution] === undefined ? '价格待配置' : rateLabel(rates[resolution]!, '秒')}`}</p>)
+function resolutionRates(def: VideoModelDefinition, rates: VideoModelDefinition['pricePerSecondCredits'], duration: number) {
+  const multiplier = getVideoPricingMultiplier(def.model, duration)
+  return def.resolutions.filter(resolution => getVideoDurationSpec(def.model, false, resolution).max >= duration)
+    .map(resolution => <p key={resolution}>{`${formatVideoResolution(resolution)}：${rates?.[resolution] === undefined ? '价格待配置' : rateLabel(rates[resolution]! * multiplier, '秒')}`}</p>)
+}
+
+function pricingBands(def: VideoModelDefinition, content: (duration: number) => ReactNode) {
+  const pricing = def.durationPricing
+  if (!pricing) return content(def.duration.default)
+  return <div className="space-y-2">
+    <div><p className="mb-1 text-xs font-semibold">{`≤${pricing.thresholdSeconds} 秒`}</p>{content(pricing.thresholdSeconds)}</div>
+    <div><p className="mb-1 text-xs font-semibold">{`${pricing.thresholdSeconds + 1}–${def.duration.max} 秒`}</p>{content(pricing.thresholdSeconds + 1)}</div>
+  </div>
 }
 
 export function VideoModelComparisonContent({ selectedModel }: { selectedModel: string }) {
   const definitions = COMPARISON_MODELS.map(model => VIDEO_MODELS[model])
   const rows: { label: string; content: (def: VideoModelDefinition) => ReactNode }[] = [
     { label: '输出分辨率', content: def => <span className="font-semibold">{def.resolutions.map(formatVideoResolution).join(' / ')}</span> },
-    { label: '生成时长', content: def => <><p>{`${def.duration.min}–${def.duration.max} 秒`}</p>{def.maxOutputSecondsWithVideo && <p className="mt-1 text-xs text-[color:var(--app-text-muted)]">{`含参考视频：最多 ${def.maxOutputSecondsWithVideo} 秒`}</p>}</> },
-    { label: '生成价格', content: def => <div className="space-y-1 font-medium text-blue-600 [.dark_&]:text-blue-300">{resolutionRates(def, def.pricePerSecondCredits)}</div> },
-    { label: '参考图片费用', content: def => def.referencePricing ? <><p>{`前 ${def.referencePricing.freeImages} 张免费`}</p><p className="mt-1">{`超出 ${rateLabel(def.referencePricing.imageCredits, '张')}`}</p></> : '不另收费' },
-    { label: '参考视频费用', content: def => def.referencePricing ? <><div className="space-y-1">{resolutionRates(def, def.referencePricing.videoPerSecondCredits)}</div><p className="mt-1 text-xs text-[color:var(--app-text-muted)]">按参考视频合计时长计费，单价取决于输出分辨率。</p></> : '不另收费' },
+    { label: '生成时长', content: def => <>{def.durationByResolution ? def.resolutions.map(resolution => {
+      const duration = getVideoDurationSpec(def.model, false, resolution)
+      return <p key={resolution}>{`${formatVideoResolution(resolution)}：${duration.min}–${duration.max} 秒`}</p>
+    }) : <p>{`${def.duration.min}–${def.duration.max} 秒`}</p>}{def.maxOutputSecondsWithVideo && <p className="mt-1 text-xs text-[color:var(--app-text-muted)]">{`含参考视频：最多 ${def.maxOutputSecondsWithVideo} 秒`}</p>}</> },
+    { label: '生成价格', content: def => <div className="font-medium text-blue-600 [.dark_&]:text-blue-300">{pricingBands(def, duration => <div className="space-y-1">{resolutionRates(def, def.pricePerSecondCredits, duration)}</div>)}</div> },
+    { label: '参考图片费用', content: def => def.referencePricing ? <><p className="mb-2">{`前 ${def.referencePricing.freeImages} 张免费`}</p>{pricingBands(def, duration => <p>{`超出 ${rateLabel(def.referencePricing!.imageCredits * getVideoPricingMultiplier(def.model, duration), '张')}`}</p>)}</> : '不另收费' },
+    { label: '参考视频费用', content: def => def.referencePricing ? <>{pricingBands(def, duration => <div className="space-y-1">{resolutionRates(def, def.referencePricing!.videoPerSecondCredits, duration)}</div>)}<p className="mt-1 text-xs text-[color:var(--app-text-muted)]">按参考视频合计时长计费，单价取决于输出分辨率和生成时长。</p></> : '不另收费' },
     { label: '参考音频费用', content: () => '免费' },
     { label: '参考图片数量', content: def => `最多 ${def.modes.ref2v?.maxImages ?? 0} 张` },
     { label: '参考视频数量', content: def => `最多 ${def.modes.ref2v?.maxVideos ?? 0} 个` },
@@ -31,6 +45,7 @@ export function VideoModelComparisonContent({ selectedModel }: { selectedModel: 
     { label: '首尾帧控制', content: def => def.modes.flf2v ? '支持首尾帧' : '仅支持单张起始图' },
   ]
   const wanRefSeconds = VIDEO_MODELS['wan3.0-video-720p'].modes.ref2v?.maxRefMediaSeconds
+  const h3 = VIDEO_MODELS['MiniMax-H3']
 
   return (
     <>
@@ -56,6 +71,7 @@ export function VideoModelComparisonContent({ selectedModel }: { selectedModel: 
       <div className="space-y-2 border-t border-[color:var(--app-border)] bg-[color:var(--app-input)] p-4 text-xs leading-relaxed text-[color:var(--app-text-muted)]">
         <p>素材数量为多参考模式上限；单图生视频使用 1 张起始图，首尾帧模式使用 2 张图片。</p>
         <p>{`Wan 参考视频和音频：每个 2–${wanRefSeconds} 秒，各合计 ≤${wanRefSeconds} 秒；音频需搭配图片或视频。`}</p>
+        <p>{`H3 生成超过 ${h3.durationPricing!.thresholdSeconds} 秒时，完整输出时长、参考视频及超额图片费用均按 ${h3.durationPricing!.multiplier} 倍计算；前 ${h3.referencePricing!.freeImages} 张图片和参考音频仍免费。`}</p>
         <p>生成价格按输出时长计费；H3 另加超额图片与参考视频费用。以上为单个视频价格，批量创建按数量计费，实际扣费以结算为准。</p>
       </div>
     </>

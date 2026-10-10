@@ -216,7 +216,7 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
     const references = supportedReferences(model, refItems)
     const hasVideo = newMode === 'ref2v' && references.some(item => item.type === 'video')
     const nextParams = def?.fixedQuantity && previousModel !== model
-      ? normalizeVideoParams({ duration: def?.duration.default, resolution: def?.resolutions[0], aspectRatio: def?.defaultAspectRatio, n: 1 }, model, newMode, hasVideo)
+      ? normalizeVideoParams({ duration: def?.duration.default, resolution: def?.defaultResolution ?? def?.resolutions[0], aspectRatio: def?.defaultAspectRatio, n: 1 }, model, newMode, hasVideo)
       : normalizeVideoParams(params, model, newMode, hasVideo)
     set({ model, mode: newMode, inputMode: safeInputMode, lastFrameId: safeLastFrameId, params: nextParams, sourceVideoId: null, ...groupVideoReferences(references) })
   },

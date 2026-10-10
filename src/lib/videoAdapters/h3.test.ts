@@ -96,8 +96,10 @@ describe('h3Adapter', () => {
       const spec = await h3Adapter.buildSubmit({task,profile})
       const body = JSON.parse(String(spec.init.body))
       expect(body.prompt).toBe('图片1过渡到图片2')
-      expect(body.metadata.metaso_content.filter((c: {type:string}) => c.type === 'image_url').map((c: {role:string}) => c.role)).toEqual(['first_frame','last_frame'])
-      expect(body.metadata.metaso_content[0].text).toBe('图片1过渡到图片2')
+      expect(body.metadata.content).toEqual(expect.any(Array))
+      expect(body.metadata.content.filter((c: {type:string}) => c.type === 'image_url').map((c: {role:string}) => c.role)).toEqual(['first_frame','last_frame'])
+      expect(body.metadata.content[0].text).toBe('图片1过渡到图片2')
+      expect(Object.keys(body.metadata).sort()).toEqual(['content', 'ratio', 'resolution'])
     })
     it('serializes single frame mentions even when refItems is empty', async () => {
       const task = imageTask('i2v')
@@ -122,7 +124,7 @@ describe('h3Adapter', () => {
     expect(form.get('n')).toBeNull()
   })
 
-  it.each(['t2v', 'ref2v'] as const)('uses the documented 2K and adaptive values in %s requests', async (mode) => {
+  it.each(['t2v', 'ref2v'] as const)('uses supplier-neutral metadata in %s requests', async (mode) => {
     const task: VideoTaskRecord = {
       id: 'protocol-test', prompt: 'A fox', model: 'MiniMax-H3', mode, adapter: 'h3', status: 'queued', error: null,
       params: { duration: 4, resolution: '2k', aspectRatio: 'auto', audio: true, n: 1 },
@@ -133,9 +135,30 @@ describe('h3Adapter', () => {
     const metadata = spec.init.body instanceof FormData
       ? JSON.parse(String(spec.init.body.get('metadata')))
       : JSON.parse(String(spec.init.body)).metadata
-    expect(metadata.metaso_resolution).toBe('2K')
-    expect(metadata.metaso_ratio).toBe('adaptive')
+    expect(metadata).toEqual({ resolution: '2K', ratio: 'adaptive' })
+    expect(spec.init.body instanceof FormData ? String(spec.init.body.get('model')) : JSON.parse(String(spec.init.body)).model).toBe('MiniMax-H3')
   })
+
+  it.each(['t2v', 'i2v', 'flf2v', 'ref2v'] as const)(
+    'uses supported uppercase resolution values and neutral metadata for %s', async (mode) => {
+      for (const resolution of ['480p', '768p', '1080p', '2k'] as const) {
+        const task: VideoTaskRecord = {
+          id: 'resolution-test', prompt: 'A fox', model: 'MiniMax-H3', mode, adapter: 'h3', status: 'queued', error: null,
+          params: { duration: 4, resolution, aspectRatio: '16:9', audio: true, n: 1 },
+          inputs: { firstFrameId: 'first', lastFrameId: 'last', refImageIds: [], refVideoIds: [], refAudioIds: [] },
+          createdAt: 0, finishedAt: null, elapsed: null,
+        }
+        const spec = await h3Adapter.buildSubmit({ task, profile })
+        const metadata = spec.init.body instanceof FormData
+          ? JSON.parse(String(spec.init.body.get('metadata')))
+          : JSON.parse(String(spec.init.body)).metadata
+        expect(metadata.resolution).toBe(resolution.toUpperCase())
+        expect(metadata.ratio).toBe('16:9')
+        expect(Object.keys(metadata).some(key => key.includes('metaso'))).toBe(false)
+        if (mode === 'i2v' || mode === 'flf2v') expect(metadata.content[1].role).toBe('first_frame')
+      }
+    },
+  )
 
   describe('parsePoll', () => {
     it('maps completed to succeeded', () => {

@@ -1,7 +1,7 @@
 // H3 视频适配器
 
 import type { VideoAdapter } from '../videoApi'
-import type { VideoTaskRecord, VideoApiProfileSnapshot } from '../videoTypes'
+import type { VideoApiProfileSnapshot } from '../videoTypes'
 import { getMedia } from '../videoDb'
 import { serializeVideoPrompt, getFrameReferences } from '../videoPromptMentions'
 import { buildVideoApiUrl } from '../videoTransport'
@@ -20,7 +20,7 @@ function normalizeRatio(value: string) {
 }
 
 function normalizeResolution(value: string) {
-  return value === '768p' ? '768P' : value === '2k' ? '2K' : value
+  return value.toUpperCase()
 }
 
 export const h3Adapter: VideoAdapter = {
@@ -49,12 +49,12 @@ export const h3Adapter: VideoAdapter = {
         prompt,
         seconds: duration,
         metadata: {
-          metaso_resolution: normalizeResolution(resolution),
-          metaso_ratio: normalizeRatio(aspectRatio),
+          resolution: normalizeResolution(resolution),
+          ratio: normalizeRatio(aspectRatio),
         },
       }
 
-      // H3 的单图、首尾帧均使用 metaso_content。
+      // H3 的单图、首尾帧均使用 metadata.content。
       const content: Array<Record<string, unknown>> = [{ type: 'text', text: prompt }]
       if (mode === 'i2v') {
         const media = await requireMedia(inputs.firstFrameId)
@@ -74,9 +74,9 @@ export const h3Adapter: VideoAdapter = {
       }
       if (mode === 'i2v' || mode === 'flf2v') {
         body.metadata = {
-          metaso_resolution: normalizeResolution(resolution),
-          metaso_ratio: normalizeRatio(aspectRatio),
-          metaso_content: content,
+          resolution: normalizeResolution(resolution),
+          ratio: normalizeRatio(aspectRatio),
+          content,
         }
       }
 
@@ -101,8 +101,8 @@ export const h3Adapter: VideoAdapter = {
       form.append('seconds', String(duration))
 
       const metadata: Record<string, unknown> = {
-        metaso_resolution: normalizeResolution(resolution),
-        metaso_ratio: normalizeRatio(aspectRatio),
+        resolution: normalizeResolution(resolution),
+        ratio: normalizeRatio(aspectRatio),
       }
       form.append('metadata', JSON.stringify(metadata))
 

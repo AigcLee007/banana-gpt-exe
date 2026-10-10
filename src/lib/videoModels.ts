@@ -28,14 +28,24 @@ export interface VideoParams {
   n: number
 }
 
+export interface VideoDurationSpec {
+  min: number
+  max: number
+  step: number
+  default: number
+  wholeSeconds?: boolean
+}
+
 export interface VideoModelDefinition {
   displayName: string
   model: string
   adapter: VideoAdapterId
   modes: Partial<Record<VideoMode, VideoModeSpec>>
   exclusiveModeGroups?: VideoMode[][]
-  duration: { min: number; max: number; step: number; default: number }
+  duration: VideoDurationSpec
+  durationByResolution?: Partial<Record<VideoResolution, Partial<VideoDurationSpec>>>
   resolutions: readonly VideoResolution[]
+  defaultResolution?: VideoResolution
   aspectRatios: readonly string[]
   audio: 'always' | 'optional' | 'none'
   supportsSeed: boolean
@@ -47,6 +57,7 @@ export interface VideoModelDefinition {
   refMention: RefMentionStyle
   maxConcurrency?: number
   pricePerSecondCredits?: Partial<Record<VideoResolution, number>>
+  durationPricing?: { thresholdSeconds: number; multiplier: number }
   referencePricing?: {
     freeImages: number
     imageCredits: number
@@ -82,7 +93,7 @@ export const VIDEO_MODELS: Record<string, VideoModelDefinition> = {
     badges: [
       { label: '推荐', tone: 'recommended' },
       { label: '稳定快速', tone: 'recommended' },
-      { label: '15S', tone: 'recommended' },
+      { label: '30S', tone: 'recommended' },
     ],
     modes: {
       t2v: {},
@@ -90,8 +101,10 @@ export const VIDEO_MODELS: Record<string, VideoModelDefinition> = {
       flf2v: { maxImages: 2 },
       ref2v: { maxImages: 9, maxVideos: 3, maxAudios: 3 },
     },
-    duration: { min: 4, max: 15, step: 1, default: 4 },
-    resolutions: ['768p', '2k'],
+    duration: { min: 4, max: 30, step: 1, default: 4, wholeSeconds: true },
+    durationByResolution: { '1080p': { max: 15 }, '2k': { max: 15 } },
+    resolutions: ['480p', '768p', '1080p', '2k'],
+    defaultResolution: '768p',
     aspectRatios: ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
     audio: 'always',
     supportsSeed: false,
@@ -101,13 +114,16 @@ export const VIDEO_MODELS: Record<string, VideoModelDefinition> = {
     refMention: 'none',
     maxConcurrency: 2,
     pricePerSecondCredits: {
+      '480p': 1.5,
       '768p': 2.5,
+      '1080p': 3.75,
       '2k': 5,
     },
+    durationPricing: { thresholdSeconds: 15, multiplier: 2 },
     referencePricing: {
       freeImages: 5,
       imageCredits: 0.625,
-      videoPerSecondCredits: { '768p': 1.25, '2k': 2.5 },
+      videoPerSecondCredits: { '480p': 1, '768p': 1.25, '1080p': 2.5, '2k': 2.5 },
     },
   },
   'wan3.0-video-720p': {
@@ -206,7 +222,12 @@ export function getAllVideoModels(): VideoModelDefinition[] {
   return Object.values(VIDEO_MODELS)
 }
 
-export function getVideoModelPriceLabel(model: string, resolution?: VideoResolution): string {
+export function getVideoPricingMultiplier(model: string, duration: number): number {
+  const pricing = getVideoModelDefinition(model)?.durationPricing
+  return pricing && duration > pricing.thresholdSeconds ? pricing.multiplier : 1
+}
+
+export function getVideoModelPriceLabel(model: string, resolution?: VideoResolution, duration?: number): string {
   const definition = getVideoModelDefinition(model)
   if (!definition) return '价格待配置'
   if (definition.pricePerRequestCredits !== undefined) {
@@ -214,9 +235,10 @@ export function getVideoModelPriceLabel(model: string, resolution?: VideoResolut
   }
   const modelResolution = resolution && definition.resolutions.includes(resolution)
     ? resolution
-    : definition.resolutions[0]
+    : definition.defaultResolution ?? definition.resolutions[0]
   const price = definition.pricePerSecondCredits?.[modelResolution]
-  return price === undefined ? '价格待配置' : `${price} 积分/秒${definition.referencePricing ? '起' : ''}`
+  const multiplier = getVideoPricingMultiplier(model, duration ?? definition.duration.default)
+  return price === undefined ? '价格待配置' : `${price * multiplier} 积分/秒${definition.referencePricing ? '起' : ''}`
 }
 
 export function getModelsForMode(mode: VideoMode): VideoModelDefinition[] {
@@ -259,14 +281,14 @@ export function normalizeVideoParams(
 
   const modeSpec = def.modes[mode]
   const ignoredParams = modeSpec?.ignoredParams || []
-  const durationSpec = getVideoDurationSpec(model, hasReferenceVideo)
+  const resolution = params.resolution && def.resolutions.includes(params.resolution)
+    ? params.resolution : def.defaultResolution ?? def.resolutions[0]
+  const durationSpec = getVideoDurationSpec(model, hasReferenceVideo, resolution)
+  const requestedDuration = params.duration ?? def.duration.default
 
   const normalized: VideoParams = {
-    duration: clamp(params.duration ?? def.duration.default, durationSpec.min, durationSpec.max),
-    resolution:
-      params.resolution && def.resolutions.includes(params.resolution)
-        ? params.resolution
-        : def.resolutions[0],
+    duration: clamp(durationSpec.wholeSeconds ? Math.round(requestedDuration) : requestedDuration, durationSpec.min, durationSpec.max),
+    resolution,
     aspectRatio:
       params.aspectRatio && def.aspectRatios.includes(params.aspectRatio)
         ? params.aspectRatio
@@ -300,9 +322,13 @@ export function normalizeVideoParams(
   return normalized
 }
 
-export function getVideoDurationSpec(model: string, hasReferenceVideo = false) {
+export function getVideoDurationSpec(model: string, hasReferenceVideo = false, resolution?: VideoResolution): VideoDurationSpec {
   const def = getVideoModelDefinition(model)
-  const duration = def?.duration ?? { min: 4, max: 15, step: 1, default: 4 }
+  const modelResolution = resolution && def?.resolutions.includes(resolution) ? resolution : def?.defaultResolution ?? def?.resolutions[0]
+  const duration = {
+    ...(def?.duration ?? { min: 4, max: 15, step: 1, default: 4 }),
+    ...(modelResolution ? def?.durationByResolution?.[modelResolution] : undefined),
+  }
   return hasReferenceVideo && def?.maxOutputSecondsWithVideo
     ? { ...duration, max: Math.min(duration.max, def.maxOutputSecondsWithVideo) }
     : duration
@@ -331,7 +357,7 @@ export function estimateVideoCredits(
     const { freeImages, imageCredits, videoPerSecondCredits } = def.referencePricing
     const referenceCost = Math.max(refImageCount - freeImages, 0) * imageCredits
       + refVideoSeconds * (videoPerSecondCredits[resolution] ?? 0)
-    return Number(((duration * pricePerSecond + referenceCost) * (def.fixedQuantity ?? n)).toFixed(3))
+    return Number(((duration * pricePerSecond + referenceCost) * getVideoPricingMultiplier(model, duration) * (def.fixedQuantity ?? n)).toFixed(3))
   }
 
   return Math.ceil(duration * pricePerSecond * (def?.fixedQuantity ?? n) * 10) / 10

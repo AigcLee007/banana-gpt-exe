@@ -64,7 +64,7 @@ describe('video workbench controls from model capabilities', () => {
   })
 
   it.each([
-    ['MiniMax-H3', ['推荐', '稳定快速', '15S']],
+    ['MiniMax-H3', ['推荐', '稳定快速', '30S']],
     ['wan3.0-video-720p', ['优质', '30S长视频']],
     ['sd2.0-15s', ['耗时较长']],
     ['sd2.5-30s', ['耗时较长']],
@@ -91,7 +91,7 @@ describe('video workbench controls from model capabilities', () => {
     expect(html).not.toContain('耗时较长')
     expect(html).not.toContain('data-video-model-badge')
   })
-  it.each([['768p', 2.5, 10], ['2k', 5, 20]] as const)('shows the H3 %s rate and matching four-second estimate', (resolution, rate, estimate) => {
+  it.each([['480p', 1.5, 6], ['768p', 2.5, 10], ['1080p', 3.75, 15], ['2k', 5, 20]] as const)('shows the H3 %s rate and matching four-second estimate', (resolution, rate, estimate) => {
     draft.state.model = 'MiniMax-H3'
     draft.state.params = normalizeVideoParams({ resolution, duration: 4 }, 'MiniMax-H3', 't2v')
     const html = renderToStaticMarkup(<VideoInputBar />)
@@ -100,6 +100,36 @@ describe('video workbench controls from model capabilities', () => {
     expect(html).not.toContain('data-testid="video-pricing-rules"')
     expect(html).toContain('aria-label="视频模型对比说明"')
   })
+
+  it.each([['480p', 30], ['768p', 30], ['1080p', 15], ['2k', 15]] as const)(
+    'shows the H3 %s resolution duration limit', (resolution, max) => {
+      draft.state.model = 'MiniMax-H3'
+      draft.state.params = normalizeVideoParams({ resolution, duration: 30 }, 'MiniMax-H3', 't2v')
+      const html = renderToStaticMarkup(<VideoInputBar />)
+      expect(html).toContain(`max="${max}"`)
+      expect(html).toContain(`value="${max}"`)
+      for (const label of ['480P', '768P', '1080P', '2K']) expect(html).toContain(`>${label}</button>`)
+    },
+  )
+
+  it.each([['480p', 3, 73.25], ['768p', 5, 111.25]] as const)(
+    'shows doubled H3 %s rates and all reference costs at 16 seconds', (resolution, rate, estimate) => {
+      draft.state.model = 'MiniMax-H3'
+      draft.state.inputMode = 'reference'
+      draft.state.params = normalizeVideoParams({ resolution, duration: 16 }, 'MiniMax-H3', 'ref2v')
+      draft.state.refImageIds = Array.from({ length: 6 }, (_, i) => `image-${i}`)
+      draft.state.refVideoIds = ['clip']
+      draft.state.refAudioIds = ['audio']
+      draft.state.refItems = [
+        ...(draft.state.refImageIds as string[]).map(id => ({ id, type: 'image' })),
+        { id: 'clip', type: 'video' }, { id: 'audio', type: 'audio' },
+      ]
+      media.metadata = { clip: { duration: 12 }, audio: { duration: 15 } }
+      const html = renderToStaticMarkup(<VideoInputBar />)
+      expect(html).toContain(`MiniMax H3 · ${rate} 积分/秒起`)
+      expect(html).toContain(`创建（预估 ${estimate} 积分）`)
+    },
+  )
   it.each([['768p', '23.75'], ['2k', '46.25']] as const)('includes active H3 references in the %s creation estimate', (resolution, estimate) => {
     draft.state.model = 'MiniMax-H3'
     draft.state.inputMode = 'reference'

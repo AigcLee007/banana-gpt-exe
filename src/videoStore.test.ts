@@ -34,6 +34,28 @@ beforeEach(() => {
 })
 
 describe('H3 reference credit estimates saved with tasks', () => {
+  it.each(['1080p', '2k'] as const)('clamps H3 duration when switching to %s', (resolution) => {
+    useVideoStore.getState().setModel('MiniMax-H3')
+    useVideoStore.getState().setParams({ duration: 30, resolution: '480p' })
+    expect(useVideoStore.getState().params.duration).toBe(30)
+    useVideoStore.getState().setParams({ resolution })
+    expect(useVideoStore.getState().params).toMatchObject({ duration: 15, resolution })
+    useVideoStore.getState().setParams({ duration: 30, resolution: '768p' })
+    expect(useVideoStore.getState().params.duration).toBe(30)
+  })
+
+  it.each([['480p', 69.25], ['768p', 106.25]] as const)('saves all doubled %s costs for long output per task', async (resolution, credits) => {
+    useVideoStore.getState().setModel('MiniMax-H3')
+    useVideoStore.getState().setParams({ duration: 16, resolution, n: 2 })
+    useVideoStore.getState().setInputMode('reference')
+    for (let i = 0; i < 6; i++) useVideoStore.getState().addRefImage(`image-${i}`)
+    useVideoStore.getState().addRefVideo('clip')
+    useVideoStore.getState().addRefAudio('audio')
+    vi.mocked(getMedia).mockResolvedValue({ id: 'clip', blob: new Blob(['video']), mime: 'video/mp4', size: 5, source: 'upload', uploadedAt: 0, duration: 10 })
+    await useVideoStore.getState().generateVideo()
+    expect(useVideoStore.getState().tasks).toHaveLength(2)
+    expect(useVideoStore.getState().tasks.every(task => task.estimatedCredits === credits)).toBe(true)
+  })
   it.each([['768p', 23.75], ['2k', 46.25]] as const)('saves the %s estimate per task when creating two videos', async (resolution, credits) => {
     useVideoStore.getState().setModel('MiniMax-H3')
     useVideoStore.getState().setParams({ duration: 4, resolution, n: 2 })
