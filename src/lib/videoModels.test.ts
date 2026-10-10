@@ -10,6 +10,17 @@ import {
 } from './videoModels'
 
 describe('normalizeVideoParams', () => {
+  it('registers Wan with URL references, no tail frames, and explicit defaults', () => {
+    expect(getVideoModelDefinition('wan3.0-video-720p')).toMatchObject({
+      displayName: 'Wan 3.0 Video', model: 'wan3.0-video-720p',
+      adapter: 'wan', resolutions: ['720p'], fixedQuantity: 1, pollIntervalSeconds: 15,
+      modes: { t2v: {}, i2v: { maxImages: 1 }, ref2v: { maxImages: 10, maxVideos: 5, maxAudios: 5, maxRefMediaSeconds: 15 } },
+      duration: { min: 4, max: 30, step: 1, default: 8 }, maxOutputSecondsWithVideo: 15,
+    })
+    expect(getVideoModelDefinition('wan3.0-video-720p')?.modes.flf2v).toBeUndefined()
+    expect(normalizeVideoParams({}, 'wan3.0-video-720p', 't2v')).toMatchObject({ duration: 8, resolution: '720p', aspectRatio: '16:9', n: 1 })
+    expect(getVideoModelPriceLabel('wan3.0-video-720p')).toBe('5 积分/秒')
+  })
   it.each([['sd2.0-15s', 15], ['sd2.5-30s', 30]] as const)('registers %s with its fixed duration and image reference limits', (model, seconds) => {
     const definition = getVideoModelDefinition(model)
     expect(definition).toMatchObject({
@@ -151,9 +162,20 @@ describe('estimateVideoCredits', () => {
     for (const seconds of [4, 8, 15]) {
       for (const quantity of [1, 2, 4]) {
         expect(estimateVideoCredits('MiniMax-H3', seconds, resolution, 0, 0, quantity)).toBe(seconds * rate * quantity)
-        expect(estimateVideoCredits('MiniMax-H3', seconds, resolution, 9, 30, quantity)).toBe(seconds * rate * quantity)
       }
     }
+  })
+
+  it.each([
+    ['768p', 0, 0, 1, 10],
+    ['768p', 5, 0, 1, 10],
+    ['768p', 6, 0, 1, 10.625],
+    ['768p', 7, 10, 1, 23.75],
+    ['2k', 7, 10, 1, 46.25],
+    ['768p', 7, 10, 2, 47.5],
+    ['2k', 9, 4.5, 4, 135],
+  ] as const)('includes H3 %s reference materials (%s images, %ss video, quantity %s)', (resolution, images, seconds, quantity, credits) => {
+    expect(estimateVideoCredits('MiniMax-H3', 4, resolution, images, seconds, quantity)).toBe(credits)
   })
 
   it('multiplies by n', () => {
@@ -165,12 +187,12 @@ describe('estimateVideoCredits', () => {
 
 describe('video model price labels', () => {
   it('shows the per-second credit rate for the selected H3 resolution', () => {
-    expect(getVideoModelPriceLabel('MiniMax-H3', '768p')).toBe('2.5 积分/秒')
-    expect(getVideoModelPriceLabel('MiniMax-H3', '2k')).toBe('5 积分/秒')
+    expect(getVideoModelPriceLabel('MiniMax-H3', '768p')).toBe('2.5 积分/秒起')
+    expect(getVideoModelPriceLabel('MiniMax-H3', '2k')).toBe('5 积分/秒起')
   })
 
   it('uses an option model default when the active model resolution is unsupported', () => {
-    expect(getVideoModelPriceLabel('MiniMax-H3', '720p')).toBe('2.5 积分/秒')
+    expect(getVideoModelPriceLabel('MiniMax-H3', '720p')).toBe('2.5 积分/秒起')
     expect(getVideoModelPriceLabel('grok-imagine-video-1.5', '2k')).toBe('15 积分/次')
     expect(getVideoModelPriceLabel('gemini-omni-flash-10s', '2k')).toBe('25 积分/次')
     expect(getVideoModelPriceLabel('sd2.0-15s', '768p')).toBe('20 积分/次')

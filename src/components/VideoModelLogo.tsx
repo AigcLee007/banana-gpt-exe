@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import type { VideoModelLogoId } from '../lib/videoModels'
 import GeminiLogo from './GeminiLogo'
+import wanLogoUrl from '../assets/wan-logo.ico'
 
 // Brand paths adapted from Lobe Icons (MIT); see docs/licenses/lobe-icons.txt.
 const BRAND_PATHS = {
@@ -12,6 +13,8 @@ const BRAND_PATHS = {
 export default function VideoModelLogo({ logo, className = 'h-5 w-5' }: { logo: VideoModelLogoId; className?: string }) {
   const gradientId = useId()
   if (logo === 'gemini') return <GeminiLogo className={className} />
+  // Wan brand image from the official site; see docs/licenses/wan-logo.md.
+  if (logo === 'wan') return <img src={wanLogoUrl} alt="Wan Logo" className={className} draggable={false} />
 
   const label = { minimax: 'MiniMax Logo', grok: 'Grok Logo', seedance: 'Seedance Logo' }[logo]
   return (

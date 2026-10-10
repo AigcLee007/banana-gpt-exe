@@ -6,10 +6,12 @@ import { h3Adapter } from './videoAdapters/h3'
 import { grokAdapter } from './videoAdapters/grok'
 import { omniAdapter } from './videoAdapters/omni'
 import { sdAdapter } from './videoAdapters/sd'
+import { wanAdapter } from './videoAdapters/wan'
 
 export interface VideoRequest {
   task: VideoTaskRecord
   profile: VideoApiProfileSnapshot
+  signal?: AbortSignal
 }
 
 export interface RequestSpec {
@@ -38,9 +40,10 @@ const adapters: Record<VideoAdapterId, VideoAdapter> = {
   grok: grokAdapter,
   omni: omniAdapter,
   sd: sdAdapter,
+  wan: wanAdapter,
 }
 
-export function formatVideoApiError(status: number, rawText: string, phase = '提交'): string {
+export function formatVideoApiError(status: number, rawText: string, phase = '提交', model?: string): string {
   let payload: unknown
   try {
     payload = rawText ? JSON.parse(rawText) : undefined
@@ -48,18 +51,18 @@ export function formatVideoApiError(status: number, rawText: string, phase = '�
     payload = undefined
   }
   const detail = findVideoErrorDetail(payload) || rawText.trim() || `HTTP ${status}`
-  return `${phase}失败（${status}）：${formatVideoTaskError(detail, status)}`
+  return `${phase}失败（${status}）：${formatVideoTaskError(detail, status, model)}`
 }
 
 /** Converts relay/provider wording into a message that a video-workbench user can act on. */
-export function formatVideoTaskError(detail: string, status?: number): string {
+export function formatVideoTaskError(detail: string, status?: number, model?: string): string {
   const message = detail.trim()
   const wrapped = message.match(/^(提交|查询|下载)失败\s*[（(](\d+)[）)]\s*[:：]\s*([\s\S]*)$/)
-  if (wrapped) return formatVideoApiError(Number(wrapped[2]), wrapped[3], wrapped[1])
+  if (wrapped) return formatVideoApiError(Number(wrapped[2]), wrapped[3], wrapped[1], model)
   if (message.startsWith('{')) {
     try {
       const nested = findVideoErrorDetail(JSON.parse(message))
-      if (nested && nested !== message) return formatVideoTaskError(nested, status)
+      if (nested && nested !== message) return formatVideoTaskError(nested, status, model)
     } catch { /* Non-JSON error text is handled below. */ }
   }
   const lower = message.toLowerCase()
@@ -86,7 +89,7 @@ export function formatVideoTaskError(detail: string, status?: number): string {
   if (lower.includes('prompt') && (lower.includes('required') || lower.includes('missing') || lower.includes('empty'))) {
     return '请填写视频提示词，或上传一张图片'
   }
-  if (lower.includes('seconds') || lower.includes('duration')) return '视频时长必须是 1 到 15 秒'
+  if (lower.includes('seconds') || lower.includes('duration')) return model === 'wan3.0-video-720p' ? '视频或参考素材时长不符合当前模型要求，请检查时长设置' : '视频时长必须是 1 到 15 秒'
   if (lower.includes('aspect_ratio') || lower.includes('aspect ratio')) return '画面比例不受支持，请重新选择'
   if (lower.includes('resolution')) return '清晰度不受支持，请重新选择'
   if (lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('network error')) {
@@ -112,17 +115,20 @@ function findVideoErrorDetail(payload: unknown): string | undefined {
 
 export async function submitVideoTask(
   task: VideoTaskRecord,
+  signal?: AbortSignal,
 ): Promise<{ remoteTaskId: string; status: 'queued' | 'running'; recoverable: boolean }> {
   const adapter = adapters[task.adapter]
   const profile = task.apiProfile
   if (!adapter || !profile) throw new Error('视频任务缺少有效的 API 配置')
 
-  const { url, init } = await adapter.buildSubmit({ task, profile })
-  const response = await fetch(url, init)
+  signal?.throwIfAborted()
+  const { url, init } = await adapter.buildSubmit({ task, profile, signal })
+  signal?.throwIfAborted()
+  const response = await fetch(url, { ...init, ...(signal ? { signal } : {}) })
 
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(formatVideoApiError(response.status, adapter.redactServiceErrors ? '' : text))
+    throw new Error(formatVideoApiError(response.status, adapter.redactServiceErrors ? '' : text, '提交', task.model))
   }
 
   const { taskId, status } = adapter.parseSubmit(await response.json())
@@ -141,7 +147,7 @@ export async function pollVideoTask(
   const response = await fetch(url, init)
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(formatVideoApiError(response.status, adapter.redactServiceErrors ? '' : text, '查询'))
+    throw new Error(formatVideoApiError(response.status, adapter.redactServiceErrors ? '' : text, '查询', task.model))
   }
   return adapter.parsePoll(await response.json())
 }
@@ -157,7 +163,7 @@ export async function downloadVideoContent(
   const response = await fetch(url, init)
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(formatVideoApiError(response.status, adapter.redactServiceErrors ? '' : text, '下载'))
+    throw new Error(formatVideoApiError(response.status, adapter.redactServiceErrors ? '' : text, '下载', task.model))
   }
   return response.blob()
 }

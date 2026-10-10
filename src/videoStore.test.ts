@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
 const clientState = vi.hoisted(() => ({ settings: {} as import('./types').AppSettings, showToast: vi.fn() }))
 
 vi.mock('./lib/videoDb', () => ({
+  getMedia: vi.fn(async () => undefined),
   getAllVideoTasks: vi.fn(async () => []),
   putVideoTask: vi.fn(async () => undefined),
   deleteVideoTask: vi.fn(),
@@ -19,16 +20,41 @@ vi.mock('./lib/videoApi', () => ({
 }))
 vi.mock('./store', () => ({ useStore: { getState: () => clientState } }))
 
-import { putVideoTask, uploadMediaFile } from './lib/videoDb'
+import { getMedia, putVideoTask, uploadMediaFile } from './lib/videoDb'
 import { downloadVideoContent, pollVideoTask, submitVideoTask } from './lib/videoApi'
 import { sdAdapter } from './lib/videoAdapters/sd'
 import { useVideoStore } from './videoStore'
 
 beforeEach(() => {
+  vi.mocked(getMedia).mockReset().mockResolvedValue(undefined)
   clientState.settings = normalizeSettings({ ...DEFAULT_SETTINGS, profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({ ...profile, apiKey: 'mock-user-video-key' })) })
   vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
   useVideoStore.setState({ tasks: [], uploadingFiles: new Set(), isGenerating: false, inputMode: 'create', firstFrameId: null, lastFrameId: null, refImageIds: [], refVideoIds: [], refAudioIds: [], refItems: [], sourceVideoId: null, prompt: 'A fox walking' })
   useVideoStore.getState().setModel('grok-imagine-video-1.5')
+})
+
+describe('H3 reference credit estimates saved with tasks', () => {
+  it.each([['768p', 23.75], ['2k', 46.25]] as const)('saves the %s estimate per task when creating two videos', async (resolution, credits) => {
+    useVideoStore.getState().setModel('MiniMax-H3')
+    useVideoStore.getState().setParams({ duration: 4, resolution, n: 2 })
+    useVideoStore.getState().setInputMode('reference')
+    for (let i = 0; i < 7; i++) useVideoStore.getState().addRefImage(`image-${i}`)
+    useVideoStore.getState().addRefVideo('clip')
+    useVideoStore.getState().addRefAudio('audio')
+    vi.mocked(getMedia).mockResolvedValue({ id: 'clip', blob: new Blob(['video']), mime: 'video/mp4', size: 5, source: 'upload', uploadedAt: 0, duration: 10 })
+    await useVideoStore.getState().generateVideo()
+    expect(useVideoStore.getState().tasks).toHaveLength(2)
+    expect(useVideoStore.getState().tasks.every(task => task.estimatedCredits === credits)).toBe(true)
+  })
+
+  it('omits the full estimate when a reference video duration is unavailable', async () => {
+    useVideoStore.getState().setModel('MiniMax-H3')
+    useVideoStore.getState().setInputMode('reference')
+    useVideoStore.getState().addRefVideo('unknown-clip')
+    await useVideoStore.getState().generateVideo()
+    expect(useVideoStore.getState().tasks).toHaveLength(1)
+    expect(useVideoStore.getState().tasks[0].estimatedCredits).toBeUndefined()
+  })
 })
 afterEach(() => {
   for (const task of useVideoStore.getState().tasks) useVideoStore.getState().cancelTask(task.id)
@@ -38,6 +64,50 @@ afterEach(() => {
 })
 
 describe('video workbench on LAN HTTP', () => {
+  it('aborts reference uploads when a queued task is canceled', async () => {
+    let entered = false
+    let signal: AbortSignal | undefined
+    let release!: () => void
+    vi.mocked(submitVideoTask).mockImplementationOnce(async (_task, submittedSignal) => {
+      entered = true
+      signal = submittedSignal
+      await new Promise<void>(resolve => { release = resolve })
+      return { remoteTaskId: 'canceled-upload', status: 'queued', recoverable: true }
+    })
+    useVideoStore.getState().setModel('wan3.0-video-720p')
+    const pending = useVideoStore.getState().generateVideo()
+    await vi.waitFor(() => expect(entered).toBe(true))
+    useVideoStore.getState().cancelTask(useVideoStore.getState().tasks[0].id)
+    release()
+    await pending
+    expect(signal?.aborted).toBe(true)
+    expect(useVideoStore.getState().tasks[0].status).toBe('canceled')
+  })
+  it('applies Wan limits by media type before saving a local file', async () => {
+    useVideoStore.getState().setModel('wan3.0-video-720p')
+    const clip = new File([new Uint8Array(31 * 1024 * 1024)], 'reference.mp4', { type: 'video/mp4' })
+    await expect(useVideoStore.getState().uploadFile(clip)).resolves.toBe('saved-frame')
+    await expect(useVideoStore.getState().uploadFile(new File(['audio'], 'song.m4a', { type: 'audio/mp4' }))).rejects.toThrow(/MP3|WAV/)
+    await expect(useVideoStore.getState().uploadFile(new File([new Uint8Array(16 * 1024 * 1024)], 'song.wav', { type: 'audio/wav' }))).rejects.toThrow(/15 MB/)
+  })
+  it('clamps Wan duration only for active video references and restores the range when removed', () => {
+    useVideoStore.getState().setModel('wan3.0-video-720p')
+    useVideoStore.getState().setParams({ duration: 30 })
+    expect(useVideoStore.getState().params.duration).toBe(30)
+    useVideoStore.getState().setInputMode('reference')
+    useVideoStore.getState().addRefVideo('clip')
+    expect(useVideoStore.getState().params.duration).toBe(15)
+    useVideoStore.getState().setParams({ duration: 30 })
+    expect(useVideoStore.getState().params.duration).toBe(15)
+    useVideoStore.getState().setInputMode('create')
+    useVideoStore.getState().setParams({ duration: 30 })
+    expect(useVideoStore.getState().params.duration).toBe(30)
+    useVideoStore.getState().setInputMode('reference')
+    expect(useVideoStore.getState().params.duration).toBe(15)
+    useVideoStore.getState().removeRefVideo('clip')
+    useVideoStore.getState().setParams({ duration: 30 })
+    expect(useVideoStore.getState().params.duration).toBe(30)
+  })
   it('tracks and completes an upload without crypto.randomUUID', async () => {
     const file = new File(['image'], 'image.png', { type: 'image/png' })
     await expect(useVideoStore.getState().uploadFile(file)).resolves.toBe('saved-frame')

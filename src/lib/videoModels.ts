@@ -3,9 +3,9 @@
 export type VideoMode = 't2v' | 'i2v' | 'flf2v' | 'ref2v'
 export type VideoResolution = '480p' | '720p' | '768p' | '1080p' | '2k'
 export type VideoQuantity = 1 | 2 | 4
-export type VideoAdapterId = 'h3' | 'grok' | 'omni' | 'sd'
+export type VideoAdapterId = 'h3' | 'grok' | 'omni' | 'sd' | 'wan'
 export type RefMentionStyle = 'ordinal' | 'none'
-export type VideoModelLogoId = 'minimax' | 'grok' | 'gemini' | 'seedance'
+export type VideoModelLogoId = 'minimax' | 'grok' | 'gemini' | 'seedance' | 'wan'
 
 export interface VideoModeSpec {
   maxImages?: number
@@ -47,19 +47,29 @@ export interface VideoModelDefinition {
   refMention: RefMentionStyle
   maxConcurrency?: number
   pricePerSecondCredits?: Partial<Record<VideoResolution, number>>
+  referencePricing?: {
+    freeImages: number
+    imageCredits: number
+    videoPerSecondCredits: Partial<Record<VideoResolution, number>>
+  }
   pricePerRequestCredits?: number
   fixedQuantity?: 1
   defaultAspectRatio?: string
   logo: VideoModelLogoId
-  guidance?: {
+  badges?: readonly {
     label: string
-    description: string
-    tone: 'recommended' | 'warning'
-  }
+    tone: 'recommended' | 'quality' | 'warning'
+  }[]
   requiresProxy?: boolean
   allowsImageOnly?: boolean
   imageMimeTypes?: readonly string[]
   maxImageBytes?: number
+  videoMimeTypes?: readonly string[]
+  audioMimeTypes?: readonly string[]
+  maxVideoBytes?: number
+  maxAudioBytes?: number
+  maxOutputSecondsWithVideo?: number
+  referenceUpload?: 'uguu'
   pollIntervalSeconds?: number
 }
 
@@ -69,11 +79,11 @@ export const VIDEO_MODELS: Record<string, VideoModelDefinition> = {
     model: 'MiniMax-H3',
     adapter: 'h3',
     logo: 'minimax',
-    guidance: {
-      label: '推荐',
-      description: '稳定、快速，推荐使用。',
-      tone: 'recommended',
-    },
+    badges: [
+      { label: '推荐', tone: 'recommended' },
+      { label: '稳定快速', tone: 'recommended' },
+      { label: '15S', tone: 'recommended' },
+    ],
     modes: {
       t2v: {},
       i2v: { maxImages: 1 },
@@ -94,6 +104,26 @@ export const VIDEO_MODELS: Record<string, VideoModelDefinition> = {
       '768p': 2.5,
       '2k': 5,
     },
+    referencePricing: {
+      freeImages: 5,
+      imageCredits: 0.625,
+      videoPerSecondCredits: { '768p': 1.25, '2k': 2.5 },
+    },
+  },
+  'wan3.0-video-720p': {
+    displayName: 'Wan 3.0 Video', model: 'wan3.0-video-720p', adapter: 'wan', logo: 'wan',
+    badges: [
+      { label: '优质', tone: 'quality' },
+      { label: '30S长视频', tone: 'quality' },
+    ],
+    modes: { t2v: {}, i2v: { maxImages: 1 }, ref2v: { maxImages: 10, maxVideos: 5, maxAudios: 5, maxRefMediaSeconds: 15 } },
+    duration: { min: 4, max: 30, step: 1, default: 8 }, maxOutputSecondsWithVideo: 15,
+    resolutions: ['720p'], aspectRatios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defaultAspectRatio: '16:9',
+    pricePerSecondCredits: { '720p': 5 },
+    audio: 'none', supportsSeed: false, supportsNegativePrompt: false, refMention: 'ordinal', fixedQuantity: 1,
+    requiresProxy: true, pollIntervalSeconds: 15, referenceUpload: 'uguu',
+    maxImageBytes: 30 * 1024 * 1024, maxVideoBytes: 50 * 1024 * 1024, maxAudioBytes: 15 * 1024 * 1024,
+    videoMimeTypes: ['video/mp4', 'video/quicktime'], audioMimeTypes: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/wave'],
   },
   'grok-imagine-video-1.5': {
     displayName: 'Grok Imagine Video 1.5',
@@ -147,11 +177,7 @@ function sdModel(model: string, duration: number, pricePerRequestCredits: number
     model,
     adapter: 'sd',
     logo: 'seedance',
-    guidance: {
-      label: '耗时较长',
-      description: '稳定性较低，生成时间较长，建议优先使用 MiniMax H3。',
-      tone: 'warning',
-    },
+    badges: [{ label: '耗时较长', tone: 'warning' }],
     pricePerRequestCredits,
     modes: { t2v: {}, i2v: { maxImages: 1 }, ref2v: { maxImages: 30 } },
     duration: { min: duration, max: duration, step: 1, default: duration },
@@ -190,7 +216,7 @@ export function getVideoModelPriceLabel(model: string, resolution?: VideoResolut
     ? resolution
     : definition.resolutions[0]
   const price = definition.pricePerSecondCredits?.[modelResolution]
-  return price === undefined ? '价格待配置' : `${price} 积分/秒`
+  return price === undefined ? '价格待配置' : `${price} 积分/秒${definition.referencePricing ? '起' : ''}`
 }
 
 export function getModelsForMode(mode: VideoMode): VideoModelDefinition[] {
@@ -217,6 +243,7 @@ export function normalizeVideoParams(
   params: Partial<VideoParams>,
   model: string,
   mode: VideoMode,
+  hasReferenceVideo = false,
 ): VideoParams {
   const def = getVideoModelDefinition(model)
   if (!def) {
@@ -232,9 +259,10 @@ export function normalizeVideoParams(
 
   const modeSpec = def.modes[mode]
   const ignoredParams = modeSpec?.ignoredParams || []
+  const durationSpec = getVideoDurationSpec(model, hasReferenceVideo)
 
   const normalized: VideoParams = {
-    duration: clamp(params.duration ?? def.duration.default, def.duration.min, def.duration.max),
+    duration: clamp(params.duration ?? def.duration.default, durationSpec.min, durationSpec.max),
     resolution:
       params.resolution && def.resolutions.includes(params.resolution)
         ? params.resolution
@@ -272,6 +300,14 @@ export function normalizeVideoParams(
   return normalized
 }
 
+export function getVideoDurationSpec(model: string, hasReferenceVideo = false) {
+  const def = getVideoModelDefinition(model)
+  const duration = def?.duration ?? { min: 4, max: 15, step: 1, default: 4 }
+  return hasReferenceVideo && def?.maxOutputSecondsWithVideo
+    ? { ...duration, max: Math.min(duration.max, def.maxOutputSecondsWithVideo) }
+    : duration
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
@@ -290,6 +326,13 @@ export function estimateVideoCredits(
   }
   const pricePerSecond = def?.pricePerSecondCredits?.[resolution]
   if (pricePerSecond === undefined) return 0
+
+  if (def?.referencePricing) {
+    const { freeImages, imageCredits, videoPerSecondCredits } = def.referencePricing
+    const referenceCost = Math.max(refImageCount - freeImages, 0) * imageCredits
+      + refVideoSeconds * (videoPerSecondCredits[resolution] ?? 0)
+    return Number(((duration * pricePerSecond + referenceCost) * (def.fixedQuantity ?? n)).toFixed(3))
+  }
 
   return Math.ceil(duration * pricePerSecond * (def?.fixedQuantity ?? n) * 10) / 10
 }

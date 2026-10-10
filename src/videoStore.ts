@@ -13,6 +13,7 @@ import {
   getVideoModelDefinition,
 } from './lib/videoModels'
 import {
+  getMedia,
   getAllVideoTasks,
   putVideoTask,
   deleteVideoTask,
@@ -96,8 +97,11 @@ const videoPollingTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const taskGenerations = new Map<string, number>()
 const deletedTaskIds = new Set<string>()
 const taskWrites = new Map<string, Promise<unknown>>()
+const submissionControllers = new Map<string, AbortController>()
 
 function invalidateTask(taskId: string): number {
+  submissionControllers.get(taskId)?.abort()
+  submissionControllers.delete(taskId)
   const generation = (taskGenerations.get(taskId) ?? 0) + 1
   taskGenerations.set(taskId, generation)
   return generation
@@ -179,13 +183,14 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
 
   // Actions
   setInputMode: (inputMode) => {
-    const { model, firstFrameId, lastFrameId } = get()
+    const { model, firstFrameId, lastFrameId, params, refItems } = get()
     const def = getVideoModelDefinition(model)
     if (inputMode === 'reference' && !def?.modes.ref2v) {
       set({ inputMode: 'create', mode: resolveVideoMode('create', firstFrameId, def?.modes.flf2v ? lastFrameId : null) })
       return
     }
-    set({ inputMode, mode: resolveVideoMode(inputMode, firstFrameId, def?.modes.flf2v ? lastFrameId : null) })
+    const nextMode = resolveVideoMode(inputMode, firstFrameId, def?.modes.flf2v ? lastFrameId : null)
+    set({ inputMode, mode: nextMode, params: normalizeVideoParams(params, model, nextMode, nextMode === 'ref2v' && refItems.some(item => item.type === 'video')) })
   },
 
   setMode: (mode) => {
@@ -197,7 +202,7 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
       useStore.getState().showToast(`当前模型不支持${mode}模式，已切换到${fallbackM}`, 'info')
       return
     }
-    set({ mode, inputMode: mode === 'ref2v' ? 'reference' : 'create', params: normalizeVideoParams(params, model, mode) })
+    set({ mode, inputMode: mode === 'ref2v' ? 'reference' : 'create', params: normalizeVideoParams(params, model, mode, mode === 'ref2v' && get().refItems.some(item => item.type === 'video')) })
   },
 
   setModel: (model) => {
@@ -208,15 +213,17 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
     const safeInputMode = inputMode === 'reference' && !def?.modes.ref2v ? 'create' : inputMode
     const safeLastFrameId = def?.modes.flf2v ? get().lastFrameId : null
     const newMode = resolveVideoMode(safeInputMode, get().firstFrameId, safeLastFrameId)
+    const references = supportedReferences(model, refItems)
+    const hasVideo = newMode === 'ref2v' && references.some(item => item.type === 'video')
     const nextParams = def?.fixedQuantity && previousModel !== model
-      ? normalizeVideoParams({ duration: def?.duration.default, resolution: def?.resolutions[0], aspectRatio: def?.defaultAspectRatio, n: 1 }, model, newMode)
-      : normalizeVideoParams(params, model, newMode)
-    set({ model, mode: newMode, inputMode: safeInputMode, lastFrameId: safeLastFrameId, params: nextParams, sourceVideoId: null, ...groupVideoReferences(supportedReferences(model, refItems)) })
+      ? normalizeVideoParams({ duration: def?.duration.default, resolution: def?.resolutions[0], aspectRatio: def?.defaultAspectRatio, n: 1 }, model, newMode, hasVideo)
+      : normalizeVideoParams(params, model, newMode, hasVideo)
+    set({ model, mode: newMode, inputMode: safeInputMode, lastFrameId: safeLastFrameId, params: nextParams, sourceVideoId: null, ...groupVideoReferences(references) })
   },
   setParams: (partialParams) => {
     const { model, mode, params } = get()
     const merged = { ...params, ...partialParams }
-    set({ params: normalizeVideoParams(merged, model, mode) })
+    set({ params: normalizeVideoParams(merged, model, mode, mode === 'ref2v' && get().refItems.some(item => item.type === 'video')) })
   },
 
   setPrompt: (prompt) => set({ prompt }),
@@ -236,7 +243,8 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
       const limit = referenceLimit(model, type)
       if (items.filter((item) => item.type === type).length > limit) throw new Error(limit ? `该类型素材最多 ${limit} 个` : '当前模型不支持该类型参考素材')
     }
-    set(groupVideoReferences(items))
+    const state = get()
+    set({ ...groupVideoReferences(items), params: normalizeVideoParams(state.params, model, state.mode, state.mode === 'ref2v' && items.some(item => item.type === 'video')) })
   },
   addReference: (item) => {
     const state = get()
@@ -244,9 +252,9 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
     const limit = referenceLimit(state.model, item.type)
     if (!limit) throw new Error('当前模型不支持该类型参考素材')
     if (state.refItems.filter((ref) => ref.type === item.type).length >= limit) throw new Error(`该类型素材最多 ${limit} 个`)
-    set(groupVideoReferences([...state.refItems, item]))
+    get().setReferenceItems([...state.refItems, item])
   },
-  removeReference: (id) => set((s) => groupVideoReferences(s.refItems.filter((item) => item.id !== id))),
+  removeReference: (id) => get().setReferenceItems(get().refItems.filter((item) => item.id !== id)),
   setRefImages: (ids) => get().setReferenceItems([...get().refItems.filter((item) => item.type !== 'image'), ...ids.map((id) => ({ id, type: 'image' as const }))]),
   addRefImage: (id) => get().addReference({ id, type: 'image' }),
   removeRefImage: (id) => get().removeReference(id),
@@ -269,11 +277,17 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
 
   uploadFile: async (file) => {
     const definition = getVideoModelDefinition(get().model)
-    if (definition?.imageMimeTypes && !definition.imageMimeTypes.includes(file.type.toLowerCase())) {
+    const mime = file.type.toLowerCase()
+    const isVideo = mime.startsWith('video/')
+    const isAudio = mime.startsWith('audio/')
+    if (definition?.videoMimeTypes && isVideo && !definition.videoMimeTypes.includes(mime)) throw new Error('参考视频仅支持 MP4 / MOV')
+    if (definition?.audioMimeTypes && isAudio && !definition.audioMimeTypes.includes(mime)) throw new Error('参考音频仅支持 MP3 / WAV')
+    if (definition?.imageMimeTypes && !definition.imageMimeTypes.includes(mime)) {
       throw new Error('请选择 JPEG、JPG、PNG 或 WEBP 图片')
     }
-    if (definition?.maxImageBytes && file.size > definition.maxImageBytes) {
-      throw new Error(`单张参考图片不能超过 ${definition.maxImageBytes / (1024 * 1024)} MB`)
+    const maxBytes = isVideo ? definition?.maxVideoBytes : isAudio ? definition?.maxAudioBytes : definition?.maxImageBytes
+    if (maxBytes && file.size > maxBytes) {
+      throw new Error(`单个参考${isVideo ? '视频' : isAudio ? '音频' : '图片'}不能超过 ${maxBytes / (1024 * 1024)} MB`)
     }
     const uploadId = createLocalId()
     set((s) => ({ uploadingFiles: new Set(s.uploadingFiles).add(uploadId) }))
@@ -331,8 +345,8 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
       apiKey: profile.apiKey.trim(),
       apiProxy: modelDef?.requiresProxy ? true : profile.apiProxy,
     }
-    const normalizedParams = normalizeVideoParams({ ...params, n: 1 }, model, resolvedMode)
     const activeReferences = groupVideoReferences(supportedReferences(model, refItems))
+    const normalizedParams = normalizeVideoParams({ ...params, n: 1 }, model, resolvedMode, resolvedMode === 'ref2v' && activeReferences.refVideoIds.length > 0)
     // Drafts may keep both modes' assets, but each request includes ONLY its active mode's inputs.
     const sharedInputs: VideoTaskRecord['inputs'] = effectiveInputMode === 'reference'
       ? {
@@ -342,8 +356,24 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
           firstFrameId: firstFrameId || undefined, lastFrameId: effectiveLastFrameId || undefined,
           refImageIds: [], refVideoIds: [], refAudioIds: [], refItems: [],
         }
+    const activeImageCount = effectiveInputMode === 'reference'
+      ? sharedInputs.refImageIds.length
+      : getFrameReferences(firstFrameId, effectiveLastFrameId).length
+    let referenceVideoSeconds = 0
+    let referenceDurationUnknown = false
+    if (modelDef?.referencePricing && sharedInputs.refVideoIds.length) {
+      try {
+        const videos = await Promise.all(sharedInputs.refVideoIds.map(id => getMedia(id)))
+        referenceDurationUnknown = videos.some(video => !(Number.isFinite(video?.duration) && video!.duration! > 0))
+        if (!referenceDurationUnknown) referenceVideoSeconds = videos.reduce((sum, video) => sum + video!.duration!, 0)
+      } catch {
+        referenceDurationUnknown = true
+      }
+    }
+    const estimatedCredits = referenceDurationUnknown ? undefined
+      : estimateVideoCredits(model, normalizedParams.duration, normalizedParams.resolution, activeImageCount, referenceVideoSeconds, 1)
     const tasks = Array.from({ length: requestCount }, (_, index): VideoTaskRecord => ({
-      id: createLocalId(), prompt, mode: resolvedMode, model, params: normalizedParams, inputs: sharedInputs, status: 'queued', adapter: modelDef?.adapter ?? 'h3', error: null, createdAt: Date.now() + index, finishedAt: null, elapsed: null, estimatedCredits: estimateVideoCredits(model, normalizedParams.duration, normalizedParams.resolution, refImageIds.length, 0, 1), apiProfileId: profile.id, apiProfile: profileSnapshot,
+      id: createLocalId(), prompt, mode: resolvedMode, model, params: normalizedParams, inputs: sharedInputs, status: 'queued', adapter: modelDef?.adapter ?? 'h3', error: null, createdAt: Date.now() + index, finishedAt: null, elapsed: null, estimatedCredits, apiProfileId: profile.id, apiProfile: profileSnapshot,
     }))
     try {
       const submissionFailures: string[] = []
@@ -354,17 +384,22 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
       await Promise.all(tasks.map(async (task) => {
         const generation = taskGenerations.get(task.id) ?? 0
         if (!getActiveTask(task.id, generation)) return
+        const controller = new AbortController()
+        submissionControllers.set(task.id, controller)
         try {
-          const result = await submitVideoTask(task)
+          const result = await submitVideoTask(task, controller.signal)
+          submissionControllers.delete(task.id)
           if (!getActiveTask(task.id, generation)) return
           if (await updateActiveTask(task.id, generation, { ...result, status: result.status || 'queued' })) {
             startPolling(task.id)
           }
         } catch (error) {
           if (!getActiveTask(task.id, generation)) return
-          const message = formatVideoTaskError(error instanceof Error ? error.message : String(error))
+          const message = formatVideoTaskError(error instanceof Error ? error.message : String(error), undefined, task.model)
           submissionFailures.push(message)
           await updateActiveTask(task.id, generation, { status: 'error', error: message, recoverable: false, finishedAt: Date.now(), elapsed: Date.now() - task.createdAt })
+        } finally {
+          if (submissionControllers.get(task.id) === controller) submissionControllers.delete(task.id)
         }
       }))
       if (submissionFailures.length) {

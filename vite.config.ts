@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
+import { uguuUploadMiddleware } from './server/uguuProxy'
 import react from '@vitejs/plugin-react'
 import { readFileSync } from 'fs'
 import { execSync } from 'node:child_process'
@@ -157,6 +158,11 @@ export default defineConfig(({ command }) => {
   return {
     plugins: [
       react(),
+      {
+        name: 'uguu-upload',
+        configureServer(server) { server.middlewares.use(uguuUploadMiddleware) },
+        configurePreviewServer(server) { server.middlewares.use(uguuUploadMiddleware) },
+      },
       {
         name: 'app-version-manifest',
         configureServer(server) {

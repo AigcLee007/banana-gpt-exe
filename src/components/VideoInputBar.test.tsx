@@ -6,11 +6,12 @@ import type { VideoReferenceItem } from '../lib/videoTypes'
 
 const draft = vi.hoisted(() => ({ state: {} as Record<string, unknown> }))
 const editor = vi.hoisted(() => ({ onAddLibrary: undefined as undefined | ((item: VideoReferenceItem) => Promise<void | VideoReferenceItem>) }))
+const media = vi.hoisted(() => ({ metadata: {} as Record<string, { duration?: number }> }))
 vi.mock('../videoStore', () => ({ useVideoStore: Object.assign(() => draft.state, { getState: () => draft.state }) }))
 vi.mock('../videoAssetStore', () => ({ useVideoAssetStore: Object.assign(() => [], { getState: () => ({ assets: [{ id: 'image:gallery-1', type: 'image', storage: 'images' }] }) }) }))
 vi.mock('../lib/videoAssetBridge', () => ({ resolveVideoAssetToMediaReference: vi.fn(async () => ({ id: 'converted-media-1', type: 'image' })) }))
 vi.mock('../store', () => ({ useStore: { getState: () => ({ showToast: vi.fn() }) } }))
-vi.mock('../hooks/useVideoMediaMetadata', () => ({ useVideoMediaMetadata: () => ({}) }))
+vi.mock('../hooks/useVideoMediaMetadata', () => ({ useVideoMediaMetadata: () => media.metadata }))
 vi.mock('../hooks/useMediaBlobUrl', () => ({ useMediaBlobUrl: () => null }))
 vi.mock('./VideoPromptEditor', () => ({ default: (props: { onAddLibrary: typeof editor.onAddLibrary }) => {
   editor.onAddLibrary = props.onAddLibrary
@@ -19,10 +20,33 @@ vi.mock('./VideoPromptEditor', () => ({ default: (props: { onAddLibrary: typeof 
 import VideoInputBar from './VideoInputBar'
 
 beforeEach(() => {
+  media.metadata = {}
   draft.state = { inputMode: 'create', model: 'gemini-omni-flash-10s', params: normalizeVideoParams({}, 'gemini-omni-flash-10s', 't2v'), prompt: 'fox', firstFrameId: null, lastFrameId: null, refImageIds: [], refVideoIds: [], refAudioIds: [], refItems: [], isGenerating: false }
 })
 
 describe('video workbench controls from model capabilities', () => {
+  it('places a model comparison entry after the model selector', () => {
+    const html = renderToStaticMarkup(<VideoInputBar />)
+    const entry = html.indexOf('aria-label="视频模型对比说明"')
+    expect(entry).toBeGreaterThan(html.indexOf('title="gemini-omni-flash-10s · 25 积分/次"'))
+    expect(entry).toBeLessThan(html.indexOf('>分辨率</span>'))
+    expect(entry).toBeGreaterThan(-1)
+  })
+  it('shows Wan limits, third-party upload notice and a video-dependent duration maximum', () => {
+    draft.state.model = 'wan3.0-video-720p'
+    draft.state.inputMode = 'reference'
+    draft.state.params = normalizeVideoParams({}, 'wan3.0-video-720p', 'ref2v')
+    draft.state.refItems = [{ id: 'clip', type: 'video' }]
+    draft.state.refVideoIds = ['clip']
+    const html = renderToStaticMarkup(<VideoInputBar />)
+    expect(html).toContain('Uguu')
+    expect(html).toContain('3 小时')
+    expect(html).toContain('24–60 FPS')
+    expect(html).toContain('max="15"')
+    expect(html).not.toContain('结束帧')
+    draft.state.inputMode = 'create'
+    expect(renderToStaticMarkup(<VideoInputBar />)).toContain('max="30"')
+  })
   it.each(['create', 'reference', 'existing-frame'])('returns the resolved gallery ID for @ mentions in %s mode', async (mode) => {
     draft.state.inputMode = mode === 'reference' ? 'reference' : 'create'
     draft.state.firstFrameId = mode === 'existing-frame' ? 'converted-media-1' : null
@@ -40,35 +64,71 @@ describe('video workbench controls from model capabilities', () => {
   })
 
   it.each([
-    ['MiniMax-H3', '推荐', '稳定、快速，推荐使用。'],
-    ['sd2.0-15s', '耗时较长', '稳定性较低，生成时间较长，建议优先使用 MiniMax H3。'],
-    ['sd2.5-30s', '耗时较长', '稳定性较低，生成时间较长，建议优先使用 MiniMax H3。'],
-  ])('shows the %s badge and advice below its selected model', (model, badge, description) => {
+    ['MiniMax-H3', ['推荐', '稳定快速', '15S']],
+    ['wan3.0-video-720p', ['优质', '30S长视频']],
+    ['sd2.0-15s', ['耗时较长']],
+    ['sd2.5-30s', ['耗时较长']],
+  ] as const)('shows the %s badges next to the selected name without advice below', (model, badges) => {
     draft.state.model = model
     draft.state.params = normalizeVideoParams({}, model, 't2v')
     const html = renderToStaticMarkup(<VideoInputBar />)
-    expect(html).toContain(`>${badge}</span>`)
-    expect(html).toContain('data-testid="video-model-guidance"')
-    expect(html).toContain(description)
-    expect(html.indexOf(description)).toBeLessThan(html.indexOf('>分辨率</span>'))
+    for (const badge of badges) expect(html).toContain(`>${badge}</span>`)
+    expect(html.match(/data-video-model-badge/g)).toHaveLength(badges.length)
+    expect(html).not.toContain('data-testid="video-model-guidance"')
+    expect(html).not.toContain('稳定、快速，推荐使用。')
+    expect(html).not.toContain('稳定性较低，生成时间较长，建议优先使用 MiniMax H3。')
+    expect(html.indexOf('data-video-model-badge')).toBeLessThan(html.indexOf('>分辨率</span>'))
   })
 
-  it.each(['grok-imagine-video-1.5', 'gemini-omni-flash-10s'])('clears the selected SD advice when switching to %s', (model) => {
+  it.each(['grok-imagine-video-1.5', 'gemini-omni-flash-10s'])('clears the selected SD badge when switching to %s', (model) => {
     draft.state.model = 'sd2.0-15s'
     draft.state.params = normalizeVideoParams({}, 'sd2.0-15s', 't2v')
-    expect(renderToStaticMarkup(<VideoInputBar />)).toContain('稳定性较低，生成时间较长')
+    expect(renderToStaticMarkup(<VideoInputBar />)).toContain('耗时较长')
     draft.state.model = model
     draft.state.params = normalizeVideoParams({}, model, 't2v')
     const html = renderToStaticMarkup(<VideoInputBar />)
     expect(html).not.toContain('data-testid="video-model-guidance"')
     expect(html).not.toContain('耗时较长')
+    expect(html).not.toContain('data-video-model-badge')
   })
   it.each([['768p', 2.5, 10], ['2k', 5, 20]] as const)('shows the H3 %s rate and matching four-second estimate', (resolution, rate, estimate) => {
     draft.state.model = 'MiniMax-H3'
     draft.state.params = normalizeVideoParams({ resolution, duration: 4 }, 'MiniMax-H3', 't2v')
     const html = renderToStaticMarkup(<VideoInputBar />)
-    expect(html).toContain(`MiniMax H3 · ${rate} 积分/秒`)
-    expect(html).toContain(`创建（${estimate.toFixed(1)} 积分）`)
+    expect(html).toContain(`MiniMax H3 · ${rate} 积分/秒起`)
+    expect(html).toContain(`创建（预估 ${estimate} 积分）`)
+    expect(html).not.toContain('data-testid="video-pricing-rules"')
+    expect(html).toContain('aria-label="视频模型对比说明"')
+  })
+  it.each([['768p', '23.75'], ['2k', '46.25']] as const)('includes active H3 references in the %s creation estimate', (resolution, estimate) => {
+    draft.state.model = 'MiniMax-H3'
+    draft.state.inputMode = 'reference'
+    draft.state.params = normalizeVideoParams({ resolution, duration: 4 }, 'MiniMax-H3', 'ref2v')
+    draft.state.refImageIds = Array.from({ length: 7 }, (_, i) => `image-${i}`)
+    draft.state.refVideoIds = ['clip-a', 'clip-b']
+    draft.state.refAudioIds = ['audio']
+    draft.state.refItems = [
+      ...(draft.state.refImageIds as string[]).map(id => ({ id, type: 'image' })),
+      { id: 'clip-a', type: 'video' }, { id: 'clip-b', type: 'video' }, { id: 'audio', type: 'audio' },
+    ]
+    media.metadata = { 'clip-a': { duration: 4 }, 'clip-b': { duration: 6 }, audio: { duration: 15 } }
+    expect(renderToStaticMarkup(<VideoInputBar />)).toContain(`创建（预估 ${estimate} 积分）`)
+    draft.state.inputMode = 'create'
+    expect(renderToStaticMarkup(<VideoInputBar />)).toContain(`创建（预估 ${resolution === '2k' ? 20 : 10} 积分）`)
+  })
+  it('keeps fractional image credits and waits for unknown reference-video durations', () => {
+    draft.state.model = 'MiniMax-H3'
+    draft.state.inputMode = 'reference'
+    draft.state.params = normalizeVideoParams({ duration: 4 }, 'MiniMax-H3', 'ref2v')
+    draft.state.refImageIds = Array.from({ length: 6 }, (_, i) => `image-${i}`)
+    draft.state.refItems = (draft.state.refImageIds as string[]).map(id => ({ id, type: 'image' }))
+    expect(renderToStaticMarkup(<VideoInputBar />)).toContain('创建（预估 10.625 积分）')
+    draft.state.refVideoIds = ['unknown-clip']
+    draft.state.refItems = [...draft.state.refItems as VideoReferenceItem[], { id: 'unknown-clip', type: 'video' }]
+    const html = renderToStaticMarkup(<VideoInputBar />)
+    expect(html).toContain('创建（费用待估算）')
+    expect(html).toContain('参考视频时长尚未读取，完整费用待估算')
+    expect(html).not.toContain('创建（预估 10.625 积分）')
   })
   it.each([
     ['gemini-omni-flash-10s', 25],

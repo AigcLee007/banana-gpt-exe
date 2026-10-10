@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { formatVideoApiError, formatVideoTaskError } from './videoApi'
 
 describe('formatVideoApiError', () => {
+  it('does not show another model duration limit for Wan errors', () => {
+    expect(formatVideoTaskError('seconds invalid', undefined, 'wan3.0-video-720p')).not.toContain('1 到 15')
+  })
   it('extracts a useful server error from JSON responses', () => {
     expect(formatVideoApiError(503, JSON.stringify({ error: 'GROK_IMAGINE_VIDEO_API_KEY is not configured on the server' })))
       .toBe('提交失败（503）：请先在设置 → API 配置中填写 API Key')
