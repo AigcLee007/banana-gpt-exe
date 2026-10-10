@@ -254,6 +254,15 @@ describe('video model price labels', () => {
     expect(getVideoModelPriceLabel('wan3.0-video-720p', '720p', 30)).toBe('5 积分/秒')
   })
 
+  it.each([['480p', 3], ['768p', 5], ['1080p', 3.75], ['2k', 5], ['720p', 5]] as const)(
+    'normalizes H3 dropdown rates at %s for a 30-second draft', (resolution, rate) => {
+      const label = `${rate} 积分/秒起`
+      expect(getVideoModelPriceLabel('MiniMax-H3', resolution, 30)).toBe(label)
+      const selectedParams = normalizeVideoParams({ resolution, duration: 30 }, 'MiniMax-H3', 't2v')
+      expect(getVideoModelPriceLabel('MiniMax-H3', selectedParams.resolution, selectedParams.duration)).toBe(label)
+    },
+  )
+
   it('uses an option model default when the active model resolution is unsupported', () => {
     expect(getVideoModelPriceLabel('MiniMax-H3', '720p')).toBe('2.5 积分/秒起')
     expect(getVideoModelPriceLabel('grok-imagine-video-1.5', '2k')).toBe('15 积分/次')

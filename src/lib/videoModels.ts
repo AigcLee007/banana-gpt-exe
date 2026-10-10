@@ -237,7 +237,8 @@ export function getVideoModelPriceLabel(model: string, resolution?: VideoResolut
     ? resolution
     : definition.defaultResolution ?? definition.resolutions[0]
   const price = definition.pricePerSecondCredits?.[modelResolution]
-  const multiplier = getVideoPricingMultiplier(model, duration ?? definition.duration.default)
+  const modelDuration = normalizeVideoParams({ resolution: modelResolution, duration }, model, 't2v').duration
+  const multiplier = getVideoPricingMultiplier(model, modelDuration)
   return price === undefined ? '价格待配置' : `${price * multiplier} 积分/秒${definition.referencePricing ? '起' : ''}`
 }
 
