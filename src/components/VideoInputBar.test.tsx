@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { normalizeVideoParams } from '../lib/videoModels'
+import { getSelectableVideoModels, normalizeVideoParams } from '../lib/videoModels'
 import { encodeVideoMention, serializeVideoPrompt } from '../lib/videoPromptMentions'
 import type { VideoReferenceItem } from '../lib/videoTypes'
 
@@ -25,6 +25,66 @@ beforeEach(() => {
 })
 
 describe('video workbench controls from model capabilities', () => {
+  it('hides unavailable legacy models from the new-task selector', () => {
+    const html = renderToStaticMarkup(<VideoInputBar />)
+    expect(html).not.toContain('sd2.0-15s')
+    expect(html).not.toContain('sd2.5-30s')
+    expect(getSelectableVideoModels().map((item) => item.model)).toEqual(expect.arrayContaining(['sd2-933-3', 'sd2-933-全', 'sd2.5-10-全']))
+  })
+
+  it.each([
+    ['sd2-933-3', '45', 9, true],
+    ['sd2-933-全', '60', 9, true],
+    ['sd2.5-10-全', '37.5', 10, false],
+  ] as const)('shows %s exact price, frames and supported reference controls', (model, credits, images, multimodal) => {
+    draft.state.model = model
+    draft.state.params = normalizeVideoParams({}, model, 't2v')
+    let html = renderToStaticMarkup(<VideoInputBar />)
+    expect(html).toContain(`${model} · ${credits} 积分/次`)
+    expect(html).not.toContain('元/条')
+    expect(html).toContain(`创建（${credits} 积分）`)
+    expect(html).toContain('结束帧')
+    expect(html).toContain('Uguu')
+    expect(html).not.toContain('24–60 FPS')
+    expect(html).not.toContain('1080P')
+    expect(html).not.toContain('2个')
+    if (multimodal) {
+      expect(html).toContain('min="4"')
+      expect(html).toContain('max="15"')
+    } else {
+      expect(html).toContain('30秒')
+      expect(html).not.toContain('type="range"')
+      expect(html).toContain('人脸')
+      expect(html).toContain('比例')
+    }
+    draft.state.inputMode = 'reference'
+    html = renderToStaticMarkup(<VideoInputBar />)
+    expect(html).toContain(`图片 0/${images}`)
+    if (multimodal) {
+      expect(html).toContain('视频 0/3')
+      expect(html).toContain('音频 0/3')
+    } else {
+      expect(html).not.toContain('视频 0/')
+      expect(html).not.toContain('音频 0/')
+      expect(html).not.toContain('video/*')
+      expect(html).not.toContain('audio/*')
+    }
+    expect(html).not.toMatch(/sd-2-c4|sd-2-c5|sd-2\.5-c1/)
+  })
+
+  it('only offers three ratios for sd2-933-3 and six for the other new models', () => {
+    for (const model of ['sd2-933-3', 'sd2-933-全', 'sd2.5-10-全']) {
+      draft.state.model = model
+      draft.state.params = normalizeVideoParams({}, model, 't2v')
+      const html = renderToStaticMarkup(<VideoInputBar />)
+      expect(html).toContain('>16:9</button>')
+      expect(html).toContain('>9:16</button>')
+      expect(html).toContain('>1:1</button>')
+      if (model === 'sd2-933-3') expect(html).not.toContain('>21:9</button>')
+      else for (const ratio of ['21:9', '4:3', '3:4']) expect(html).toContain(`>${ratio}</button>`)
+    }
+  })
+
   it('places a model comparison entry after the model selector', () => {
     const html = renderToStaticMarkup(<VideoInputBar />)
     const entry = html.indexOf('aria-label="视频模型对比说明"')
@@ -68,6 +128,9 @@ describe('video workbench controls from model capabilities', () => {
     ['wan3.0-video-720p', ['优质', '30S长视频']],
     ['sd2.0-15s', ['耗时较长']],
     ['sd2.5-30s', ['耗时较长']],
+    ['sd2-933-3', ['原生真人脸', '稳定']],
+    ['sd2-933-全', ['原生真人脸', '全比例', '稳定']],
+    ['sd2.5-10-全', ['几率卡人脸', '30S']],
   ] as const)('shows the %s badges next to the selected name without advice below', (model, badges) => {
     draft.state.model = model
     draft.state.params = normalizeVideoParams({}, model, 't2v')

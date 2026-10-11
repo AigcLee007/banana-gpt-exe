@@ -10,7 +10,7 @@ import type { VideoReferenceItem } from '../lib/videoTypes'
 import { serializeVideoPrompt, getFrameReferences } from '../lib/videoPromptMentions'
 import { VideoImageIcon, VideoFilmIcon, VideoAudioIcon } from './VideoMediaIcons'
 import { useMediaBlobUrl } from '../hooks/useMediaBlobUrl'
-import { getAllVideoModels, getVideoModelDefinition, getVideoModelPriceLabel, getVideoDurationSpec, estimateVideoCredits, formatVideoResolution, type VideoResolution } from '../lib/videoModels'
+import { getSelectableVideoModels, getVideoModelDefinition, getVideoModelPriceLabel, getVideoDurationSpec, estimateVideoCredits, formatVideoResolution, type VideoResolution } from '../lib/videoModels'
 import Select from './Select'
 import ReferenceTile from './ReferenceTile'
 import VideoModelLogo from './VideoModelLogo'
@@ -102,7 +102,7 @@ export default function VideoInputBar() {
     && !(Number.isFinite(metadata[item.id]?.duration) && metadata[item.id].duration! > 0)))
   const activeImageCount = editorReferences.filter(item => item.type === 'image').length
   const estimatedCredits = estimateVideoCredits(model, params.duration, params.resolution, activeImageCount, referenceMode ? secondsFor('video') : 0, params.n)
-  const estimatedCreditLabel = referencePricing ? String(estimatedCredits) : estimatedCredits.toFixed(1)
+  const estimatedCreditLabel = referencePricing || modelDef?.pricePerRequestYuan !== undefined ? String(estimatedCredits) : estimatedCredits.toFixed(1)
   const canGenerate = (Boolean(prompt.trim()) || (modelDef?.allowsImageOnly && Boolean(firstFrameId))) && !uploadBusy && !missingReference && !(supportsTailFrame && !referenceMode && lastFrameId && !firstFrameId) && (!referenceMode || refItems.length > 0)
 
   const upload = (target: 'reference' | 'first' | 'last') => {
@@ -154,8 +154,9 @@ export default function VideoInputBar() {
     }
   }
 
-  const modelOptions = getAllVideoModels().map((item) => ({
+  const modelOptions = getSelectableVideoModels().map((item) => ({
     value: item.model,
+    hidden: false,
     label: (
       <span className="inline-flex min-w-0 max-w-full items-center gap-1 sm:gap-2">
         <VideoModelLogo logo={item.logo} className="h-4 w-4 shrink-0" />
@@ -167,6 +168,23 @@ export default function VideoInputBar() {
     ),
     secondaryLabel: getVideoModelPriceLabel(item.model, params.resolution, params.duration),
   }))
+  const currentModelDef = getVideoModelDefinition(model)
+  if (currentModelDef && !modelOptions.some((option) => option.value === model)) {
+    modelOptions.unshift({
+      value: currentModelDef.model,
+      hidden: true,
+      label: (
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1 sm:gap-2">
+          <VideoModelLogo logo={currentModelDef.logo} className="h-4 w-4 shrink-0" />
+          <span className={`flex min-w-0 items-center ${currentModelDef.adapter === 'wan' ? 'gap-1 sm:gap-1.5' : 'flex-wrap gap-x-1.5 gap-y-1'}`}>
+            <span title={currentModelDef.displayName} className="min-w-0 truncate">{currentModelDef.displayName}</span>
+            {currentModelDef.badges?.map(badge => <span key={badge.label} data-video-model-badge className={`shrink-0 whitespace-nowrap rounded-full px-1 py-0.5 text-[10px] font-medium leading-none ring-1 ring-inset sm:px-1.5 ${MODEL_BADGE_STYLES[badge.tone]}`}>{badge.label}</span>)}
+          </span>
+        </span>
+      ),
+      secondaryLabel: getVideoModelPriceLabel(currentModelDef.model, params.resolution, params.duration),
+    })
+  }
   const duration = getVideoDurationSpec(model, referenceMode && refItems.some(item => item.type === 'video'), params.resolution)
   const ratioOptions = modelDef?.aspectRatios ?? ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
 
@@ -215,11 +233,12 @@ export default function VideoInputBar() {
             {refItems.map((item, index) => <ReferenceTile key={item.id} index={index + 1} item={item} onRemove={() => item.type === 'image' ? removeRefImage(item.id) : item.type === 'video' ? removeRefVideo(item.id) : removeRefAudio(item.id)} />)}
           </div>
           {modelDef?.maxImageBytes && <p className="mt-2 text-xs text-[color:var(--app-text-muted)]">{modelDef.imageMimeTypes ? 'JPEG / JPG / PNG / WEBP，' : ''}单张最多 {modelDef.maxImageBytes / (1024 * 1024)} MB</p>}
-          {modelDef?.referenceUpload === 'uguu' && <p className="mt-2 text-xs leading-relaxed text-[color:var(--app-text-muted)]">视频：MP4 / MOV，单个 ≤50 MB，2–15 秒，24–60 FPS，总时长 ≤15 秒。音频：MP3 / WAV，单个 ≤15 MB，2–15 秒，总时长 ≤15 秒，需搭配图片或视频。包含参考视频时最多生成 15 秒。</p>}
+          {modelDef?.adapter === 'wan' && <p className="mt-2 text-xs leading-relaxed text-[color:var(--app-text-muted)]">视频：MP4 / MOV，单个 ≤50 MB，2–15 秒，24–60 FPS，总时长 ≤15 秒。音频：MP3 / WAV，单个 ≤15 MB，2–15 秒，总时长 ≤15 秒，需搭配图片或视频。包含参考视频时最多生成 15 秒。</p>}
         </section>
       )}
 
       <section className="p-4">
+          {modelDef?.guidance && <p className="mb-3 text-xs leading-relaxed text-[color:var(--app-text-muted)]">{modelDef.guidance}</p>}
           {modelDef?.referenceUpload === 'uguu' && <p data-testid="video-reference-upload-notice" className="mb-3 text-xs leading-relaxed text-[color:var(--app-text-muted)]">创建时会将所选素材自动上传到第三方 Uguu，直链可公开访问，约 3 小时后过期。本地素材保留，重新创建时重新上传。</p>}
           <ParamRow label="模型" compactLabel><div className="flex min-w-0 flex-1 items-center gap-1"><div className="min-w-0 flex-1"><Select value={model} onChange={(v) => setModel(String(v))} options={modelOptions} triggerTitle={`${modelDef?.displayName ?? model} · ${getVideoModelPriceLabel(model, params.resolution, params.duration)}`} menuClassName="-right-12 min-w-[min(420px,calc(100vw-4rem))]" className="w-full rounded-lg border-0 bg-[color:var(--app-input)] px-1 py-2 text-sm text-[color:var(--app-text)] sm:px-3" /></div><VideoModelComparison selectedModel={model} /></div></ParamRow>
           <ParamRow label="分辨率"><div className="flex h-9 flex-1 rounded-lg bg-[color:var(--app-input)] p-0.5">{(modelDef?.resolutions ?? ['768p']).map((r) => <button key={r} type="button" onClick={() => setParams({ resolution: r })} className={`flex-1 rounded-md text-xs font-semibold ${params.resolution === r ? 'bg-blue-500 text-white' : 'text-[color:var(--app-text-muted)]'}`}>{formatVideoResolution(r)}</button>)}</div></ParamRow>

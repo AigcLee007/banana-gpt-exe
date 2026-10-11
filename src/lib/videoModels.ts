@@ -1,9 +1,11 @@
 // 视频模型能力定义
 
+import { CREDITS_PER_YUAN } from './bananaModels'
+
 export type VideoMode = 't2v' | 'i2v' | 'flf2v' | 'ref2v'
 export type VideoResolution = '480p' | '720p' | '768p' | '1080p' | '2k'
 export type VideoQuantity = 1 | 2 | 4
-export type VideoAdapterId = 'h3' | 'grok' | 'omni' | 'sd' | 'wan'
+export type VideoAdapterId = 'h3' | 'grok' | 'omni' | 'sd' | 'wan' | 'sdMedia'
 export type RefMentionStyle = 'ordinal' | 'none'
 export type VideoModelLogoId = 'minimax' | 'grok' | 'gemini' | 'seedance' | 'wan'
 
@@ -64,6 +66,7 @@ export interface VideoModelDefinition {
     videoPerSecondCredits: Partial<Record<VideoResolution, number>>
   }
   pricePerRequestCredits?: number
+  pricePerRequestYuan?: number
   fixedQuantity?: 1
   defaultAspectRatio?: string
   logo: VideoModelLogoId
@@ -82,6 +85,7 @@ export interface VideoModelDefinition {
   maxOutputSecondsWithVideo?: number
   referenceUpload?: 'uguu'
   pollIntervalSeconds?: number
+  guidance?: string
 }
 
 export const VIDEO_MODELS: Record<string, VideoModelDefinition> = {
@@ -185,6 +189,27 @@ export const VIDEO_MODELS: Record<string, VideoModelDefinition> = {
   },
   'sd2.0-15s': sdModel('sd2.0-15s', 15, 20),
   'sd2.5-30s': sdModel('sd2.5-30s', 30, 38),
+  'sd2-933-3': sdMediaModel('sd2-933-3', 3.5, false, ['1:1', '16:9', '9:16'], 45, [{ label: '原生真人脸', tone: 'quality' }, { label: '稳定', tone: 'recommended' }]),
+  'sd2-933-全': sdMediaModel('sd2-933-全', 4.5, false, undefined, 60, [{ label: '原生真人脸', tone: 'quality' }, { label: '全比例', tone: 'quality' }, { label: '稳定', tone: 'recommended' }]),
+  'sd2.5-10-全': sdMediaModel('sd2.5-10-全', 3, true, undefined, undefined, [{ label: '几率卡人脸', tone: 'warning' }, { label: '30S', tone: 'recommended' }]),
+}
+
+function sdMediaModel(model: string, pricePerRequestYuan: number, longVideo: boolean, aspectRatios: readonly string[] = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'], pricePerRequestCredits?: number, badges?: VideoModelDefinition['badges']): VideoModelDefinition {
+  return {
+    model, displayName: model, adapter: 'sdMedia', logo: 'seedance',
+    badges,
+    pricePerRequestYuan, pricePerRequestCredits: pricePerRequestCredits ?? Number((pricePerRequestYuan * CREDITS_PER_YUAN).toFixed(3)),
+    modes: { t2v: {}, i2v: { maxImages: 1 }, flf2v: { maxImages: 2 }, ref2v: { maxImages: longVideo ? 10 : 9, maxVideos: longVideo ? 0 : 3, maxAudios: longVideo ? 0 : 3 } },
+    duration: { min: longVideo ? 30 : 4, max: longVideo ? 30 : 15, step: 1, default: longVideo ? 30 : 8, wholeSeconds: true },
+    resolutions: ['720p'], aspectRatios, defaultAspectRatio: '16:9',
+    audio: 'none', supportsSeed: false, supportsNegativePrompt: false, refMention: 'ordinal',
+    fixedQuantity: 1, requiresProxy: true, referenceUpload: 'uguu', pollIntervalSeconds: 30,
+    // Capacity of the existing workbench upload route, rather than a generation-model limit.
+    maxImageBytes: 50 * 1024 * 1024, maxVideoBytes: 50 * 1024 * 1024, maxAudioBytes: 50 * 1024 * 1024,
+    guidance: longVideo
+      ? '固定 30 秒，最多 10 张图片。真人图片可能出现人脸校验失败；六种比例的实际出片支持仍在验证。'
+      : '支持真人图片参考，最多 9 张图片、3 段视频、3 段音频。首尾帧计入图片总数；参考视频与输出时长合计建议不超过 25 秒。',
+  }
 }
 
 function sdModel(model: string, duration: number, pricePerRequestCredits: number): VideoModelDefinition {
@@ -220,6 +245,12 @@ export function getVideoModelDefinition(model: string): VideoModelDefinition | u
 
 export function getAllVideoModels(): VideoModelDefinition[] {
   return Object.values(VIDEO_MODELS)
+}
+
+const HIDDEN_VIDEO_MODELS = new Set(['sd2.0-15s', 'sd2.5-30s'])
+
+export function getSelectableVideoModels(): VideoModelDefinition[] {
+  return getAllVideoModels().filter((def) => !HIDDEN_VIDEO_MODELS.has(def.model))
 }
 
 export function getVideoPricingMultiplier(model: string, duration: number): number {

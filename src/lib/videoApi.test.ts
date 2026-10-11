@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { formatVideoApiError, formatVideoTaskError } from './videoApi'
 
 describe('formatVideoApiError', () => {
+  it.each(['sd2-933-3', 'sd2-933-全'])('uses %s correct duration in English relay errors', (model) => {
+    expect(formatVideoTaskError('seconds invalid', undefined, model)).toBe('视频时长必须是 4 到 15 秒的整数')
+  })
+  it('uses the fixed 30 second duration for the new image model', () => {
+    expect(formatVideoTaskError('duration invalid', undefined, 'sd2.5-10-全')).toBe('视频时长固定为 30 秒')
+  })
   it('does not show another model duration limit for Wan errors', () => {
     expect(formatVideoTaskError('seconds invalid', undefined, 'wan3.0-video-720p')).not.toContain('1 到 15')
   })

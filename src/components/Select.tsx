@@ -7,6 +7,8 @@ interface Option {
   label: ReactNode
   secondaryLabel?: ReactNode
   value: string | number
+  /** Keep a legacy current value renderable without offering it for new selections. */
+  hidden?: boolean
   variant?: 'action' | 'danger'
   draggable?: boolean
   actions?: Array<{
@@ -62,6 +64,7 @@ export default function Select({
   const triggerRef = useRef<HTMLDivElement>(null)
 
   const selectedOption = options.find((o) => o.value === value)
+  const visibleOptions = options.filter((option) => !option.hidden)
   const triggerThemeClass = 'bg-[var(--app-input)] border-[color:var(--app-border)] text-[color:var(--app-text)]'
   const dropdownThemeClass = 'bg-[var(--app-surface-elevated)] border-[color:var(--app-border)] text-[color:var(--app-text)] ring-[color:var(--app-border)]'
 
@@ -191,7 +194,7 @@ export default function Select({
           }`}
           style={{ maxHeight: menuMaxHeight }}
         >
-          {options.map((option) => (
+          {visibleOptions.map((option) => (
             <div
               key={option.value}
               data-option-value={String(option.value)}

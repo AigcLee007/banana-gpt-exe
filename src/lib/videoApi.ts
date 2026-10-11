@@ -7,6 +7,8 @@ import { grokAdapter } from './videoAdapters/grok'
 import { omniAdapter } from './videoAdapters/omni'
 import { sdAdapter } from './videoAdapters/sd'
 import { wanAdapter } from './videoAdapters/wan'
+import { sdMediaAdapter } from './videoAdapters/sdMedia'
+import { buildVideoApiUrl } from './videoTransport'
 
 export interface VideoRequest {
   task: VideoTaskRecord
@@ -41,6 +43,7 @@ const adapters: Record<VideoAdapterId, VideoAdapter> = {
   omni: omniAdapter,
   sd: sdAdapter,
   wan: wanAdapter,
+  sdMedia: sdMediaAdapter,
 }
 
 export function formatVideoApiError(status: number, rawText: string, phase = '提交', model?: string): string {
@@ -89,7 +92,11 @@ export function formatVideoTaskError(detail: string, status?: number, model?: st
   if (lower.includes('prompt') && (lower.includes('required') || lower.includes('missing') || lower.includes('empty'))) {
     return '请填写视频提示词，或上传一张图片'
   }
-  if (lower.includes('seconds') || lower.includes('duration')) return model === 'wan3.0-video-720p' ? '视频或参考素材时长不符合当前模型要求，请检查时长设置' : '视频时长必须是 1 到 15 秒'
+  if (lower.includes('seconds') || lower.includes('duration')) {
+    if (model === 'sd2.5-10-全') return '视频时长固定为 30 秒'
+    if (model === 'sd2-933-3' || model === 'sd2-933-全') return '视频时长必须是 4 到 15 秒的整数'
+    return model === 'wan3.0-video-720p' ? '视频或参考素材时长不符合当前模型要求，请检查时长设置' : '视频时长必须是 1 到 15 秒'
+  }
   if (lower.includes('aspect_ratio') || lower.includes('aspect ratio')) return '画面比例不受支持，请重新选择'
   if (lower.includes('resolution')) return '清晰度不受支持，请重新选择'
   if (lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('network error')) {
@@ -155,15 +162,71 @@ export async function pollVideoTask(
 export async function downloadVideoContent(
   remoteTaskId: string,
   task: VideoTaskRecord,
+  videoUrl?: string,
 ): Promise<Blob> {
   const adapter = adapters[task.adapter]
   const profile = task.apiProfile
   if (!adapter || !profile) throw new Error('视频任务缺少有效的 API 配置')
+
+  if (videoUrl) {
+    const rawUrl = videoUrl.trim()
+    if (!rawUrl) throw new Error('视频结果地址为空，请稍后重试')
+
+    const contentSpec = adapter.buildContent(remoteTaskId, profile)
+    const authInit: RequestInit = { headers: contentSpec.init.headers }
+    let url = rawUrl
+    let init: RequestInit = {}
+    const useRelayPath = (path: string) => {
+      const normalized = path.replace(/^\/+/, '')
+      const apiPath = normalized.toLowerCase().startsWith('v1/') ? normalized.slice(3) : normalized
+      url = buildVideoApiUrl(profile, apiPath, true)
+      init = authInit
+    }
+
+    if (rawUrl.startsWith('/api-proxy/')) {
+      init = authInit
+    } else if (rawUrl.startsWith('/')) {
+      useRelayPath(rawUrl)
+    } else if (!/^[a-z][a-z\d+.-]*:\/\//i.test(rawUrl)) {
+      useRelayPath(rawUrl)
+    } else {
+      try {
+        const parsed = new URL(rawUrl)
+        const profileOrigin = new URL(profile.baseUrl).origin
+        if (parsed.origin === profileOrigin && parsed.pathname.toLowerCase().includes('/v1/')) {
+          useRelayPath(`${parsed.pathname}${parsed.search}`)
+        } else if (typeof window !== 'undefined' && parsed.origin === window.location.origin && parsed.pathname.startsWith('/api-proxy/')) {
+          init = authInit
+        }
+      } catch {
+        throw new Error('视频结果地址无效，请稍后重试')
+      }
+    }
+
+    const response = Object.keys(init).length ? await fetch(url, init) : await fetch(url)
+    if (!response.ok) throw new Error(formatVideoApiError(response.status, '', '下载', task.model))
+    return readVideoBlob(response)
+  }
+
   const { url, init } = adapter.buildContent(remoteTaskId, profile)
   const response = await fetch(url, init)
   if (!response.ok) {
     const text = await response.text()
     throw new Error(formatVideoApiError(response.status, adapter.redactServiceErrors ? '' : text, '下载', task.model))
   }
-  return response.blob()
+  return readVideoBlob(response)
+}
+
+async function readVideoBlob(response: Response): Promise<Blob> {
+  const blob = await response.blob()
+  const head = new Uint8Array(await blob.slice(0, 64).arrayBuffer())
+  const textHead = new TextDecoder().decode(head).trimStart().toLowerCase()
+  const contentType = (response.headers.get('content-type') || blob.type || '').split(';', 1)[0].trim().toLowerCase()
+  const htmlOrJson = textHead.startsWith('<!doctype html') || textHead.startsWith('<html') || textHead.startsWith('<head') || textHead.startsWith('<script') || textHead.startsWith('{') || textHead.startsWith('[')
+  const mp4 = head.length >= 8 && String.fromCharCode(...head.slice(4, 8)) === 'ftyp'
+  const webm = head.length >= 4 && head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3
+  const isVideo = contentType.startsWith('video/') || mp4 || webm
+  if (htmlOrJson || !isVideo) throw new Error('下载结果不是视频文件，请检查中转站返回的 object 地址')
+  if (blob.type || !mp4) return blob
+  return new Blob([blob], { type: 'video/mp4' })
 }

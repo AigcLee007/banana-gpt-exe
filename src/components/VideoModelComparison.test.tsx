@@ -29,6 +29,22 @@ describe('video model comparison', () => {
     expect(html).not.toMatch(/metaso|上游|供应方|供应商|插件|pixelle|sora-v3|Uguu/i)
   })
 
+  it('includes the three SD relay models with per-request prices', () => {
+    const html = renderToStaticMarkup(<VideoModelComparisonContent selectedModel="sd2-933-3" />)
+    expect(html).toContain('sd2-933-3')
+    expect(html).toContain('sd2-933-全')
+    expect(html).toContain('sd2.5-10-全')
+    expect(html).toContain('45 积分/次')
+    expect(html).toContain('60 积分/次')
+    expect(html).toContain('37.5 积分/次')
+    expect(html).toContain('原生真人脸')
+    expect(html).toContain('全比例')
+    expect(html).toContain('稳定')
+    expect(html).toContain('几率卡人脸')
+    expect(html).toContain('30S')
+    expect(html).not.toContain('价格待配置')
+  })
+
   it('makes the two H3 duration pricing bands explicit for generation and references', () => {
     const html = renderToStaticMarkup(<VideoModelComparisonContent selectedModel="MiniMax-H3" />)
     expect(html).toContain('≤15 秒')

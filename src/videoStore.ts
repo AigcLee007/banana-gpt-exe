@@ -547,8 +547,10 @@ function startPolling(taskId: string) {
       if (!getActiveTask(taskId, generation)) return
 
       if (result.status === 'succeeded') {
-        // completed 响应不带 video_url，通过带鉴权的 /content 下载。
-        const blob = await downloadVideoContent(task.remoteTaskId, task)
+        // SD 素材接口完成后返回 object 直链，其他适配器继续使用鉴权的 /content。
+        const blob = result.videoUrl
+          ? await downloadVideoContent(task.remoteTaskId, task, result.videoUrl)
+          : await downloadVideoContent(task.remoteTaskId, task)
         if (!getActiveTask(taskId, generation)) return
         const videoMime = blob.type.startsWith('video/') ? blob.type : 'video/mp4'
         const videoId = await uploadMediaFile(new File([blob], 'video.mp4', { type: videoMime }), 'generated')
@@ -594,13 +596,14 @@ function startPolling(taskId: string) {
       const task = getActiveTask(taskId, generation)
       if (!task) return
       const message = formatVideoTaskError(error instanceof Error ? error.message : String(error))
-      const permanent = /401|403|404|缺少|未知状态|配置/.test(message)
+      const permanent = /401|403|404|缺少|未知状态|配置|不是视频文件|结果地址无效/.test(message)
       if (permanent) {
         if (!await updateActiveTask(taskId, generation, { status: 'error', error: message, finishedAt: Date.now(), elapsed: Date.now() - task.createdAt, recoverable: false })) return
         stopPolling(taskId)
         useStore.getState().showToast(`视频任务失败: ${message}`, 'error')
       } else {
-        videoPollingTimers.set(taskId, setTimeout(poll, 15000))
+        const retryDelay = (getVideoModelDefinition(task.model)?.pollIntervalSeconds ?? 15) * 1000
+        videoPollingTimers.set(taskId, setTimeout(poll, retryDelay))
       }
     }
   }

@@ -5,11 +5,51 @@ import {
   estimateVideoCredits,
   getVideoModelDefinition,
   getAllVideoModels,
+  getSelectableVideoModels,
   getVideoModelPriceLabel,
   getVideoDurationSpec,
   getVideoPricingMultiplier,
   type VideoMode,
 } from './videoModels'
+
+describe('SD media models on the relay', () => {
+  it.each([
+    ['sd2-933-3', 3.5, 45, 9, 15],
+    ['sd2-933-全', 4.5, 60, 9, 15],
+    ['sd2.5-10-全', 3, 37.5, 10, 30],
+  ] as const)('registers %s with its exact per-video price and reference limits', (model, yuan, credits, images, max) => {
+    const definition = getVideoModelDefinition(model)
+    expect(definition).toMatchObject({
+      model, displayName: model, adapter: 'sdMedia', logo: 'seedance',
+      pricePerRequestYuan: yuan, pricePerRequestCredits: credits,
+      duration: { min: max === 30 ? 30 : 4, max, wholeSeconds: true },
+      resolutions: ['720p'], fixedQuantity: 1, requiresProxy: true,
+      referenceUpload: 'uguu', pollIntervalSeconds: 30,
+      modes: { t2v: {}, i2v: { maxImages: 1 }, flf2v: { maxImages: 2 }, ref2v: { maxImages: images, maxVideos: max === 30 ? 0 : 3, maxAudios: max === 30 ? 0 : 3 } },
+    })
+    expect(getVideoModelPriceLabel(model)).toBe(`${credits} 积分/次`)
+    for (const seconds of [4, 8, 15, 30]) {
+      expect(estimateVideoCredits(model, seconds, '720p', images, 12, 4)).toBe(credits)
+    }
+    expect(normalizeVideoParams({ duration: 15.6, resolution: '2k', aspectRatio: 'auto', n: 4, seed: 1 }, model, 'ref2v'))
+      .toEqual({ duration: max === 30 ? 30 : 15, resolution: '720p', aspectRatio: '16:9', audio: false, n: 1 })
+  })
+
+  it('uses the confirmed three and six ratios without inventing additional ratios', () => {
+    expect(getVideoModelDefinition('sd2-933-3')?.aspectRatios).toEqual(['1:1', '16:9', '9:16'])
+    for (const model of ['sd2-933-全', 'sd2.5-10-全']) {
+      expect(getVideoModelDefinition(model)?.aspectRatios).toEqual(['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'])
+    }
+    expect(getAllVideoModels()).toHaveLength(9)
+  })
+
+  it('keeps unavailable legacy models registered for history but excludes them from new-task choices', () => {
+    expect(getSelectableVideoModels().map((item) => item.model)).not.toEqual(expect.arrayContaining(['sd2.0-15s', 'sd2.5-30s']))
+    expect(getSelectableVideoModels().map((item) => item.model)).toEqual(expect.arrayContaining(['sd2-933-3', 'sd2-933-全', 'sd2.5-10-全']))
+    expect(getVideoModelDefinition('sd2.0-15s')).toBeDefined()
+    expect(getVideoModelDefinition('sd2.5-30s')).toBeDefined()
+  })
+})
 
 describe('normalizeVideoParams', () => {
   it('registers Wan with URL references, no tail frames, and explicit defaults', () => {

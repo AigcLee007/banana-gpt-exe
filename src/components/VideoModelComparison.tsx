@@ -4,7 +4,7 @@ import { VIDEO_MODELS, formatVideoResolution, getVideoDurationSpec, getVideoPric
 import { CloseIcon } from './icons'
 import VideoModelLogo from './VideoModelLogo'
 
-const COMPARISON_MODELS = ['MiniMax-H3', 'wan3.0-video-720p'] as const
+const COMPARISON_MODELS = ['MiniMax-H3', 'wan3.0-video-720p', 'sd2-933-3', 'sd2-933-全', 'sd2.5-10-全'] as const
 const CLOSE_DELAY_MS = 220
 const PANEL_BACKGROUND = 'linear-gradient(var(--app-surface-elevated), var(--app-surface-elevated)), var(--app-bg)'
 
@@ -35,7 +35,8 @@ export function VideoModelComparisonContent({ selectedModel }: { selectedModel: 
       const duration = getVideoDurationSpec(def.model, false, resolution)
       return <p key={resolution}>{`${formatVideoResolution(resolution)}：${duration.min}–${duration.max} 秒`}</p>
     }) : <p>{`${def.duration.min}–${def.duration.max} 秒`}</p>}{def.maxOutputSecondsWithVideo && <p className="mt-1 text-xs text-[color:var(--app-text-muted)]">{`含参考视频：最多 ${def.maxOutputSecondsWithVideo} 秒`}</p>}</> },
-    { label: '生成价格', content: def => <div className="font-medium text-blue-600 [.dark_&]:text-blue-300">{pricingBands(def, duration => <div className="space-y-1">{resolutionRates(def, def.pricePerSecondCredits, duration)}</div>)}</div> },
+    { label: '模型标签', content: def => def.badges?.map(badge => badge.label).join('、') || '—' },
+    { label: '生成价格', content: def => <div className="font-medium text-blue-600 [.dark_&]:text-blue-300">{def.pricePerRequestCredits !== undefined ? `${def.pricePerRequestCredits} 积分/次` : pricingBands(def, duration => <div className="space-y-1">{resolutionRates(def, def.pricePerSecondCredits, duration)}</div>)}</div> },
     { label: '参考图片费用', content: def => def.referencePricing ? <><p className="mb-2">{`前 ${def.referencePricing.freeImages} 张免费`}</p>{pricingBands(def, duration => <p>{`超出 ${rateLabel(def.referencePricing!.imageCredits * getVideoPricingMultiplier(def.model, duration), '张')}`}</p>)}</> : '不另收费' },
     { label: '参考视频费用', content: def => def.referencePricing ? <>{pricingBands(def, duration => <div className="space-y-1">{resolutionRates(def, def.referencePricing!.videoPerSecondCredits, duration)}</div>)}<p className="mt-1 text-xs text-[color:var(--app-text-muted)]">按参考视频合计时长计费，单价取决于输出分辨率和生成时长。</p></> : '不另收费' },
     { label: '参考音频费用', content: () => '免费' },
@@ -50,8 +51,8 @@ export function VideoModelComparisonContent({ selectedModel }: { selectedModel: 
   return (
     <>
       <table className="w-full table-fixed border-collapse text-left text-xs leading-relaxed sm:text-sm">
-        <caption className="sr-only">MiniMax H3 与 Wan 3.0 的价格和生成能力对比</caption>
-        <colgroup><col className="w-[24%] sm:w-[22%]" /><col /><col /></colgroup>
+        <caption className="sr-only">视频模型的价格和生成能力对比</caption>
+        <colgroup><col className="w-[24%] sm:w-[22%]" />{definitions.map(def => <col key={def.model} />)}</colgroup>
         <thead className="sticky top-0 z-10" style={{ background: PANEL_BACKGROUND }}>
           <tr className="border-b border-[color:var(--app-border)]">
             <th scope="col" className="p-3 text-xs font-normal text-[color:var(--app-text-muted)]">对比项目</th>

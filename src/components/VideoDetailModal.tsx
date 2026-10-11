@@ -231,7 +231,7 @@ export default function VideoDetailModal() {
                   {task.estimatedCredits && (
                     <div className="flex justify-between">
                       <span className="text-app-text-muted">预估积分</span>
-                      <span>{task.estimatedCredits.toFixed(1)} 💎</span>
+                      <span>{getVideoModelDefinition(task.model)?.pricePerRequestYuan !== undefined ? String(task.estimatedCredits) : task.estimatedCredits.toFixed(1)} 💎</span>
                     </div>
                   )}
                 </div>

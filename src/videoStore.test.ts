@@ -33,6 +33,51 @@ beforeEach(() => {
   useVideoStore.getState().setModel('grok-imagine-video-1.5')
 })
 
+describe('SD media workbench tasks', () => {
+  it.each([['sd2-933-3', 45, 8], ['sd2-933-全', 60, 8], ['sd2.5-10-全', 37.5, 30]] as const)('saves %s exact per-task credits and authenticated adapter snapshot', async (model, credits, duration) => {
+    useVideoStore.getState().setModel(model)
+    useVideoStore.getState().setParams({ n: 4 })
+    await useVideoStore.getState().generateVideo()
+    expect(useVideoStore.getState().tasks).toHaveLength(1)
+    expect(useVideoStore.getState().tasks[0]).toMatchObject({ model, adapter: 'sdMedia', estimatedCredits: credits, params: { duration, resolution: '720p', aspectRatio: '16:9', n: 1 }, apiProfile: { apiKey: 'mock-user-video-key', apiProxy: true } })
+  })
+
+  it('trims unsupported materials and stale parameters when switching models', () => {
+    useVideoStore.getState().setModel('wan3.0-video-720p')
+    useVideoStore.getState().setInputMode('reference')
+    for (let index = 0; index < 10; index++) useVideoStore.getState().addRefImage(`i${index}`)
+    for (let index = 0; index < 5; index++) {
+      useVideoStore.getState().addRefVideo(`v${index}`)
+      useVideoStore.getState().addRefAudio(`a${index}`)
+    }
+    useVideoStore.getState().setModel('sd2-933-3')
+    expect(useVideoStore.getState().refImageIds).toHaveLength(9)
+    expect(useVideoStore.getState().refVideoIds).toHaveLength(3)
+    expect(useVideoStore.getState().refAudioIds).toHaveLength(3)
+    useVideoStore.getState().setModel('sd2.5-10-全')
+    expect(useVideoStore.getState().refVideoIds).toEqual([])
+    expect(useVideoStore.getState().refAudioIds).toEqual([])
+    expect(useVideoStore.getState().params).toMatchObject({ duration: 30, resolution: '720p', aspectRatio: '16:9', n: 1 })
+    useVideoStore.getState().addRefImage('i10')
+    expect(() => useVideoStore.getState().addRefImage('i11')).toThrow(/10/)
+  })
+
+  it.each(['queued', 'transient-error'] as const)('waits 30 seconds between queries after %s', async state => {
+    vi.useFakeTimers()
+    vi.mocked(pollVideoTask).mockReset().mockResolvedValue({ status: 'queued', progress: 0 })
+    if (state === 'transient-error') vi.mocked(pollVideoTask).mockRejectedValueOnce(new Error('查询失败（503）：中转站暂时不可用，请稍后重试'))
+    vi.mocked(submitVideoTask).mockResolvedValueOnce({ remoteTaskId: 'new-sd-task', status: 'queued', recoverable: true })
+    useVideoStore.getState().setModel('sd2-933-全')
+    await useVideoStore.getState().generateVideo()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(pollVideoTask).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(29_999)
+    expect(pollVideoTask).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(pollVideoTask).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('H3 reference credit estimates saved with tasks', () => {
   it.each(['1080p', '2k'] as const)('clamps H3 duration when switching to %s', (resolution) => {
     useVideoStore.getState().setModel('MiniMax-H3')
@@ -209,7 +254,7 @@ describe('Omni capabilities in the workbench', () => {
 })
 
 describe('SD models in the workbench', () => {
-  it.each(['sd2.0-15s', 'sd2.5-30s'])('downloads and stores completed %s content without a video URL', async (model) => {
+  it.each(['sd2.0-15s', 'sd2.5-30s', 'sd2-933-3', 'sd2-933-全', 'sd2.5-10-全'])('downloads and stores completed %s content without a video URL', async (model) => {
     vi.mocked(submitVideoTask).mockResolvedValueOnce({ remoteTaskId: 'remote-sd', status: 'queued', recoverable: true })
     vi.mocked(pollVideoTask).mockResolvedValueOnce({ status: 'succeeded', progress: 100 })
     vi.mocked(downloadVideoContent).mockResolvedValueOnce(new Blob(['sd-video'], { type: 'video/mp4' }))
@@ -219,9 +264,20 @@ describe('SD models in the workbench', () => {
     await useVideoStore.getState().generateVideo()
     await vi.waitFor(() => expect(useVideoStore.getState().tasks[0]?.status).toBe('done'))
     expect(submitVideoTask).toHaveBeenCalledOnce()
-    expect(downloadVideoContent).toHaveBeenCalledWith('remote-sd', expect.objectContaining({ model, adapter: 'sd' }))
+    expect(downloadVideoContent).toHaveBeenCalledWith('remote-sd', expect.objectContaining({ model, adapter: ['sd2.0-15s', 'sd2.5-30s'].includes(model) ? 'sd' : 'sdMedia' }))
     expect(uploadMediaFile).toHaveBeenCalledWith(expect.objectContaining({ type: 'video/mp4' }), 'generated')
     await vi.waitFor(() => expect(putVideoTask).toHaveBeenCalledWith(expect.objectContaining({ model, status: 'done', outputVideoId: 'saved-frame', progress: 100 })))
+  })
+
+  it('stops a completed task when the object response is not a video', async () => {
+    vi.mocked(submitVideoTask).mockResolvedValueOnce({ remoteTaskId: 'remote-invalid-video', status: 'queued', recoverable: true })
+    vi.mocked(pollVideoTask).mockResolvedValueOnce({ status: 'succeeded', videoUrl: 'https://cdn.example.test/result.mp4' })
+    vi.mocked(downloadVideoContent).mockRejectedValueOnce(new Error('下载结果不是视频文件，请检查中转站返回的 object 地址'))
+    useVideoStore.getState().setModel('sd2-933-3')
+    await useVideoStore.getState().generateVideo()
+    await vi.waitFor(() => expect(useVideoStore.getState().tasks[0]?.status).toBe('error'))
+    expect(uploadMediaFile).not.toHaveBeenCalledWith(expect.anything(), 'generated')
+    expect(useVideoStore.getState().tasks[0]).toMatchObject({ status: 'error', error: '下载结果不是视频文件，请检查中转站返回的 object 地址' })
   })
 
   it('keeps polling a long SD task every fifteen seconds without resubmitting it', async () => {
