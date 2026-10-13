@@ -8,7 +8,7 @@ import { useVideoAssetStore } from '../videoAssetStore'
 import { resolveVideoAssetToMediaReference } from '../lib/videoAssetBridge'
 import type { VideoReferenceItem } from '../lib/videoTypes'
 import { serializeVideoPrompt, getFrameReferences } from '../lib/videoPromptMentions'
-import { VideoImageIcon, VideoFilmIcon, VideoAudioIcon } from './VideoMediaIcons'
+import { VideoImageIcon, VideoFilmIcon, VideoAudioIcon, VideoTrashIcon } from './VideoMediaIcons'
 import { useMediaBlobUrl } from '../hooks/useMediaBlobUrl'
 import { getSelectableVideoModels, getVideoModelDefinition, getVideoModelPriceLabel, getVideoDurationSpec, estimateVideoCredits, formatVideoResolution, type VideoResolution } from '../lib/videoModels'
 import Select from './Select'
@@ -41,6 +41,7 @@ export default function VideoInputBar() {
     setPrompt,
     setFirstFrame,
     setLastFrame,
+    setReferenceItems,
     addRefImage,
     removeRefImage,
     removeRefVideo,
@@ -198,7 +199,10 @@ export default function VideoInputBar() {
       </div>
 
       <section className="border-b border-[color:var(--app-border)] p-4">
-        <div className="mb-2 flex items-center justify-between text-xs font-semibold text-[color:var(--app-text-muted)]"><span>提示词</span><button type="button" onClick={() => setPrompt('')} className="hover:text-[color:var(--app-text)]">一键清空</button></div>
+        <div className="mb-2 flex items-center justify-between text-xs font-semibold text-[color:var(--app-text-muted)]">
+          <span>提示词</span>
+          <ClearInputButton label="清空提示词" onClick={() => setPrompt('')} disabled={!prompt} />
+        </div>
         <VideoPromptEditor
           value={prompt} onChange={setPrompt} references={editorReferences} metadata={metadata}
           library={editorLibrary}
@@ -220,13 +224,18 @@ export default function VideoInputBar() {
         </section>
       ) : (
         <section className="border-b border-[color:var(--app-border)] px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-[color:var(--app-text-muted)]">
-            <span>参考素材</span>
-            <div className="flex flex-wrap gap-1.5 font-normal">
+          <div className="flex items-center gap-2 text-xs font-semibold text-[color:var(--app-text-muted)]">
+            <span className="shrink-0">参考素材</span>
+            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 font-normal">
               {maxImages > 0 && <span aria-label={`图片 ${refImageIds.length}/${maxImages}`} className="inline-flex items-center gap-1 rounded-full border border-blue-400/40 bg-blue-500/10 px-2 py-1 text-blue-500"><VideoImageIcon className="h-3.5 w-3.5 shrink-0" />{refImageIds.length}/{maxImages}</span>}
               {maxVideos > 0 && <span aria-label={`视频 ${refVideoIds.length}/${maxVideos}`} className="inline-flex items-center gap-1 rounded-full border border-purple-400/40 bg-purple-500/10 px-2 py-1 text-purple-500" title="参考视频总时长"><VideoFilmIcon className="h-3.5 w-3.5 shrink-0" />{refVideoIds.length}/{maxVideos} ({durationText('video')})</span>}
               {maxAudios > 0 && <span aria-label={`音频 ${refAudioIds.length}/${maxAudios}`} className="inline-flex items-center gap-1 rounded-full border border-[color:var(--app-border)] px-2 py-1"><VideoAudioIcon className="h-3.5 w-3.5 shrink-0" />{refAudioIds.length}/{maxAudios} ({durationText('audio')})</span>}
             </div>
+            <ClearInputButton label="清空参考素材" disabled={!refItems.length || uploadBusy} onClick={() => {
+              setReferenceItems([])
+              setUploadMessage(null)
+              setUploadError(null)
+            }} />
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => upload('reference')} className="flex h-16 w-16 items-center justify-center rounded-lg border border-dashed border-[color:var(--app-border)] text-2xl text-[color:var(--app-text-muted)]">+</button>
@@ -257,6 +266,19 @@ export default function VideoInputBar() {
       {refSpec && <input data-testid="video-reference-file" ref={referenceInputRef} type="file" accept={[imageAccept, ...(maxVideos ? [videoAccept] : []), ...(maxAudios ? [audioAccept] : [])].join(',')} multiple onChange={(event) => handleFileChange(event, 'reference')} className="hidden" />}
     </div>
   )
+}
+
+function ClearInputButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) {
+  return <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    title={label}
+    aria-label={label}
+    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[color:var(--app-text-muted)] transition enabled:hover:bg-red-500/10 enabled:hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:cursor-default disabled:opacity-40"
+  >
+    <VideoTrashIcon className="h-3.5 w-3.5" />
+  </button>
 }
 
 function ParamRow({ label, children, compactLabel = false }: { label: string; children: React.ReactNode; compactLabel?: boolean }) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMediaBlobUrl } from '../hooks/useMediaBlobUrl'
 import { useVideoMediaMetadata } from '../hooks/useVideoMediaMetadata'
@@ -21,10 +21,11 @@ function mediaLabel(type: VideoReferenceItem['type']) {
 
 export default function ReferenceTile({ index, item, onRemove }: { index: number; item: VideoReferenceItem; onRemove: () => void }) {
   const tileRef = useRef<HTMLDivElement>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const closePreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [previewPosition, setPreviewPosition] = useState({ left: 0, top: 0 })
+  const [previewPosition, setPreviewPosition] = useState<{ left: number; top: number; maxHeight: number } | null>(null)
   const [isAudioPlaying, setIsAudioPlaying] = useState(false)
   const url = useMediaBlobUrl(item.id, getMediaBlobUrl)
   const posterUrl = useMediaBlobUrl(item.type === 'video' ? item.id : null, getMediaPosterBlobUrl)
@@ -38,6 +39,46 @@ export default function ReferenceTile({ index, item, onRemove }: { index: number
     if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current)
   }, [])
 
+  useLayoutEffect(() => {
+    if (!previewOpen) {
+      setPreviewPosition(null)
+      return
+    }
+
+    const placePreview = () => {
+      const tile = tileRef.current
+      const preview = previewRef.current
+      if (!tile || !preview) return
+      const rect = tile.getBoundingClientRect()
+      const margin = 12
+      const gap = 12
+      const above = Math.max(0, rect.top - margin - gap)
+      const below = Math.max(0, window.innerHeight - margin - rect.bottom - gap)
+      const contentHeight = preview.scrollHeight + 2
+      const openAbove = above >= contentHeight || above > below
+      const maxHeight = Math.max(1, openAbove ? above : below)
+      const height = Math.min(contentHeight, maxHeight)
+      const next = {
+        left: Math.max(margin, Math.min(rect.left, window.innerWidth - preview.getBoundingClientRect().width - margin)),
+        top: openAbove ? rect.top - height - gap : rect.bottom + gap,
+        maxHeight,
+      }
+      setPreviewPosition(previous => previous?.left === next.left && previous.top === next.top && previous.maxHeight === next.maxHeight ? previous : next)
+    }
+
+    placePreview()
+    const observer = new ResizeObserver(placePreview)
+    if (previewRef.current) observer.observe(previewRef.current)
+    if (tileRef.current) observer.observe(tileRef.current)
+    window.addEventListener('resize', placePreview)
+    window.addEventListener('scroll', placePreview, true)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', placePreview)
+      window.removeEventListener('scroll', placePreview, true)
+    }
+  }, [previewOpen])
+
   const cancelPreviewClose = () => {
     if (closePreviewTimer.current) {
       clearTimeout(closePreviewTimer.current)
@@ -47,14 +88,12 @@ export default function ReferenceTile({ index, item, onRemove }: { index: number
 
   const openPreview = () => {
     cancelPreviewClose()
-    const rect = tileRef.current?.getBoundingClientRect()
-    if (rect) {
-      setPreviewPosition({
-        left: Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - 208)),
-        top: Math.max(12, rect.top - 180),
-      })
-    }
     setPreviewOpen(true)
+  }
+
+  const closePreview = () => {
+    cancelPreviewClose()
+    setPreviewOpen(false)
   }
 
   const schedulePreviewClose = () => {
@@ -78,8 +117,10 @@ export default function ReferenceTile({ index, item, onRemove }: { index: number
 
   const preview = previewOpen && typeof document !== 'undefined' && createPortal(
     <div
-      className="fixed z-[100] w-48 rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface-elevated)] p-2 shadow-xl"
-      style={{ left: previewPosition.left, top: previewPosition.top }}
+      ref={previewRef}
+      data-video-reference-id={item.id}
+      className="fixed z-[100] w-48 overflow-y-auto rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface-elevated)] p-2 shadow-xl"
+      style={{ left: previewPosition?.left ?? 0, top: previewPosition?.top ?? 0, maxHeight: previewPosition?.maxHeight, visibility: previewPosition ? 'visible' : 'hidden' }}
       onMouseEnter={cancelPreviewClose}
       onMouseLeave={schedulePreviewClose}
     >
@@ -102,6 +143,7 @@ export default function ReferenceTile({ index, item, onRemove }: { index: number
     <>
       <div
         ref={tileRef}
+        data-video-reference-id={item.id}
         className="group relative h-16 w-16 overflow-visible rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface-elevated)]"
         title={`${index}. ${label}：${filename}`}
         onMouseEnter={openPreview}
@@ -127,7 +169,7 @@ export default function ReferenceTile({ index, item, onRemove }: { index: number
         )}
         <span className="absolute -left-1 -top-1 rounded-full bg-blue-500 px-1.5 py-0.5 text-[10px] font-semibold text-white" aria-label={`参考素材 ${index}`}>{index}</span>
         {duration && <span className="absolute bottom-0.5 left-0.5 rounded bg-black/70 px-1 py-0.5 text-[9px] text-white">{duration}</span>}
-        <button type="button" onClick={onRemove} aria-label={`删除第 ${index} 个${label}素材`} className="absolute -right-1 -top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/75 text-xs text-white hover:bg-black">×</button>
+        <button type="button" onClick={() => { closePreview(); onRemove() }} aria-label={`删除第 ${index} 个${label}素材`} className="absolute -right-1 -top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/75 text-xs text-white hover:bg-black">×</button>
       </div>
       {preview}
     </>

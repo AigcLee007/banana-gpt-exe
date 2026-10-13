@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useStore, addImageFromUrl, ensureImageCached } from '../store'
+import { useVideoStore } from '../videoStore'
 import { copyImageSourceToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import { suppressGlobalClicks } from '../lib/clickSuppression'
-import { CopyIcon, DownloadIcon, EditIcon } from './icons'
+import { CopyIcon, DownloadIcon, EditIcon, TrashIcon } from './icons'
 
 export default function ImageContextMenu() {
-  const [menuInfo, setMenuInfo] = useState<{ src: string; imageId?: string; outputImageIds: string[]; x: number; y: number } | null>(null)
+  const [menuInfo, setMenuInfo] = useState<{ src: string; imageId?: string; outputImageIds: string[]; referenceId?: string; x: number; y: number } | null>(null)
   const showToast = useStore((s) => s.showToast)
   const inputImages = useStore((s) => s.inputImages)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
@@ -19,10 +20,11 @@ export default function ImageContextMenu() {
 
     const onContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement
-      if (target && target.tagName === 'IMG') {
-        const imgTarget = target as HTMLImageElement
+      const referenceId = target?.closest<HTMLElement>('[data-video-reference-id]')?.dataset.videoReferenceId
+      if (target && (target.tagName === 'IMG' || referenceId)) {
+        const imgTarget = target.tagName === 'IMG' ? target as HTMLImageElement : null
         // 忽略没有 src 或空的 img
-        if (!imgTarget.src) return
+        if (!imgTarget?.src && !referenceId) return
 
         // iOS 触控设备上，放行原生长按菜单（以支持原生保存图片）
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
@@ -31,9 +33,10 @@ export default function ImageContextMenu() {
 
         e.preventDefault()
         setMenuInfo({
-          src: imgTarget.src,
-          imageId: imgTarget.dataset.imageId,
-          outputImageIds: imgTarget.dataset.outputImageIds?.split(',').filter(Boolean) ?? [],
+          src: imgTarget?.src ?? '',
+          imageId: imgTarget?.dataset.imageId,
+          outputImageIds: imgTarget?.dataset.outputImageIds?.split(',').filter(Boolean) ?? [],
+          referenceId,
           x: e.clientX,
           y: e.clientY,
         })
@@ -65,12 +68,17 @@ export default function ImageContextMenu() {
     window.addEventListener('wheel', close, { capture: true })
     window.addEventListener('scroll', close, { capture: true })
     window.addEventListener('resize', close)
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuInfo(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('mousedown', close, { capture: true })
       window.removeEventListener('touchstart', close, { capture: true })
       window.removeEventListener('wheel', close, { capture: true })
       window.removeEventListener('scroll', close, { capture: true })
       window.removeEventListener('resize', close)
+      window.removeEventListener('keydown', onKeyDown)
     }
   }, [menuInfo])
 
@@ -184,9 +192,9 @@ export default function ImageContextMenu() {
   // 保证菜单在视口内
   let left = menuInfo.x
   let top = menuInfo.y
-  const MENU_WIDTH = 120
+  const MENU_WIDTH = menuInfo.referenceId ? 160 : 120
   const showDownloadAll = menuInfo.outputImageIds.length > 1
-  const MENU_HEIGHT = showDownloadAll ? 160 : 128
+  const MENU_HEIGHT = (menuInfo.src ? (showDownloadAll ? 160 : 128) : 8) + (menuInfo.referenceId ? 40 : 0)
 
   if (left + MENU_WIDTH > window.innerWidth) {
     left -= MENU_WIDTH
@@ -198,40 +206,56 @@ export default function ImageContextMenu() {
   return (
     <div
       ref={menuRef}
-      className="fixed z-[9999] bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 w-[120px] overflow-hidden animate-fade-in"
-      style={{ left, top }}
+      className="fixed z-[9999] bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 overflow-hidden animate-fade-in"
+      style={{ left: Math.max(8, left), top: Math.max(8, top), width: MENU_WIDTH }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <button
-        onClick={handleCopy}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
-      >
-        <CopyIcon className="w-4 h-4 flex-shrink-0" />
-        复制
-      </button>
-      <button
-        onClick={handleDownload}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
-      >
-        <DownloadIcon className="w-4 h-4 flex-shrink-0" />
-        下载
-      </button>
-      {showDownloadAll && (
+      {menuInfo.src && <>
         <button
-          onClick={handleDownloadAll}
+          onClick={handleCopy}
+          className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+        >
+          <CopyIcon className="w-4 h-4 flex-shrink-0" />
+          复制
+        </button>
+        <button
+          onClick={handleDownload}
           className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
         >
           <DownloadIcon className="w-4 h-4 flex-shrink-0" />
-          下载全部
+          下载
+        </button>
+        {showDownloadAll && (
+          <button
+            onClick={handleDownloadAll}
+            className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+          >
+            <DownloadIcon className="w-4 h-4 flex-shrink-0" />
+            下载全部
+          </button>
+        )}
+        <button
+          onClick={handleEdit}
+          className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+        >
+          <EditIcon className="w-4 h-4 flex-shrink-0" />
+          编辑
+        </button>
+      </>}
+      {menuInfo.referenceId && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            useVideoStore.getState().removeReference(menuInfo.referenceId!)
+            setMenuInfo(null)
+          }}
+          className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+        >
+          <TrashIcon className="w-4 h-4 flex-shrink-0" />
+          删除参考素材
         </button>
       )}
-      <button
-        onClick={handleEdit}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
-      >
-        <EditIcon className="w-4 h-4 flex-shrink-0" />
-        编辑
-      </button>
     </div>
   )
 }
