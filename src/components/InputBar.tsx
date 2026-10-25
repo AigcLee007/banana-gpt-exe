@@ -1801,10 +1801,10 @@ export default function InputBar() {
     )
   }
 
-  const renderParams = (cols: string) => (
-    <div className={`grid ${cols} gap-2 text-xs flex-1`}>
+  const renderParams = (cols: string, mobile = false) => (
+    <div className={`input-bar-params grid min-w-0 ${cols} gap-2 text-xs flex-1`} data-param-layout={mobile ? 'mobile' : 'desktop'}>
       {appMode === 'gallery' && (
-        <label className="flex flex-col gap-0.5">
+        <label data-param="model" className={'flex min-w-0 flex-col gap-0.5' + (mobile ? ' col-span-2' : '')}>
           <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
           <ImageModelPicker
             value={galleryModel}
@@ -1825,7 +1825,7 @@ export default function InputBar() {
         </label>
       )}
       {appMode === 'agent' && (
-        <label className="flex flex-col gap-0.5">
+        <label data-param="model" className={'flex min-w-0 flex-col gap-0.5' + (mobile ? ' col-span-2' : '')}>
           <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
           <ImageModelPicker
             value={agentImageModel}
@@ -1895,7 +1895,7 @@ export default function InputBar() {
             <button
               type="button"
               onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
-              className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] focus:outline-none text-xs text-left transition-all duration-200 shadow-sm font-mono"
+              className="whitespace-nowrap px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] focus:outline-none text-xs text-left transition-all duration-200 shadow-sm font-mono"
               title="Select size"
             >
               {displaySize}
@@ -1984,7 +1984,7 @@ export default function InputBar() {
           type={agentAutoImageCount ? 'text' : 'number'}
           min={agentAutoImageCount ? undefined : 1}
           max={agentAutoImageCount ? undefined : outputImageLimit}
-          className={`px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] focus:outline-none text-xs transition-all duration-200 shadow-sm ${
+          className={`min-w-0 w-full px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] focus:outline-none text-xs transition-all duration-200 shadow-sm ${
             agentAutoImageCount
               ? 'bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed'
               : 'bg-white/50 dark:bg-white/[0.03]'
@@ -2317,7 +2317,7 @@ export default function InputBar() {
 
             {/* 移动端布局 */}
             <div className="sm:hidden flex flex-col gap-2">
-              {renderParams('grid-cols-2')}
+              {renderParams('grid-cols-2', true)}
               <div className="h-2" />
 
               <div className="flex items-center gap-2">

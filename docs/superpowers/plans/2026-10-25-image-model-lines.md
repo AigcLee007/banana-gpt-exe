@@ -51,3 +51,12 @@ Initial implementation was verified in the existing feature checkout. The user s
 - [x] Verify targeted tests (136 passed), full suite (50 files, 972 tests passed), TypeScript and production build. Version: 0.4.6-banana.14. Existing Browserslist-age and bundle-size warnings remain.
 - [x] Browser-check Gallery at desktop and 375×812, restore deliberately stale WebP/compression/low values on reload, select Agent GPT-Image-2 backup and Nano Banana Pro T3. Capture and inspect desktop/mobile screenshots in output/playwright/simplified-params-*.png. External fonts were blocked in the verification browser after a screenshot font-load timeout; the only console errors are those blocked font stylesheets.
 - GitHub delivery follows the user's existing push instruction. Server deployment, desktop packages and download-site version.json remain separate release steps.
+
+## Compact parameter widths revision — 2026-10-26
+
+- [x] Replace equal desktop grid columns with compact parameter tracks and a flexible model track. Set pixel size and ratio to 104px, quality to 88px, transparent background to 76px, count to 64px and Nano Banana image size to 160px. Keep all existing parameter values and behavior.
+- [x] Give the model a full row on mobile and at 640–767px. Constrain label and input minimum widths so the count input cannot force overflow.
+- [x] Update existing layout/rendering regressions, confirm 20 expected failures before implementation, then verify the targeted 115 tests pass. Full suite: 50 files, 972 tests passed. TypeScript and production build passed for 0.4.6-banana.15. Existing Browserslist-age and bundle-size warnings remain.
+- [x] Browser-check Nano Banana Pro T3 and Sunburst official routes in Gallery and Agent at 1100, 980, 768, 767, 640, 375 and 320px where applicable. No parameter overflow; model names fit at 980px and above. Gallery model width is approximately 368–378px in the standard desktop composer.
+- [x] Inspect screenshots at output/playwright/compact-controls-desktop.png, compact-controls-mobile.png and compact-controls-nano.png. Increase the initial ratio width after visual review to keep its icon and text visible.
+- GitHub delivery follows the existing authorization. Server deployment and desktop releases remain separate.

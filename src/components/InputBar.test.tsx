@@ -37,10 +37,10 @@ describe('image composer parameter controls', () => {
     expect(html).not.toContain('placeholder="0-100"')
     if (mode === 'gallery') {
       expect(html).toContain('>透明背景</span>')
-      expect(html).toContain('grid-cols-5')
+      expect(html).toContain('grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_4.75rem_4rem]')
     } else {
       expect(html).not.toContain('>透明背景</span>')
-      expect(html).toContain('grid-cols-4')
+      expect(html).toContain('grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_4rem]')
     }
   })
 
@@ -51,7 +51,7 @@ describe('image composer parameter controls', () => {
       const html = renderToStaticMarkup(<InputBar />)
       expect(html).toContain('>比例</span>')
       expect(html).toContain('>图片尺寸</span>')
-      expect(html).toContain('grid-cols-4')
+      expect(html).toContain('grid-cols-[minmax(0,1fr)_6.5rem_10rem_4rem]')
     },
   )
 })
