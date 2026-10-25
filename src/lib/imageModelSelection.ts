@@ -67,10 +67,6 @@ export function parseImageModelLineMemory(raw: string | null): ImageModelLineMem
   }
 }
 
-export function getVisibleImageModelLines(family: ImageModelFamily, expanded: boolean, preferredModel?: string) {
-  return family.lines.filter(line => expanded || !line.isBackup || line.model === preferredModel)
-}
-
 export function positionImageModelPicker(
   anchor: { left: number; top: number; bottom: number }, viewportWidth: number, viewportHeight: number,
 ) {

@@ -33,3 +33,12 @@ Initial implementation was verified in the existing feature checkout. The user s
 - Fresh npm run build passed. Existing Browserslist-age and bundle-size warnings remain.
 - Original working directory and its unrelated changes are preserved at D:/gpt-iamge-2.
 - GitHub push is authorized by the user; server deployment commands are handed off separately. Desktop packages and download-site version.json require the separate release procedure.
+
+## Always-visible backup routes revision — 2026-10-25
+
+- User requested that backup routes stay visible. Removed route filtering, expansion state and the More lines / Collapse backup lines control from the shared Gallery and Agent picker.
+- Preserved route IDs, prices, last-used badges, selection and keyboard navigation. Added rendering regressions for the Nano Banana Pro and GPT-Image-2 backups.
+- Confirmed the updated rendering tests failed before the implementation change, then passed after it. Targeted tests: 2 files, 17 tests passed. Full suite: 49 files, 940 tests passed.
+- Production build passed again with version 0.4.6-banana.13; existing Browserslist-age and bundle-size warnings remain.
+- Browser verified both model families show three routes without disclosure controls. Selected the GPT-Image-2 backup and reopened it at 375×812. Screenshot: output/playwright/backup-lines-visible.png.
+- GitHub delivery and server deployment remain separate. Server activation requires pulling the revision and rebuilding the Docker container using the existing deployment instructions.
