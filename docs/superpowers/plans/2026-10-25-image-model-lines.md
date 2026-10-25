@@ -42,3 +42,12 @@ Initial implementation was verified in the existing feature checkout. The user s
 - Production build passed again with version 0.4.6-banana.13; existing Browserslist-age and bundle-size warnings remain.
 - Browser verified both model families show three routes without disclosure controls. Selected the GPT-Image-2 backup and reopened it at 375×812. Screenshot: output/playwright/backup-lines-visible.png.
 - GitHub delivery and server deployment remain separate. Server activation requires pulling the revision and rebuilding the Docker container using the existing deployment instructions.
+
+## Simplified non-Nano controls revision — 2026-10-25
+
+- [x] Add regression coverage for all seven non-Nano routes in Gallery and Agent, hidden-setting normalization, Nano Banana compatibility and desktop column counts. Confirm the requested behavior fails before implementation.
+- [x] Remove format, compression and moderation controls and their unused state and hints from InputBar. Normalize non-Nano parameters to output_format=png, output_compression=null and moderation=auto in the shared normalization used by the composer, submission, retry and task reuse.
+- [x] Preserve Nano Banana parameters, size, quality, count and Gallery transparent-background controls. Use five desktop columns for non-Nano Gallery and four for Agent.
+- [x] Verify targeted tests (136 passed), full suite (50 files, 972 tests passed), TypeScript and production build. Version: 0.4.6-banana.14. Existing Browserslist-age and bundle-size warnings remain.
+- [x] Browser-check Gallery at desktop and 375×812, restore deliberately stale WebP/compression/low values on reload, select Agent GPT-Image-2 backup and Nano Banana Pro T3. Capture and inspect desktop/mobile screenshots in output/playwright/simplified-params-*.png. External fonts were blocked in the verification browser after a screenshot font-load timeout; the only console errors are those blocked font stylesheets.
+- GitHub delivery follows the user's existing push instruction. Server deployment, desktop packages and download-site version.json remain separate release steps.

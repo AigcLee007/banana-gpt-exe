@@ -44,6 +44,9 @@ export function normalizeParamsForSettings(
     nextParams.geminiAspectRatio = undefined
     nextParams.geminiImageSize = undefined
     nextParams.geminiOutputPixels = undefined
+    nextParams.output_format = DEFAULT_PARAMS.output_format
+    nextParams.output_compression = DEFAULT_PARAMS.output_compression
+    nextParams.moderation = DEFAULT_PARAMS.moderation
   }
 
   if (activeProfile.provider === 'openai' && activeProfile.codexCli) {

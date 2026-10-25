@@ -291,10 +291,10 @@ export function getBananaDesktopParamGridColumnsForMode(
   appMode: 'gallery' | 'agent',
   galleryModel: string,
   agentImageModel: string,
-): 'grid-cols-4' | 'grid-cols-6' | 'grid-cols-7' {
+): 'grid-cols-4' | 'grid-cols-5' {
   const activeRoute = getActiveBananaModelRouteForMode(appMode, galleryModel, agentImageModel)
   if (activeRoute === 'gemini-native' || activeRoute === 'banana-t3-images') return 'grid-cols-4'
-  return appMode === 'gallery' ? 'grid-cols-7' : 'grid-cols-6'
+  return appMode === 'gallery' ? 'grid-cols-5' : 'grid-cols-4'
 }
 
 export function isGeminiNativeModel(model: string): boolean {

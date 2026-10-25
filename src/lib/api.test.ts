@@ -1887,13 +1887,13 @@ describe('bananaModels', () => {
     expect(getActiveBananaModelForMode('gallery', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('gemini-3-pro-image-preview')
   })
 
-  it('uses the same four-column desktop parameter layout for Agent and Gallery Gemini image models', () => {
+  it('uses four columns for Nano Banana and Agent, and five for other Gallery image models', () => {
     expect(getBananaDesktopParamGridColumnsForMode('agent', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-4')
     expect(getBananaDesktopParamGridColumnsForMode('agent', 'gpt-image-2', 'nano-banana-pro-official-t3')).toBe('grid-cols-4')
     expect(getBananaDesktopParamGridColumnsForMode('gallery', 'nano-banana-pro-official-t3', 'gpt-image-2')).toBe('grid-cols-4')
     expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('grid-cols-4')
-    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('grid-cols-6')
-    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-7')
+    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('grid-cols-4')
+    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-5')
   })
 
   it('shows the configured gallery models and hides the legacy GPT Agent line', () => {
