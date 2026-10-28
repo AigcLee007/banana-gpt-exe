@@ -30,6 +30,8 @@ export interface VideoTaskRecord {
   }
   status: 'queued' | 'running' | 'done' | 'error' | 'canceled'
   progress?: number
+  /** Remote generation finished; the result is being saved locally. */
+  processing?: boolean
   adapter: VideoAdapterId
   remoteTaskId?: string
   recoverable?: boolean

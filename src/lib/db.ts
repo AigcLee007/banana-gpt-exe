@@ -1,4 +1,6 @@
 import type { AgentConversation, TaskRecord, StoredImage, StoredImageThumbnail } from '../types'
+import { notifyNewStudioMedia } from './portalAssetEvents'
+import { claimManagedLocalAsset } from './portalAssetOwnership'
 
 const DB_NAME = 'gpt-image-playground'
 const DB_VERSION = 7
@@ -309,6 +311,7 @@ function hashDataUrlFallback(dataUrl: string): string {
  */
 export async function storeImage(dataUrl: string, source: NonNullable<StoredImage['source']> = 'upload'): Promise<string> {
   const id = await hashDataUrl(dataUrl)
+  claimManagedLocalAsset(`image:${id}`)
   const existing = await getImage(id)
   if (!existing) {
     const thumbnail = await safeCreateImageThumbnail(dataUrl)
@@ -344,6 +347,7 @@ export async function storeImage(dataUrl: string, source: NonNullable<StoredImag
       })
     }
   }
+  if (source !== 'mask') notifyNewStudioMedia('image', id, source === 'generated' ? '生成图片' : '上传参考图')
   return id
 }
 

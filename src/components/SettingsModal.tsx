@@ -25,6 +25,7 @@ import {
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type CustomProviderDefinition } from '../types'
 import { queryApiKeyBalance, type ApiKeyBalanceInfo } from '../lib/api'
+import { normalizeEditorProfile } from '../lib/settingsConnection'
 import { formatBalanceCredits } from '../lib/balanceCredits'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
@@ -343,6 +344,8 @@ export default function SettingsModal() {
   const apiProxyAvailable = isApiProxyAvailable(apiProxyConfig)
   const apiProxyLocked = isApiProxyLocked(apiProxyConfig)
   const activeProfile = draft.profiles.find((profile) => profile.id === draft.activeProfileId) ?? draft.profiles[0] ?? getActiveApiProfile(draft)
+  const portalMode = Boolean(window.__AAP__?.baseUrl)
+  const managedConnection = portalMode && activeProfile.locked
   const apiProxyChecked = activeProfile.provider === 'openai' && (apiProxyLocked || activeProfile.apiProxy)
   const apiProxyEnabled = apiProxyAvailable && activeProfile.provider === 'openai' && apiProxyChecked
   const activeProviderIsOpenAICompatible = isOpenAICompatibleProvider(draft, activeProfile.provider)
@@ -422,7 +425,7 @@ export default function SettingsModal() {
   }, [activeProfile.id])
 
   useEffect(() => {
-    if (showSettings && settingsTabRequest) setActiveTab(settingsTabRequest)
+    if (showSettings) setActiveTab(portalMode ? 'api' : settingsTabRequest ?? activeTab)
   }, [settingsTabRequest, showSettings])
 
   const updateProfileMenuMaxHeight = useCallback(() => {
@@ -499,9 +502,7 @@ export default function SettingsModal() {
 
   const commitSettings = (nextDraft: AppSettings) => {
     const normalizedProfiles = nextDraft.profiles.map((profile) => {
-      const normalizedBaseUrl = profile.provider === 'fal'
-        ? profile.baseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL
-        : FIXED_OPENAI_BASE_URL
+      const normalizedBaseUrl = normalizeEditorProfile(profile, portalMode).baseUrl
       const defaultModel = profile.provider === 'fal' ? DEFAULT_FAL_MODEL : getDefaultModelForMode(profile.apiMode)
       return {
         ...profile,
@@ -509,7 +510,7 @@ export default function SettingsModal() {
         baseUrl: normalizedBaseUrl,
         model: profile.model.trim() || defaultModel,
         timeout: Number(profile.timeout) || DEFAULT_SETTINGS.timeout,
-        apiProxy: profile.provider === 'openai' && apiProxyAvailable ? (apiProxyLocked || profile.apiProxy) : false,
+        apiProxy: !profile.locked && profile.provider === 'openai' && apiProxyAvailable ? (apiProxyLocked || profile.apiProxy) : false,
         codexCli: profile.provider === 'openai' ? profile.codexCli : false,
         streamImages: profile.provider === 'openai' ? profile.streamImages : false,
         streamPartialImages: profile.provider === 'openai' ? normalizeStreamPartialImages(profile.streamPartialImages) : DEFAULT_STREAM_PARTIAL_IMAGES,
@@ -536,6 +537,7 @@ export default function SettingsModal() {
   }
 
   const createProfileImportUrl = (profile: ApiProfile, options: CopyImportUrlOptions) => {
+    if (profile.locked) return ''
     const url = new URL(window.location.href)
     url.search = ''
     url.hash = ''
@@ -584,6 +586,7 @@ export default function SettingsModal() {
   }
 
   const copyProfileImportUrl = async (profile: ApiProfile, options: CopyImportUrlOptions) => {
+    if (profile.locked) return
     try {
       await copyTextToClipboard(createProfileImportUrl(profile, options))
       showToast(options.includeApiKey ? '导入 URL 已复制（包含 API Key）' : '导入 URL 已复制', 'success')
@@ -594,6 +597,7 @@ export default function SettingsModal() {
   }
 
   const confirmCopyProfileImportUrl = (profile: ApiProfile) => {
+    if (profile.locked) return
     setShowProfileMenu(false)
     setProfileImportUrlTooltipVisible(false)
     setCopyImportUrlProfile(profile)
@@ -746,6 +750,7 @@ export default function SettingsModal() {
   }
 
   const duplicateActiveProfile = () => {
+    if (activeProfile.locked) return
     setReusedTaskApiProfile(null)
     setDuplicateProfileTooltipVisible(false)
     const profile: ApiProfile = {
@@ -907,6 +912,7 @@ export default function SettingsModal() {
   }
 
   const deleteProfile = (id: string) => {
+    if (draft.profiles.find((profile) => profile.id === id)?.locked) return
     if (draft.profiles.length <= 1) return
     if (id === reusedTaskApiProfileId) setReusedTaskApiProfile(null)
     const nextProfiles = draft.profiles.filter((item) => item.id !== id)
@@ -1114,10 +1120,10 @@ export default function SettingsModal() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            设置
+            {portalMode ? '自定义渠道' : '设置'}
           </h3>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-400 dark:text-gray-500 font-mono select-none">v{__APP_VERSION__}</span>
+            {!portalMode && <span className="text-sm text-gray-400 dark:text-gray-500 font-mono select-none">v{__APP_VERSION__}</span>}
             <button
               onClick={handleClose}
               className="rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
@@ -1130,7 +1136,7 @@ export default function SettingsModal() {
 
         <div className="flex flex-1 min-h-0 flex-col sm:flex-row">
           {/* Sidebar */}
-          <div className="w-full sm:w-48 shrink-0 flex flex-col border-b sm:border-b-0 sm:border-r border-gray-100 dark:border-white/[0.08] bg-gray-50/50 dark:bg-white/[0.02]">
+          {!portalMode && <div className="w-full sm:w-48 shrink-0 flex flex-col border-b sm:border-b-0 sm:border-r border-gray-100 dark:border-white/[0.08] bg-gray-50/50 dark:bg-white/[0.02]">
             <nav className="flex-1 overflow-x-auto sm:overflow-y-auto custom-scrollbar p-3 space-x-1 sm:space-x-0 sm:space-y-1 flex sm:flex-col">
               <button
                 onClick={() => setActiveTab('api')}
@@ -1180,7 +1186,7 @@ export default function SettingsModal() {
                 关于
               </button>
             </nav>
-          </div>
+          </div>}
 
           {/* Content */}
           <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-transparent relative overflow-hidden">
@@ -1419,7 +1425,7 @@ export default function SettingsModal() {
             
             {activeTab === 'api' && (
               <div className="space-y-4">
-                <div className="rounded-2xl border border-gray-200/70 bg-white/70 p-4 dark:border-white/[0.08] dark:bg-white/[0.03]">
+                <div className={`rounded-2xl border border-gray-200/70 bg-white/70 p-4 dark:border-white/[0.08] dark:bg-white/[0.03] ${activeProfile.locked || window.__AAP__ ? 'hidden' : ''}`}>
                   <label className="block">
                     <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">API Key</span>
                     <div className="relative">
@@ -1454,7 +1460,7 @@ export default function SettingsModal() {
                     </div>
                   </label>
                 </div>
-                {activeProviderIsOpenAICompatible && (
+                {activeProviderIsOpenAICompatible && !portalMode && (
                   <div className="rounded-2xl border border-gray-200/70 bg-white/70 p-4 dark:border-white/[0.08] dark:bg-white/[0.03]">
                     <div className="mb-1 text-sm text-gray-600 dark:text-gray-300">API Key 额度查询</div>
                     <div className="text-xs text-gray-500 dark:text-gray-500">可查询当前 API Key 的总积分、已用积分和剩余积分。</div>
@@ -1486,11 +1492,11 @@ export default function SettingsModal() {
                     )}
                   </div>
                 )}
-                <div className="hidden">
+                <div className={window.__AAP__ ? 'space-y-4' : 'hidden'}>
                 <div>
                   <div className="mb-1.5 flex items-center gap-1.5">
-                    <span className="block text-sm text-gray-600 dark:text-gray-300">当前配置</span>
-                    <span className="relative inline-flex">
+                    <span className="block text-sm text-gray-600 dark:text-gray-300">{portalMode ? '选择渠道' : '当前配置'}</span>
+                    <span className={`relative inline-flex ${activeProfile.locked ? 'hidden' : ''}`}>
                       <button
                         type="button"
                         onClick={() => confirmCopyProfileImportUrl(activeProfile)}
@@ -1516,7 +1522,7 @@ export default function SettingsModal() {
                         复制导入 URL
                       </ViewportTooltip>
                     </span>
-                    <span className="relative inline-flex">
+                    <span className={`relative inline-flex ${activeProfile.locked ? 'hidden' : ''}`}>
                       <button
                         type="button"
                         onClick={duplicateActiveProfile}
@@ -1620,7 +1626,7 @@ export default function SettingsModal() {
                                   >
                                     <DragHandleIcon className="h-3.5 w-3.5" />
                                   </div>
-                                  <span className="min-w-0 truncate">{profile.name}</span>
+                                  <span className="min-w-0 truncate">{profile.name}{profile.locked ? ' · 系统默认' : ''}</span>
                                   <span className={`rounded px-1.5 py-0.5 text-[10px] shrink-0 ${profile.id === activeProfile.id ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' : 'bg-gray-100 text-gray-500 dark:bg-white/[0.08] dark:text-gray-400'}`}>
                                     {getApiProviderLabel(draft, profile.provider)}
                                   </span>
@@ -1634,13 +1640,13 @@ export default function SettingsModal() {
                                       e.stopPropagation()
                                       confirmCopyProfileImportUrl(profile)
                                     }}
-                                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 opacity-60 transition-all hover:bg-gray-100 hover:text-gray-600 hover:opacity-100 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
+                                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 opacity-60 transition-all hover:bg-gray-100 hover:text-gray-600 hover:opacity-100 dark:hover:bg-white/[0.08] dark:hover:text-gray-200 ${profile.locked ? 'hidden' : ''}`}
                                     aria-label={`复制导入配置「${profile.name}」的 URL`}
                                     title="复制导入 URL"
                                   >
                                     <LinkIcon className="h-3.5 w-3.5" />
                                   </button>
-                                  {draft.profiles.length > 1 && (
+                                  {draft.profiles.length > 1 && !profile.locked && (
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -1668,6 +1674,14 @@ export default function SettingsModal() {
                   </div>
                 </div>
 
+              {managedConnection && (
+                <div data-managed-connection className="space-y-3 rounded-2xl border border-gray-200 bg-white p-4">
+                  <p className="text-sm font-medium">站点默认连接已就绪</p>
+                  <p className="text-sm text-gray-500">使用当前登录账号自动连接，无需填写服务地址或密钥。</p>
+                  <p className="text-xs text-gray-500">可在上方添加自定义渠道。自定义渠道使用其自身的账户与计费。</p>
+                </div>
+              )}
+              {!managedConnection && <>
               {/* 1. 配置名称 */}
               <label className="block">
                 <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">配置名称</span>
@@ -1681,7 +1695,7 @@ export default function SettingsModal() {
               </label>
 
               {/* 2. 服务商类型 */}
-              <div className="block">
+              <div className={`block ${activeProfile.locked ? 'hidden' : ''}`}>
                 <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">服务商类型</span>
                 <Select
                   value={activeProfile.provider}
@@ -1693,7 +1707,7 @@ export default function SettingsModal() {
               </div>
 
               {/* 3. API URL */}
-              {activeProviderUsesApiUrl && activeProfile.provider === 'fal' ? (
+              {activeProviderUsesApiUrl && (activeProfile.provider === 'fal' || portalMode) ? (
                 <label className="block">
                   <div className="mb-1.5 flex items-center justify-between">
                     <span className="block text-sm text-gray-600 dark:text-gray-300">API URL</span>
@@ -1757,7 +1771,7 @@ export default function SettingsModal() {
               )}
 
               {/* 5. API Key */}
-              <div className="block">
+              <div className={`block ${activeProfile.locked ? 'hidden' : ''}`}>
                 <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">API Key</span>
                 <div className="relative">
                   <input
@@ -1794,7 +1808,7 @@ export default function SettingsModal() {
                 </div>
               </div>
 
-              {activeProviderIsOpenAICompatible && (
+              {activeProviderIsOpenAICompatible && !portalMode && (
                 <div className="block rounded-xl border border-gray-200/70 bg-white/50 p-3 dark:border-white/[0.08] dark:bg-white/[0.03]">
                   <div className="mb-1 text-sm text-gray-600 dark:text-gray-300">API Key 额度查询</div>
                   <div className="text-xs text-gray-500 dark:text-gray-500">可查询当前 API Key 的总积分、已用积分和剩余积分。</div>
@@ -1882,8 +1896,10 @@ export default function SettingsModal() {
                 </div>
               </label>
 
+              </>}
               </div>
 
+              {!managedConnection && <>
               {/* 8. 流式传输 + 中间步骤图像数 */}
               {activeProfile.provider === 'openai' && (
                 <div className="block space-y-3">
@@ -1985,6 +2001,7 @@ export default function SettingsModal() {
                   />
                 </label>
               )}
+              </>}
             </div>
             )}
             

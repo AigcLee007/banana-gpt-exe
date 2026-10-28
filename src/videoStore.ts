@@ -1,6 +1,7 @@
 // 视频工作台状态管理
 
 import { create } from 'zustand'
+import { DEFAULT_VIDEO_PREFERENCES, getVideoPersistedDraft, type VideoPreferences } from './lib/workspacePreferences'
 import { createLocalId } from './lib/localId'
 import { persist } from 'zustand/middleware'
 import type { VideoMode, VideoParams } from './lib/videoModels'
@@ -27,6 +28,8 @@ import { useStore } from './store'
 import { groupVideoReferences, serializeVideoPrompt, getFrameReferences } from './lib/videoPromptMentions'
 
 export interface VideoStoreState {
+  preferences: VideoPreferences
+  setPreferences: (patch: Partial<VideoPreferences>) => void
   // 当前参数
   mode: VideoMode
   inputMode: 'create' | 'reference'
@@ -160,6 +163,8 @@ function supportedReferences(model: string, items: VideoReferenceItem[]): VideoR
 
 export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
   // 初始状态
+  preferences: { ...DEFAULT_VIDEO_PREFERENCES },
+  setPreferences: (patch) => set((state) => ({ preferences: { ...state.preferences, ...patch } })),
   mode: 't2v',
   inputMode: 'create',
   model: DEFAULT_VIDEO_MODEL,
@@ -381,6 +386,7 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
         if (!deletedTaskIds.has(task.id)) await putVideoTask(task)
       })))
       set((s) => ({ tasks: [...tasks.filter((task) => !deletedTaskIds.has(task.id)), ...s.tasks] }))
+      if (get().preferences.clearAfterSubmit) set({ prompt: '', firstFrameId: null, lastFrameId: null, refItems: [], refImageIds: [], refVideoIds: [], refAudioIds: [] })
       await Promise.all(tasks.map(async (task) => {
         const generation = taskGenerations.get(task.id) ?? 0
         if (!getActiveTask(task.id, generation)) return
@@ -523,11 +529,7 @@ export const useVideoStore = create<VideoStoreState>()(persist((set, get) => ({
   },
 }), {
   name: 'video-workbench-draft',
-  partialize: (state) => ({
-    inputMode: state.inputMode, mode: state.mode, model: state.model, params: state.params, prompt: state.prompt,
-    firstFrameId: state.firstFrameId, lastFrameId: state.lastFrameId,
-    refItems: state.refItems, refImageIds: state.refImageIds, refVideoIds: state.refVideoIds, refAudioIds: state.refAudioIds,
-  }),
+  partialize: getVideoPersistedDraft,
 }))
 
 function startPolling(taskId: string) {
@@ -547,6 +549,7 @@ function startPolling(taskId: string) {
       if (!getActiveTask(taskId, generation)) return
 
       if (result.status === 'succeeded') {
+        if (!await updateActiveTask(taskId, generation, { status: 'running', processing: true })) return
         // SD 素材接口完成后返回 object 直链，其他适配器继续使用鉴权的 /content。
         const blob = result.videoUrl
           ? await downloadVideoContent(task.remoteTaskId, task, result.videoUrl)
@@ -562,6 +565,7 @@ function startPolling(taskId: string) {
 
         if (!await updateActiveTask(taskId, generation, {
           status: 'done',
+          processing: false,
           progress: 100,
           outputVideoId: videoId,
           posterImageId: videoId,
@@ -574,6 +578,7 @@ function startPolling(taskId: string) {
         const error = formatVideoTaskError(result.error || '生成失败')
         if (!await updateActiveTask(taskId, generation, {
           status: 'error',
+          processing: false,
           error,
           finishedAt: Date.now(),
           elapsed: Date.now() - task.createdAt,
@@ -584,6 +589,7 @@ function startPolling(taskId: string) {
         // 更新进度
         if (!await updateActiveTask(taskId, generation, {
           status: result.status === 'queued' ? 'queued' : 'running',
+          processing: false,
           progress: result.progress,
         })) return
 
@@ -598,7 +604,7 @@ function startPolling(taskId: string) {
       const message = formatVideoTaskError(error instanceof Error ? error.message : String(error))
       const permanent = /401|403|404|缺少|未知状态|配置|不是视频文件|结果地址无效/.test(message)
       if (permanent) {
-        if (!await updateActiveTask(taskId, generation, { status: 'error', error: message, finishedAt: Date.now(), elapsed: Date.now() - task.createdAt, recoverable: false })) return
+        if (!await updateActiveTask(taskId, generation, { status: 'error', processing: false, error: message, finishedAt: Date.now(), elapsed: Date.now() - task.createdAt, recoverable: false })) return
         stopPolling(taskId)
         useStore.getState().showToast(`视频任务失败: ${message}`, 'error')
       } else {

@@ -55,9 +55,9 @@ export default function VideoAssetLibrary({ open, onClose, onUse }: Props) {
     await move([...selected], target?.id ?? null)
   }
   return (
-    <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="资产库">
+    <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm" style={window.__AAP__?.baseUrl ? { top: 'var(--aap-bar-h, 48px)' } : undefined} role="dialog" aria-modal="true" aria-label="资产库">
       <div className="absolute inset-y-0 right-0 flex w-full max-w-[1120px] flex-col border-l border-[color:var(--app-border)] bg-[color:var(--app-bg)] shadow-2xl">
-        <header className="flex shrink-0 items-center justify-between border-b border-[color:var(--app-border)] px-5 py-4">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[color:var(--app-border)] px-5 py-4">
           <div><h2 className="text-xl font-bold text-[color:var(--app-text)]">资产库 <span className="ml-2 text-sm font-normal text-[color:var(--app-text-muted)]">{assets.length} 个素材</span></h2><p className="mt-1 text-xs text-[color:var(--app-text-muted)]">素材仅保存在当前浏览器</p></div>
           <div className="flex items-center gap-2"><button type="button" onClick={() => fileRef.current?.click()} className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white">↑ 上传素材</button><button type="button" onClick={onClose} aria-label="关闭资产库" className="rounded-xl border border-[color:var(--app-border)] px-3 py-2 text-xl text-[color:var(--app-text)]">×</button></div>
           <input ref={fileRef} type="file" multiple accept="image/*,video/*,audio/*,.heic,.heif,.mov,.mp4,.wav,.mp3,.m4a" className="hidden" onChange={(event) => { void uploadFiles(event.currentTarget.files); event.currentTarget.value = '' }} />

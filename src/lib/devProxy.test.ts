@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildApiUrl, normalizeDevProxyConfig } from './devProxy'
 
 describe('buildApiUrl', () => {
+  it('keeps Portal relative gateway requests on the same origin', () => {
+    expect(buildApiUrl('/gw/v1', 'images/generations')).toBe('/gw/v1/images/generations')
+    expect(buildApiUrl('/gw/v1/', 'responses')).toBe('/gw/v1/responses')
+    expect(buildApiUrl('/gw/v1', 'videos/job-id')).toBe('/gw/v1/videos/job-id')
+  })
   afterEach(() => {
     vi.unstubAllEnvs()
   })

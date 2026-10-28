@@ -17,4 +17,11 @@ describe('getInputBarClearance', () => {
   it('rounds fractional clearance up', () => {
     expect(getInputBarClearance(900, { top: 837.4 })).toBe(63)
   })
+  it('uses the stable outer layout box throughout expansion animation', () => {
+    expect(getInputBarClearance(900, { top: 656, bottom: 876 })).toBe(244)
+  })
+  it('measures a collapsed capsule independently of the hidden composer height', () => {
+    expect(getInputBarClearance(900, { top: 100, bottom: 876 }, 44)).toBe(68)
+    expect(getInputBarClearance(900, { top: 620, bottom: 876 }, 44)).toBe(68)
+  })
 })

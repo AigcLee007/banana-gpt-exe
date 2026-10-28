@@ -26,14 +26,18 @@ import DetailModal from './components/DetailModal'
 import Lightbox from './components/Lightbox'
 import SettingsModal from './components/SettingsModal'
 import ConfirmDialog from './components/ConfirmDialog'
+import UpscaleDialog from './components/UpscaleDialog'
 import Toast from './components/Toast'
 import MaskEditorModal from './components/MaskEditorModal'
 import ImageContextMenu from './components/ImageContextMenu'
 import SupportPromptModal from './components/SupportPromptModal'
 import PwaInstallPrompt from './components/PwaInstallPrompt'
 import { useGlobalClickSuppression } from './lib/clickSuppression'
+import { installStudioAssets } from './lib/portalAssets'
+import PortalAssetStatus from './components/PortalAssetStatus'
 
 export default function App() {
+  useEffect(() => installStudioAssets(), [])
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
   const theme = useStore((s) => s.settings.theme ?? 'light')
@@ -54,10 +58,20 @@ export default function App() {
   const hasRunningTasks = tasks.some((task) => task.status === 'running')
 
   useEffect(() => {
+    if (window.__AAP__?.baseUrl) {
+      window.dispatchEvent(new CustomEvent('aap:studio-mode', { detail: { mode: appMode } }))
+    }
+  }, [appMode])
+
+  useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
     const nextSettings = buildSettingsFromUrlParams(useStore.getState().settings, searchParams)
 
     setSettings(nextSettings)
+    const requestedMode = searchParams.get('mode')
+    if (requestedMode === 'gallery' || requestedMode === 'video' || requestedMode === 'agent') {
+      useStore.getState().setAppMode(requestedMode)
+    }
 
     if (hasUrlSettingParams(searchParams)) {
       clearUrlSettingParams(searchParams)
@@ -82,6 +96,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (window.__AAP__?.baseUrl) return // The shared shell owns Portal theme attributes.
     const normalizedTheme = theme === 'cream' ? 'sepia' : theme
     document.documentElement.classList.toggle('dark', normalizedTheme === 'dark')
     document.documentElement.setAttribute('data-theme', normalizedTheme)
@@ -109,7 +124,7 @@ export default function App() {
       const remote = await fetchVersionManifest(
         fetch,
         now,
-        isDesktop ? DESKTOP_VERSION_MANIFEST_URL : '/version.json',
+        isDesktop ? DESKTOP_VERSION_MANIFEST_URL : new URL('version.json', window.location.href).toString(),
       )
       if (!manual) window.localStorage.setItem('update:lastAutoCheckAt', String(now))
       const current = currentVersionRef.current
@@ -185,7 +200,7 @@ export default function App() {
 
   return (
     <>
-      <Header />
+      {!window.__AAP__?.baseUrl && <Header />}
       {appMode === 'agent' ? (
         <AgentWorkspace />
       ) : appMode === 'video' ? (
@@ -206,10 +221,12 @@ export default function App() {
       {appMode !== 'video' && <DetailModal />}
       <Lightbox />
       <SettingsModal />
+      <UpscaleDialog />
       <ConfirmDialog />
       <SupportPromptModal />
       <PwaInstallPrompt />
       <Toast />
+      <PortalAssetStatus />
       <MaskEditorModal />
       <ImageContextMenu />
       {updatePrompt && (

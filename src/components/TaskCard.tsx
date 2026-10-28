@@ -5,6 +5,7 @@ import { formatImageRatio } from '../lib/size'
 import { getParamDisplay, ActualValueBadge } from '../lib/paramDisplay'
 import { DEFAULT_IMAGES_MODEL, DEFAULT_FAL_MODEL } from '../lib/apiProfiles'
 import { isAgentTaskPromptPending } from '../lib/taskPromptDisplay'
+import { getGalleryTaskState } from '../lib/galleryPresentation'
 import { CodeIcon, TransparentBgIcon } from './icons'
 import ViewportTooltip from './ViewportTooltip'
 
@@ -293,9 +294,10 @@ export default function TaskCard({
     return `${mm}:${ss}`
   })()
   const showSwipeAction = swipeActionActive
-  const isFalReconnecting = task.status === 'error' && task.falRecoverable
-  const isCustomReconnecting = task.status === 'error' && task.customRecoverable
-  const showRunningTimer = task.status === 'running' || isFalReconnecting || isCustomReconnecting
+  const presentationState = getGalleryTaskState(task)
+  const isReconnecting = presentationState === 'recovering'
+  const showRunningTimer = task.status === 'running' || isReconnecting
+  const stateLabel = { running: '生成中', done: '已完成', error: '生成失败', recovering: '恢复中', stopped: '已停止' }[presentationState]
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-gray-500 dark:bg-gray-600'
@@ -342,7 +344,7 @@ export default function TaskCard({
 
       <div
         ref={cardRef}
-        className={`relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden cursor-pointer touch-pan-y will-change-transform duration-200 hover:shadow-lg dark:hover:bg-gray-800/80 ${
+        className={`group relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden cursor-pointer touch-pan-y will-change-transform duration-200 hover:shadow-lg dark:hover:bg-gray-800/80 ${
           isSwiping ? '!bg-white dark:!bg-gray-900' : ''
         } ${
           !isSwiping ? 'transition-[box-shadow,border-color,background-color,transform]' : 'transition-[box-shadow,border-color,background-color]'
@@ -353,6 +355,13 @@ export default function TaskCard({
             ? 'border-blue-500 shadow-md ring-2 ring-blue-500/50'
             : 'border-gray-200 dark:border-white/[0.08] hover:border-gray-300 dark:hover:border-white/[0.18]'
         }`}
+        tabIndex={0}
+        aria-label={`查看记录：${task.prompt || stateLabel}`}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
+          e.preventDefault()
+          e.currentTarget.click()
+        }}
         onClick={(e) => {
           if (Date.now() < suppressClickUntilRef.current) {
             e.preventDefault()
@@ -386,16 +395,23 @@ export default function TaskCard({
         }}
       >
         {/* 选中时的角标 */}
-      {isSelected && (
-        <div className="absolute top-2 right-2 z-10 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center shadow-sm">
+      <button
+        type="button"
+        aria-label={isSelected ? '取消选择记录' : '选择记录'}
+        aria-pressed={Boolean(isSelected)}
+        onClick={(e) => { e.stopPropagation(); toggleTaskSelection(task.id) }}
+        onTouchStart={(e) => e.stopPropagation()}
+        className={`absolute top-2 right-2 z-10 h-7 w-7 rounded-full border flex items-center justify-center shadow-sm transition-opacity focus-visible:opacity-100 ${isSelected ? 'bg-blue-500 border-blue-500' : 'bg-white/90 border-gray-300 dark:bg-gray-800/90 dark:border-gray-600 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100'}`}
+      >
+        {isSelected && (
           <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
           </svg>
-        </div>
-      )}
+        )}
+      </button>
       <div className="flex h-40">
         {/* 左侧图片区域 */}
-        <div className="w-40 min-w-[10rem] h-full bg-gray-100 dark:bg-black/20 relative flex items-center justify-center overflow-hidden flex-shrink-0">
+        <div aria-busy={showRunningTimer || (task.status === 'done' && task.outputImages.length > 0 && !thumbSrc)} style={{ aspectRatio: '1/1' }} className="w-40 h-full bg-gray-100 dark:bg-black/20 relative flex items-center justify-center overflow-hidden flex-shrink-0">
           {task.status === 'running' && streamPreviewSrc && (
             <>
               <img
@@ -436,7 +452,7 @@ export default function TaskCard({
               <span className="text-xs text-gray-400 dark:text-gray-500">生成中...</span>
             </div>
           )}
-          {task.status === 'error' && isFalReconnecting && (
+          {isReconnecting && (
             <div className="flex flex-col items-center gap-1 px-2">
               <svg
                 className="w-7 h-7 text-yellow-400"
@@ -452,11 +468,11 @@ export default function TaskCard({
                 />
               </svg>
               <span className="text-xs text-yellow-500 text-center leading-tight">
-                重连中
+                恢复中
               </span>
             </div>
           )}
-          {task.status === 'error' && !isFalReconnecting && (
+          {task.status === 'error' && !isReconnecting && (
             <div className="flex flex-col items-center gap-1 px-2">
               <svg
                 className={`w-7 h-7 ${isInterrupted ? 'text-yellow-400' : 'text-red-400'}`}
@@ -472,7 +488,7 @@ export default function TaskCard({
                 />
               </svg>
               <span className={`text-xs text-center leading-tight ${isInterrupted ? 'text-yellow-500' : 'text-red-400'}`}>
-                {isInterrupted ? '已停止' : '失败'}
+                {isInterrupted ? '已停止' : '生成失败'}
               </span>
             </div>
           )}
@@ -495,7 +511,7 @@ export default function TaskCard({
           )}
           {task.status === 'done' && !thumbSrc && (
             <svg
-              className="w-8 h-8 text-gray-300"
+              className="w-8 h-8 text-gray-300 motion-safe:animate-pulse"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -532,6 +548,7 @@ export default function TaskCard({
 
         {/* 右侧信息区域 */}
         <div className="flex-1 p-3 flex flex-col min-w-0">
+          <span className={`mb-1 text-[11px] font-medium ${presentationState === 'done' ? 'text-emerald-600 dark:text-emerald-400' : presentationState === 'error' ? 'text-red-500' : presentationState === 'running' ? 'text-blue-500' : 'text-amber-600 dark:text-amber-400'}`}>{stateLabel}</span>
           <div className="flex-1 min-h-0 mb-2 overflow-hidden">
             {showPendingPrompt ? (
               <div className="leading-relaxed">
@@ -544,6 +561,7 @@ export default function TaskCard({
               </p>
             )}
           </div>
+          {presentationState === 'error' && task.error && <p className="mb-1 truncate text-xs text-red-500" title={task.error}>{task.error}</p>}
           <div className="mt-auto flex flex-col gap-1.5">
             {/* 参数与信息：横向滚动 */}
             <div 
@@ -624,16 +642,16 @@ export default function TaskCard({
             {/* 操作按钮 */}
             <div
               data-tag-scroll-area
-              className="flex items-center gap-1 flex-shrink-0 mt-0.5 ml-auto max-w-full overflow-x-auto hide-scrollbar mask-edge-r pr-2"
+              className="flex items-center gap-1 flex-shrink-0 mt-0.5 ml-auto max-w-full overflow-x-auto hide-scrollbar mask-edge-r pr-2 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
               onClick={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchMove={(e) => e.stopPropagation()}
               onTouchEnd={(e) => e.stopPropagation()}
               onTouchCancel={(e) => e.stopPropagation()}
             >
-              {((task.status === 'error' && !isFalReconnecting) || settings.alwaysShowRetryButton) && (
+              {!showRunningTimer && (task.status === 'error' || settings.alwaysShowRetryButton || (typeof window !== 'undefined' && window.__AAP__?.baseUrl && task.status === 'done')) && (
                 <TaskActionButton
-                  tooltip="重试任务"
+                  tooltip={task.status === 'done' ? '再次生成' : '重试任务'}
                   onClick={() => retryTask(task)}
                   className="p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 text-gray-400 hover:text-blue-500 transition"
                 >

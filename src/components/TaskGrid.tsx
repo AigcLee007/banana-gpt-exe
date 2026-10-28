@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState, useEffect } from 'react'
 import { useStore, reuseConfig, editOutputs, removeTask } from '../store'
 import TaskCard from './TaskCard'
+import { filterGalleryTasks } from '../lib/galleryPresentation'
 
 export default function TaskGrid() {
   const tasks = useStore((s) => s.tasks)
+  const galleryFilters = useStore((s) => s.galleryFilters)
   const searchQuery = useStore((s) => s.searchQuery)
   const filterStatus = useStore((s) => s.filterStatus)
   const filterFavorite = useStore((s) => s.filterFavorite)
@@ -28,21 +30,7 @@ export default function TaskGrid() {
   const initialSelection = useRef<string[]>([])
   const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform)
 
-  const filteredTasks = useMemo(() => {
-    const sorted = [...tasks].sort((a, b) => b.createdAt - a.createdAt)
-    const q = searchQuery.trim().toLowerCase()
-    
-    return sorted.filter((t) => {
-      if (filterFavorite && !t.isFavorite) return false
-      const matchStatus = filterStatus === 'all' || t.status === filterStatus
-      if (!matchStatus) return false
-      
-      if (!q) return true
-      const prompt = (t.prompt || '').toLowerCase()
-      const paramStr = JSON.stringify(t.params).toLowerCase()
-      return prompt.includes(q) || paramStr.includes(q)
-    })
-  }, [tasks, searchQuery, filterStatus, filterFavorite])
+  const filteredTasks = useMemo(() => filterGalleryTasks(tasks, searchQuery, filterStatus, filterFavorite, galleryFilters), [tasks, searchQuery, filterStatus, filterFavorite, galleryFilters])
 
   const handleDelete = (task: typeof tasks[0]) => {
     setConfirmDialog({
@@ -256,7 +244,7 @@ export default function TaskGrid() {
   if (!filteredTasks.length) {
     return (
       <div className="text-center py-20 text-gray-400 dark:text-gray-500">
-        {searchQuery || filterFavorite ? (
+        {searchQuery || filterFavorite || filterStatus !== 'all' ? (
           <p className="text-sm">没有找到匹配的记录</p>
         ) : (
           <>

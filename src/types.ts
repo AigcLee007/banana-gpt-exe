@@ -70,6 +70,8 @@ export interface ApiProfile {
   responseFormatB64Json?: boolean
   streamImages?: boolean
   streamPartialImages?: number
+  /** Portal-managed profiles are runtime-owned and cannot be edited by the user. */
+  locked?: boolean
   providerDrafts?: Partial<Record<ApiProvider, Partial<Pick<ApiProfile, 'baseUrl' | 'model' | 'apiMode' | 'codexCli' | 'apiProxy' | 'responseFormatB64Json' | 'streamImages' | 'streamPartialImages'>>>>
 }
 
@@ -93,6 +95,8 @@ export interface AppSettings {
   reuseTaskApiProfileTemporarily: boolean
   alwaysShowRetryButton: boolean
   enterSubmit: boolean
+  agentEnterSubmit?: boolean
+  agentPersistInputOnRestart?: boolean
   referenceImageEditAction: ReferenceImageEditAction
   agentScrollToBottomAfterSubmit: boolean
   agentMaxToolRounds: number
@@ -146,6 +150,15 @@ export interface MaskDraft {
 // ===== 任务记录 =====
 
 export type TaskStatus = 'running' | 'done' | 'error'
+
+/** 高清放大任务的参数与断点信息 */
+export interface UpscaleTaskInfo {
+  model: 'upscale-standard' | 'upscale-creative'
+  factor: number
+  format: 'png' | 'jpg' | 'webp' | null
+  /** 中转站任务编号：提交成功后记录，重启或刷新后凭它继续查询，避免重复提交造成二次扣费 */
+  remoteTaskId?: string
+}
 
 export interface TaskRecord {
   id: string
@@ -201,6 +214,8 @@ export interface TaskRecord {
   finishedAt: number | null
   /** 总耗时毫秒 */
   elapsed: number | null
+  /** 高清放大任务：存在时这条任务不走生图接口，而是放大 inputImageIds[0] */
+  upscale?: UpscaleTaskInfo
   /** 是否收藏 */
   isFavorite?: boolean
   /** 来源模式：画廊 / Agent */

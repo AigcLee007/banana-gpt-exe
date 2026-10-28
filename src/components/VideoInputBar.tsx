@@ -15,6 +15,7 @@ import Select from './Select'
 import ReferenceTile from './ReferenceTile'
 import VideoModelLogo from './VideoModelLogo'
 import VideoModelComparison from './VideoModelComparison'
+import WorkspaceMoreMenu from './WorkspaceMoreMenu'
 
 const MODEL_BADGE_STYLES = {
   recommended: 'bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 [.dark_&]:text-emerald-300',
@@ -196,6 +197,7 @@ export default function VideoInputBar() {
           <button type="button" onClick={() => setInputMode('create')} className={`rounded-xl px-6 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${!referenceMode ? 'bg-blue-500 text-white shadow-sm' : 'text-[color:var(--app-text-muted)] hover:bg-[color:var(--app-surface-elevated)] hover:text-[color:var(--app-text)]'}`}>{supportsTailFrame ? '文/图生视频' : '文生视频 / 单图生视频'}</button>
           {refSpec && <button type="button" onClick={() => setInputMode('reference')} className={`rounded-xl px-6 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${referenceMode ? 'bg-blue-500 text-white shadow-sm' : 'text-[color:var(--app-text-muted)] hover:bg-[color:var(--app-surface-elevated)] hover:text-[color:var(--app-text)]'}`}>{maxVideos || maxAudios ? '多参考' : '参考图'}</button>}
         </div>
+        {typeof window !== 'undefined' && window.__AAP__?.baseUrl && <WorkspaceMoreMenu mode="video" section="creation" />}
       </div>
 
       <section className="border-b border-[color:var(--app-border)] p-4">
@@ -246,16 +248,25 @@ export default function VideoInputBar() {
         </section>
       )}
 
-      <section className="p-4">
+      <section className="space-y-4 p-4">
+        <fieldset className="min-w-0 space-y-3">
+          <legend className="mb-2 text-xs font-semibold text-[color:var(--app-text-muted)]">模型选择</legend>
           {modelDef?.guidance && <p className="mb-3 text-xs leading-relaxed text-[color:var(--app-text-muted)]">{modelDef.guidance}</p>}
           {modelDef?.referenceUpload === 'uguu' && <p data-testid="video-reference-upload-notice" className="mb-3 text-xs leading-relaxed text-[color:var(--app-text-muted)]">创建时会将所选素材自动上传到第三方 Uguu，直链可公开访问，约 3 小时后过期。本地素材保留，重新创建时重新上传。</p>}
           <ParamRow label="模型" compactLabel><div className="flex min-w-0 flex-1 items-center gap-1"><div className="min-w-0 flex-1"><Select value={model} onChange={(v) => setModel(String(v))} options={modelOptions} triggerTitle={`${modelDef?.displayName ?? model} · ${getVideoModelPriceLabel(model, params.resolution, params.duration)}`} menuClassName="-right-12 min-w-[min(420px,calc(100vw-4rem))]" className="w-full rounded-lg border-0 bg-[color:var(--app-input)] px-1 py-2 text-sm text-[color:var(--app-text)] sm:px-3" /></div><VideoModelComparison selectedModel={model} /></div></ParamRow>
+        </fieldset>
+        <fieldset className="min-w-0 space-y-2">
+          <legend className="mb-2 text-xs font-semibold text-[color:var(--app-text-muted)]">画面参数</legend>
           <ParamRow label="分辨率"><div className="flex h-9 flex-1 rounded-lg bg-[color:var(--app-input)] p-0.5">{(modelDef?.resolutions ?? ['768p']).map((r) => <button key={r} type="button" onClick={() => setParams({ resolution: r })} className={`flex-1 rounded-md text-xs font-semibold ${params.resolution === r ? 'bg-blue-500 text-white' : 'text-[color:var(--app-text-muted)]'}`}>{formatVideoResolution(r)}</button>)}</div></ParamRow>
           <ParamRow label="时长">{duration.min === duration.max ? <span className="text-sm">{duration.default}秒</span> : <div className="flex-1 px-1"><input type="range" min={duration.min} max={duration.max} step={duration.step} value={params.duration} onChange={(e) => setParams({ duration: Number(e.target.value) })} className="w-full accent-blue-500" /><div className="flex justify-between text-[10px] text-[color:var(--app-text-subtle)]"><span>{duration.min}秒</span><b className="text-[color:var(--app-text)]">{params.duration}秒</b><span>{duration.max}秒</span></div></div>}</ParamRow>
           <ParamRow label="画面比例"><div className="flex h-9 flex-1 overflow-hidden rounded-lg bg-[color:var(--app-input)]">{ratioOptions.map((ratio) => <button key={ratio} type="button" onClick={() => setParams({ aspectRatio: ratio })} className={`flex-1 text-[10px] ${params.aspectRatio === ratio ? 'bg-blue-500 text-white' : 'text-[color:var(--app-text-muted)]'}`}>{ratio === 'auto' ? '自动' : ratio}</button>)}</div></ParamRow>
+        </fieldset>
+        <fieldset className="min-w-0 space-y-2">
+          <legend className="mb-2 text-xs font-semibold text-[color:var(--app-text-muted)]">创建设置</legend>
           <ParamRow label="数量">{modelDef?.fixedQuantity ? <span className="text-sm">1个</span> : <div className="flex h-9 flex-1 rounded-lg bg-[color:var(--app-input)] p-0.5">{[1, 2, 4].map((n) => <button key={n} type="button" onClick={() => setParams({ n })} className={`flex-1 rounded-md text-xs font-semibold ${params.n === n ? 'bg-blue-500 text-white' : 'text-[color:var(--app-text-muted)]'}`}>{n}个</button>)}</div>}</ParamRow>
           <button data-testid="video-submit" type="button" disabled={!canGenerate || isGenerating} onClick={generateVideo} className="mt-3 w-full rounded-xl bg-blue-500 py-3 text-sm font-bold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50">{isGenerating ? '正在创建…' : referenceDurationUnknown ? '✈ 创建（费用待估算）' : modelDef?.pricePerRequestCredits !== undefined || modelDef?.pricePerSecondCredits ? `✈ 创建（${referencePricing ? '预估 ' : ''}${estimatedCreditLabel} 积分）` : '✈ 创建'}</button>
           {referencePricing && <p role="status" className="mt-2 text-xs leading-relaxed text-[color:var(--app-text-muted)]">{referenceDurationUnknown ? '参考视频时长尚未读取，完整费用待估算；以实际结算为准。' : '预估包含当前素材费用，按创建数量计算，以实际结算为准。'}</p>}
+        </fieldset>
       </section>
 
       {uploadBusy && <p role="status" className="px-4 text-sm text-[color:var(--app-text-muted)]">正在保存素材，请稍候…</p>}

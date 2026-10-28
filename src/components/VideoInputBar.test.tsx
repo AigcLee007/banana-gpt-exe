@@ -25,6 +25,15 @@ beforeEach(() => {
 })
 
 describe('video workbench controls from model capabilities', () => {
+  it('groups model choice, output settings and submission without hiding controls', () => {
+    const html = renderToStaticMarkup(<VideoInputBar />)
+    expect(html).toContain('<legend')
+    expect(html).toContain('>模型选择</legend>')
+    expect(html).toContain('>画面参数</legend>')
+    expect(html).toContain('>创建设置</legend>')
+    expect(html.indexOf('>模型选择</legend>')).toBeLessThan(html.indexOf('>画面参数</legend>'))
+  })
+
   it('hides unavailable legacy models from the new-task selector', () => {
     const html = renderToStaticMarkup(<VideoInputBar />)
     expect(html).not.toContain('sd2.0-15s')

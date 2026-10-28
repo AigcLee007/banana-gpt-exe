@@ -10,6 +10,7 @@ import VideoTaskGrid from './VideoTaskGrid'
 import VideoDetailModal from './VideoDetailModal'
 import VideoAssetLibrary from './VideoAssetLibrary'
 import { getVideoModelDefinition } from '../lib/videoModels'
+import { pickStudioAssets } from '../lib/portalAssets'
 
 export default function VideoWorkspace() {
   const { loadTasks, recoverTasks, inputMode, firstFrameId, lastFrameId } = useVideoStore()
@@ -52,7 +53,8 @@ export default function VideoWorkspace() {
           <VideoInputBar />
         </aside>
         <section data-video-results className="min-w-0">
-          <VideoTaskGrid onOpenAssetLibrary={() => setAssetLibraryOpen(true)} />
+          {window.__AAP__?.baseUrl && <button type="button" className="mb-2 text-xs underline" onClick={() => setAssetLibraryOpen(true)}>仅本机素材（旧库）</button>}
+          <VideoTaskGrid onOpenAssetLibrary={() => window.__AAP__?.baseUrl ? void pickStudioAssets('video') : setAssetLibraryOpen(true)} />
         </section>
       </div>
       <VideoAssetLibrary open={assetLibraryOpen} onClose={() => setAssetLibraryOpen(false)} onUse={useAssets} />

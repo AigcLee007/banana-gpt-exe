@@ -21,10 +21,18 @@ const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) ||
 const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true'
 export const DEFAULT_IMAGES_MODEL = DEFAULT_GALLERY_MODEL
 export const DEFAULT_RESPONSES_MODEL = AGENT_FIXED_MODEL
+export const PORTAL_IMAGE_MODEL = 'gpt-image-2'
 export const DEFAULT_FAL_BASE_URL = 'https://fal.run'
 export const DEFAULT_FAL_MODEL = 'openai/gpt-image-2'
 export const DEFAULT_OPENAI_PROFILE_ID = 'default-openai'
 export const DEFAULT_API_TIMEOUT = 600
+
+export interface PortalBootstrap {
+  baseUrl: string
+  key: string
+  portalName?: string
+  lockProfile?: boolean
+}
 
 const BUILT_IN_PROVIDER_IDS = new Set<ApiProvider>(['openai', 'fal'])
 const DEFAULT_CUSTOM_PROVIDER_PATHS = {
@@ -437,7 +445,49 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
     responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
     streamImages: typeof record.streamImages === 'boolean' ? record.streamImages : defaults.streamImages,
     streamPartialImages: normalizeStreamPartialImages(record.streamPartialImages, defaults.streamPartialImages),
+    locked: record.locked === true,
     providerDrafts: normalizeProviderDrafts(record.providerDrafts, customProviderIds),
+  }
+}
+
+export function mergePortalProfile(input: Partial<AppSettings> | unknown, bootstrap: PortalBootstrap): AppSettings {
+  const current = normalizeSettings(input)
+  const baseUrl = typeof bootstrap.baseUrl === 'string' ? bootstrap.baseUrl.trim().replace(/\/+$/, '') : ''
+  const key = typeof bootstrap.key === 'string' ? bootstrap.key.trim() : ''
+  if (!baseUrl || !key) return current
+
+  const managed = createDefaultOpenAIProfile({
+    id: 'portal-managed',
+    name: bootstrap.portalName?.trim() || 'AITTO Studio',
+    baseUrl,
+    apiKey: key,
+    model: PORTAL_IMAGE_MODEL,
+    apiMode: 'images',
+    apiProxy: false,
+    locked: bootstrap.lockProfile !== false,
+  })
+
+  return normalizeSettings({
+    ...current,
+    baseUrl: managed.baseUrl,
+    apiKey: managed.apiKey,
+    model: managed.model,
+    apiMode: managed.apiMode,
+    agentImageModel: PORTAL_IMAGE_MODEL,
+    agentTextModel: current.profiles.some(profile => profile.id === 'portal-managed') ? current.agentTextModel : 'gpt-6-astra',
+    agentEnterSubmit: current.agentEnterSubmit ?? current.enterSubmit,
+    agentPersistInputOnRestart: current.agentPersistInputOnRestart ?? current.persistInputOnRestart,
+    profiles: [managed, ...current.profiles.filter((profile) => profile.id !== managed.id && !isDefaultOpenAIProfile(profile))],
+    activeProfileId: managed.id,
+  })
+}
+
+export function redactManagedKeys(settings: AppSettings): AppSettings {
+  if (!settings.profiles.some((profile) => profile.locked)) return settings
+  return {
+    ...settings,
+    profiles: settings.profiles.map((profile) => profile.locked ? { ...profile, apiKey: '' } : profile),
+    apiKey: settings.profiles.find((profile) => profile.id === settings.activeProfileId)?.locked ? '' : settings.apiKey,
   }
 }
 
@@ -457,6 +507,7 @@ function validateImportedProfileRecord(input: unknown) {
 function normalizeAgentImageModel(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) return DEFAULT_GALLERY_MODEL
   const normalized = normalizeBananaModelId(value)
+  if (normalized === 'gpt-image-2' || normalized === 'gpt-image-2.5-sunburst') return normalized
   return BANANA_GALLERY_MODELS.some((item) => item.model === normalized) ? normalized : DEFAULT_GALLERY_MODEL
 }
 
@@ -511,6 +562,8 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     reuseTaskApiProfileTemporarily: typeof record.reuseTaskApiProfileTemporarily === 'boolean' ? record.reuseTaskApiProfileTemporarily : false,
     alwaysShowRetryButton: typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
     enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : false,
+    ...(typeof record.agentEnterSubmit === 'boolean' ? { agentEnterSubmit: record.agentEnterSubmit } : {}),
+    ...(typeof record.agentPersistInputOnRestart === 'boolean' ? { agentPersistInputOnRestart: record.agentPersistInputOnRestart } : {}),
     referenceImageEditAction: normalizeReferenceImageEditAction(record.referenceImageEditAction),
     agentScrollToBottomAfterSubmit: typeof record.agentScrollToBottomAfterSubmit === 'boolean' ? record.agentScrollToBottomAfterSubmit : true,
     agentMaxToolRounds: normalizeAgentMaxToolRounds(record.agentMaxToolRounds),

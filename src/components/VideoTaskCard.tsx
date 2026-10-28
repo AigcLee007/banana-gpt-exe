@@ -1,5 +1,3 @@
-// 视频任务卡片组件
-
 import { useState, useEffect } from 'react'
 import { useVideoStore } from '../videoStore'
 import type { VideoTaskRecord } from '../lib/videoTypes'
@@ -9,138 +7,69 @@ import { useMediaBlobUrl } from '../hooks/useMediaBlobUrl'
 import { serializeVideoPrompt } from '../lib/videoPromptMentions'
 import { formatVideoTaskError } from '../lib/videoApi'
 
-interface VideoTaskCardProps {
-  task: VideoTaskRecord
-}
-
-export default function VideoTaskCard({ task }: VideoTaskCardProps) {
-  const { selectedTaskIds, toggleSelectTask, setDetailTask } = useVideoStore()
+export default function VideoTaskCard({ task }: { task: VideoTaskRecord }) {
+  const { selectedTaskIds, toggleSelectTask, setDetailTask, cancelTask, reuseTaskConfig } = useVideoStore()
   const [posterUrl, setPosterUrl] = useState<string | null>(null)
   const [isHovering, setIsHovering] = useState(false)
   const videoUrl = useMediaBlobUrl(task.outputVideoId, getMediaBlobUrl)
-  const posterSource = posterUrl || (!task.posterImageId ? null : null)
-
   const isSelected = selectedTaskIds.has(task.id)
+  const active = task.status === 'queued' || task.status === 'running'
+  const processing = active && task.processing
+  const progress = !processing && task.status === 'running' && typeof task.progress === 'number' && Number.isFinite(task.progress)
+    ? Math.min(100, Math.max(0, Math.round(task.progress))) : undefined
   const errorMessage = task.error ? formatVideoTaskError(task.error) : null
+  const statusLabel = task.status === 'done' ? '已完成' : task.status === 'error' ? '生成失败'
+    : task.status === 'canceled' ? '已停止跟踪' : processing ? '处理中'
+    : task.status === 'queued' ? '排队中' : `生成中${progress === undefined ? '' : ` ${progress}%`}`
+  const statusTone = task.status === 'done' ? 'bg-emerald-500/15 text-emerald-600 [.dark_&]:text-emerald-300'
+    : task.status === 'error' ? 'bg-red-500/10 text-red-600 [.dark_&]:text-red-300'
+    : active ? 'bg-blue-500/10 text-blue-600 [.dark_&]:text-blue-300'
+    : 'bg-[color:var(--app-surface-elevated)] text-[color:var(--app-text-muted)]'
 
   useEffect(() => {
-    let active = true
+    let mounted = true
     let url: string | undefined
     setPosterUrl(null)
     if (!task.posterImageId) return () => undefined
     getMediaPosterBlobUrl(task.posterImageId).then((nextUrl) => {
-      if (active && nextUrl) {
-        url = nextUrl
-        setPosterUrl(nextUrl)
-      } else if (nextUrl) {
-        URL.revokeObjectURL(nextUrl)
-      }
-    })
-    return () => {
-      active = false
-      if (url) URL.revokeObjectURL(url)
-    }
+      if (mounted && nextUrl) { url = nextUrl; setPosterUrl(nextUrl) }
+      else if (nextUrl) URL.revokeObjectURL(nextUrl)
+    }).catch(() => { /* A missing poster still allows the local video preview. */ })
+    return () => { mounted = false; if (url) URL.revokeObjectURL(url) }
   }, [task.posterImageId])
 
-  const handleClick = (e: React.MouseEvent) => {
-    if (e.shiftKey || e.metaKey || e.ctrlKey) {
-      toggleSelectTask(task.id)
-    } else {
-      setDetailTask(task.id)
-    }
+  const openTask = (event: React.MouseEvent) => {
+    if (event.shiftKey || event.metaKey || event.ctrlKey) toggleSelectTask(task.id)
+    else setDetailTask(task.id)
   }
 
-  const statusLabel =
-    task.status === 'queued'
-      ? '排队中'
-      : task.status === 'running'
-      ? `生成中 ${task.progress || 0}%`
-      : task.status === 'error'
-      ? '失败'
-      : task.status === 'canceled'
-      ? '已取消'
-      : ''
-
-  const elapsed = task.finishedAt
-    ? Math.round((task.finishedAt - task.createdAt) / 1000)
-    : Math.round((Date.now() - task.createdAt) / 1000)
-
   return (
-    <div
-      className={`group relative cursor-pointer overflow-hidden rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-card)] shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
-      onClick={handleClick}
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
-      style={{ aspectRatio: task.params.aspectRatio === '16:9' ? '16/9' : '1' }}
-    >
-      {/* 封面或占位符 */}
-      {posterUrl ? (
-        <img src={posterUrl} alt="封面" className="h-full w-full object-cover" />
-      ) : videoUrl ? (
-        <video src={videoUrl} muted playsInline preload="metadata" className="h-full w-full object-cover" />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center bg-[color:var(--app-surface-elevated)] text-sm text-[color:var(--app-text-muted)]">
-          <div className="max-w-[90%] text-center">
-            <div>{task.status === 'done' ? '视频预览不可用' : statusLabel}</div>
-            {task.status === 'error' && errorMessage && <div className="mt-2 break-words text-xs text-red-500" title={errorMessage}>{errorMessage}</div>}
-          </div>
-        </div>
-      )}
-
-      {/* 悬停时播放视频 */}
-      {isHovering && videoUrl && (
-        <video
-          src={videoUrl}
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-      )}
-
-      <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-xl text-white">▶</span>
+    <article data-video-task={task.id} aria-busy={active} className={`group min-w-0 overflow-hidden rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-card)] shadow-sm transition-shadow hover:shadow-lg ${isSelected ? 'ring-2 ring-blue-500' : ''}`}>
+      <div className="relative overflow-hidden bg-[color:var(--app-surface-elevated)]" style={{ aspectRatio: '16/9' }} onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
+        <button type="button" onClick={openTask} aria-label={task.status === 'done' && videoUrl ? '播放视频' : '查看视频任务'} className="absolute inset-0 h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400">
+          {posterUrl ? <img src={posterUrl} alt="视频封面" className="h-full w-full object-contain" />
+            : videoUrl ? <video src={videoUrl} muted playsInline preload="metadata" className="h-full w-full object-contain" />
+            : <span className="flex h-full flex-col items-center justify-center gap-3 px-5 text-sm text-[color:var(--app-text-muted)]">
+              {active ? <span aria-hidden="true" className="h-7 w-7 rounded-full border-2 border-blue-500/20 border-t-blue-500 motion-safe:animate-spin" /> : <span aria-hidden="true" className="text-3xl">{task.status === 'error' ? '!' : '▧'}</span>}
+              <span>{processing ? '正在下载并保存视频' : task.status === 'queued' ? '任务已提交，等待生成' : task.status === 'running' ? '画面正在生成，请稍候' : task.status === 'done' ? '视频预览不可用' : task.status === 'error' ? '本次未能生成视频' : '已停止本机任务跟踪'}</span>
+              {active && progress !== undefined && <span role="progressbar" aria-label="视频生成进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} className="h-1.5 w-32 overflow-hidden rounded-full bg-blue-500/15"><span className="block h-full rounded-full bg-blue-500" style={{ width: `${progress}%` }} /></span>}
+            </span>}
+          {isHovering && videoUrl && <video src={videoUrl} autoPlay loop muted playsInline className="absolute inset-0 h-full w-full object-contain" />}
+          {task.status === 'done' && videoUrl && <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"><span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/60 text-xl text-white">▶</span></span>}
+        </button>
+        <label className="absolute left-3 top-3 flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg bg-black/55 text-white" aria-label={isSelected ? '取消选择任务' : '选择任务'}>
+          <input type="checkbox" checked={isSelected} onChange={() => toggleSelectTask(task.id)} className="h-4 w-4 accent-blue-500" />
+        </label>
+        {task.isFavorite && <span aria-label="已收藏" className="absolute right-3 top-3 text-lg text-yellow-400">★</span>}
       </div>
-      {task.status === 'done' && (
-        <div className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-1 text-xs text-white">▶ 播放</div>
-      )}
-
-      <label className="absolute left-2 top-2 z-20 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-black/60 text-white" onClick={(e) => e.stopPropagation()} aria-label={isSelected ? '取消选择任务' : '选择任务'}>
-        <input type="checkbox" checked={isSelected} onChange={() => toggleSelectTask(task.id)} className="h-4 w-4 accent-blue-500" />
-      </label>
-      {task.status !== 'done' && (
-        <div className="absolute left-2 top-10 z-10 rounded-full bg-black/50 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
-          {statusLabel}
-        </div>
-      )}
-
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent p-3 pt-8 text-white">
-        <div className="truncate text-sm font-medium">{serializeVideoPrompt(task.prompt, task.inputs.refItems ?? [], false) || '无提示词'}</div>
-        <div className="mt-1 text-xs text-white/75">{formatVideoMode(task.mode)} · {task.params.duration}s · {formatVideoResolution(task.params.resolution)}</div>
+      <div className="space-y-3 p-4">
+        <div className="flex items-center justify-between gap-2"><span role="status" className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusTone}`}>{statusLabel}</span><span className="text-xs text-[color:var(--app-text-muted)]">{task.params.duration}s · {formatVideoResolution(task.params.resolution)} · {task.params.aspectRatio}</span></div>
+        <button type="button" onClick={openTask} className="block w-full truncate text-left text-sm font-medium text-[color:var(--app-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400" title={serializeVideoPrompt(task.prompt, task.inputs.refItems ?? [], false)}>{serializeVideoPrompt(task.prompt, task.inputs.refItems ?? [], false) || '无提示词'}</button>
+        <div className="text-xs text-[color:var(--app-text-muted)]">{formatVideoMode(task.mode)}</div>
+        {task.status === 'error' && errorMessage && <p className="line-clamp-2 break-words text-xs leading-relaxed text-red-500" title={errorMessage}>{errorMessage}</p>}
+        {active && <div><button type="button" onClick={() => cancelTask(task.id)} className="rounded-lg border border-[color:var(--app-border)] px-3 py-1.5 text-xs text-[color:var(--app-text-muted)] hover:bg-[color:var(--app-surface-elevated)]">停止跟踪</button><p className="mt-2 text-[11px] leading-relaxed text-[color:var(--app-text-muted)]">仅停止本机跟踪，上游任务与计费可能继续。</p></div>}
+        {(task.status === 'error' || task.status === 'canceled') && <button type="button" onClick={() => { reuseTaskConfig(task.id); document.querySelector('[data-video-creation-panel]')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }) }} className="rounded-lg bg-blue-500/10 px-3 py-2 text-xs font-medium text-blue-600 hover:bg-blue-500/20 [.dark_&]:text-blue-300">调整后重试</button>}
       </div>
-
-      {/* 收藏标记 */}
-      {task.isFavorite && (
-        <div className="absolute top-2 right-2">
-          <span className="text-yellow-400 text-lg">★</span>
-        </div>
-      )}
-
-      {/* 选中标记 */}
-      {isSelected && (
-        <div className="absolute top-2 left-2">
-          <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
-            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </div>
-        </div>
-      )}
-    </div>
+    </article>
   )
 }

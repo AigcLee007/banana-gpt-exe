@@ -254,6 +254,19 @@ describe('Omni capabilities in the workbench', () => {
 })
 
 describe('SD models in the workbench', () => {
+  it('shows processing while completed content is downloaded and clears it after local storage', async () => {
+    let finishDownload!: (blob: Blob) => void
+    vi.mocked(submitVideoTask).mockResolvedValueOnce({ remoteTaskId: 'processing-task', status: 'queued', recoverable: true })
+    vi.mocked(pollVideoTask).mockResolvedValueOnce({ status: 'succeeded' })
+    vi.mocked(downloadVideoContent).mockImplementationOnce(() => new Promise(resolve => { finishDownload = resolve }))
+    await useVideoStore.getState().generateVideo()
+    await vi.waitFor(() => expect(downloadVideoContent).toHaveBeenCalled())
+    const processing = useVideoStore.getState().tasks[0]
+    expect(processing).toMatchObject({ status: 'running', processing: true })
+    finishDownload(new Blob(['video'], { type: 'video/mp4' }))
+    await vi.waitFor(() => expect(useVideoStore.getState().tasks[0]).toMatchObject({ status: 'done', processing: false }))
+  })
+
   it.each(['sd2.0-15s', 'sd2.5-30s', 'sd2-933-3', 'sd2-933-全', 'sd2.5-10-全'])('downloads and stores completed %s content without a video URL', async (model) => {
     vi.mocked(submitVideoTask).mockResolvedValueOnce({ remoteTaskId: 'remote-sd', status: 'queued', recoverable: true })
     vi.mocked(pollVideoTask).mockResolvedValueOnce({ status: 'succeeded', progress: 100 })
@@ -277,7 +290,7 @@ describe('SD models in the workbench', () => {
     await useVideoStore.getState().generateVideo()
     await vi.waitFor(() => expect(useVideoStore.getState().tasks[0]?.status).toBe('error'))
     expect(uploadMediaFile).not.toHaveBeenCalledWith(expect.anything(), 'generated')
-    expect(useVideoStore.getState().tasks[0]).toMatchObject({ status: 'error', error: '下载结果不是视频文件，请检查中转站返回的 object 地址' })
+    expect(useVideoStore.getState().tasks[0]).toMatchObject({ status: 'error', processing: false, error: '下载结果不是视频文件，请检查中转站返回的 object 地址' })
   })
 
   it('keeps polling a long SD task every fifteen seconds without resubmitting it', async () => {

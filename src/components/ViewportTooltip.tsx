@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { onDismissTooltips } from '../lib/tooltipDismiss'
+import { positionTooltip } from '../lib/tooltipPosition'
 
 interface ViewportTooltipProps {
   visible: boolean
@@ -63,28 +64,14 @@ export default function ViewportTooltip({ visible, children, className = '' }: V
       const el = tooltipRef.current
       if (!anchor || !el) return
 
-      const margin = 8
-      const gap = 8
       const anchorRect = anchor.getBoundingClientRect()
       if (!anchor.getClientRects().length || (anchorRect.width === 0 && anchorRect.height === 0)) {
         setPosition(null)
         return
       }
 
-      const tooltipRect = el.getBoundingClientRect()
-      const anchorCenter = anchorRect.left + anchorRect.width / 2
-      const maxLeft = Math.max(margin, window.innerWidth - tooltipRect.width - margin)
-      const left = Math.min(Math.max(anchorCenter - tooltipRect.width / 2, margin), maxLeft)
-      const aboveTop = anchorRect.top - tooltipRect.height - gap
-      const placement = aboveTop >= margin ? 'top' : 'bottom'
-      const top = placement === 'top' ? aboveTop : anchorRect.bottom + gap
-
-      setPosition({
-        left,
-        top,
-        arrowLeft: anchorCenter - left,
-        placement,
-      })
+      const reservedTop = document.querySelector('#aap-appbar')?.getBoundingClientRect().bottom ?? 0
+      setPosition(positionTooltip(anchorRect, el.getBoundingClientRect(), window.innerWidth, reservedTop))
     }
 
     updatePosition()
@@ -102,6 +89,7 @@ export default function ViewportTooltip({ visible, children, className = '' }: V
       {effectiveVisible && createPortal(
         <div
           ref={tooltipRef}
+          role="tooltip"
           className={`fixed pointer-events-none rounded-lg bg-gray-800 px-3 py-2 text-xs font-normal text-white shadow-lg ${className}`}
           style={{
             left: position?.left ?? 0,

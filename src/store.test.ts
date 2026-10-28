@@ -100,7 +100,7 @@ import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
 import { callImageApi } from './lib/api'
 import { getGeminiOutputPixels } from './lib/geminiImageSizing'
 import { AGENT_FIXED_MODEL } from './lib/bananaModels'
-import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConversation, editOutputs, ensureImageThumbnailCached, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, migratePersistedState, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
+import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConversation, editOutputs, ensureImageThumbnailCached, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, markInterruptedUpscaleTasks, migratePersistedState, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
@@ -419,6 +419,31 @@ describe('failed task cleanup', () => {
     await clearFailedTasks()
 
     expect(useStore.getState().tasks.map((item) => item.id)).toEqual(['task-done'])
+  })
+})
+
+describe('upscale tasks after a restart', () => {
+  const upscale = { model: 'upscale-standard' as const, factor: 2, format: 'jpg' as const }
+
+  it('leaves a submitted upscale task alone so it resumes by its remote id instead of being charged again', () => {
+    const submitted = task({ id: 'u1', status: 'running', upscale: { ...upscale, remoteTaskId: 'task_abc' } })
+    expect(markInterruptedOpenAIRunningTasks([submitted], 10_000).interruptedTasks).toEqual([])
+    const result = markInterruptedUpscaleTasks([submitted], 10_000)
+    expect(result.interruptedTasks).toEqual([])
+    expect(result.tasks[0]).toEqual(submitted)
+  })
+
+  it('marks an upscale task that never reached the relay as interrupted (nothing was charged)', () => {
+    const unsent = task({ id: 'u2', status: 'running', createdAt: 1_000, upscale })
+    const result = markInterruptedUpscaleTasks([unsent], 10_000)
+    expect(result.interruptedTasks.map((item) => item.id)).toEqual(['u2'])
+    expect(result.tasks[0]).toMatchObject({ status: 'error', error: expect.stringContaining('请求中断'), finishedAt: 10_000, elapsed: 9_000 })
+  })
+
+  it('does not touch finished upscale tasks or ordinary tasks', () => {
+    const done = task({ id: 'u3', status: 'done', upscale })
+    const ordinary = task({ id: 'o1', status: 'running' })
+    expect(markInterruptedUpscaleTasks([done, ordinary], 10_000).tasks).toEqual([done, ordinary])
   })
 })
 
@@ -1167,6 +1192,13 @@ describe('agent draft lifecycle', () => {
     })
     expect(persisted.agentInputDrafts['conversation-a']?.updatedAt).toEqual(expect.any(Number))
   })
+
+  it('stops saving Agent drafts independently of Gallery draft preferences', () => {
+    useStore.getState().setSettings({ persistInputOnRestart: true, agentPersistInputOnRestart: false })
+    expect(getPersistedState(useStore.getState()).agentInputDrafts).toEqual({})
+    expect(useStore.getState().prompt).toBe(draftState.prompt)
+  })
+
 
   it('removes stale agent drafts except the last active conversation', () => {
     const now = 10 * 24 * 60 * 60 * 1000

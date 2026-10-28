@@ -62,7 +62,7 @@ export default function VideoDetailModal() {
   }
 
   const handleCancel = () => {
-    if (confirm('确定取消这个任务吗？')) {
+    if (confirm('停止本机跟踪？上游任务与计费可能继续。')) {
       cancelTask(task.id)
     }
   }
@@ -96,7 +96,7 @@ export default function VideoDetailModal() {
                 />
               ) : task.status === 'running' || task.status === 'queued' ? (
                 <div className="w-full aspect-video rounded-xl bg-app-surface-elevated flex items-center justify-center text-app-text-muted">
-                  {task.status === 'queued' ? '排队中' : `生成中 ${task.progress || 0}%`}
+                  {task.processing ? '处理中：正在下载并保存视频' : task.status === 'queued' ? '排队中' : `生成中${typeof task.progress === 'number' && Number.isFinite(task.progress) ? ` ${Math.min(100, Math.max(0, Math.round(task.progress)))}%` : ''}`}
                 </div>
               ) : task.status === 'error' ? (
                 <div className="w-full aspect-video rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500">
@@ -104,7 +104,7 @@ export default function VideoDetailModal() {
                 </div>
               ) : (
                 <div className="w-full aspect-video rounded-xl bg-app-surface-elevated flex items-center justify-center text-app-text-muted">
-                  已取消
+                  {task.status === 'done' ? '视频预览不可用' : '已停止跟踪'}
                 </div>
               )}
 
@@ -135,7 +135,7 @@ export default function VideoDetailModal() {
                     onClick={handleCancel}
                     className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white font-medium transition-colors"
                   >
-                    取消任务
+                    停止跟踪
                   </button>
                 )}
                 <button
@@ -148,7 +148,7 @@ export default function VideoDetailModal() {
                   onClick={handleReuseConfig}
                   className="px-4 py-2 rounded-xl bg-app-surface-elevated hover:bg-app-surface-more-elevated text-app-text font-medium transition-colors"
                 >
-                  复用配置
+                  {task.status === 'error' || task.status === 'canceled' ? '调整后重试' : '复用配置'}
                 </button>
                 <button
                   onClick={handleDelete}

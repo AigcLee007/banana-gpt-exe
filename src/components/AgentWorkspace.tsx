@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState, useRef, useCallback, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { AgentConversation, AgentMessage, AgentRound, ResponsesOutputItem, TaskRecord } from '../types'
-import { deleteAgentRoundFromConversation, editOutputs, getActiveAgentRounds, getAgentBranchLeafId, getAgentSiblingRounds, getCachedImage, ensureImageCached, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeMultipleTasks, removeTask, reuseConfig, updateTaskInStore, useStore } from '../store'
+import { deleteAgentRoundFromConversation, editOutputs, getActiveAgentRounds, getAgentBranchLeafId, getAgentSiblingRounds, getCachedImage, ensureImageCached, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeMultipleTasks, removeTask, reuseConfig, stopAgentResponse, updateTaskInStore, useStore } from '../store'
 import { getPromptMentionParts } from '../lib/promptImageMentions'
+import { requestInputBarExpansion } from '../lib/inputBarPresentation'
+import { INPUT_BAR_LAYOUT_EVENT } from '../lib/inputBarLayout'
+import { isAgentScrollAtBottom, shouldFollowAgentScroll } from '../lib/agentScrollLayout'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { collectWebSearchCalls, getAgentRoundOutputItems, getWebSearchStatusForCalls, type AgentWebSearchStatus } from '../lib/agentWebSearch'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
@@ -9,6 +12,11 @@ import { downloadImageIds } from '../lib/downloadImages'
 import TaskCard from './TaskCard'
 import ViewportTooltip from './ViewportTooltip'
 import MarkdownRenderer from './MarkdownRenderer'
+import AgentAnswerAssetButton from './AgentAnswerAssetButton'
+import ManagedAgentSidebar from './ManagedAgentSidebar'
+import ManagedAgentWelcome from './ManagedAgentWelcome'
+import AgentEcommerceWorkspace from './AgentEcommerceDialog'
+import { deleteEcommerceWorkspace, requestEcommerceWorkspace } from '../lib/agentEcommerceWorkspace'
 import { TrashIcon, DownloadIcon, EditIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, SidebarLeftIcon, FavoriteIcon, CloseIcon, CopyIcon, RefreshIcon, ArrowDownIcon } from './icons'
 
 function AgentActionButton({
@@ -308,6 +316,7 @@ function getPageScrollTop() {
 }
 
 export default function AgentWorkspace() {
+  const portalManaged = typeof window !== 'undefined' && Boolean(window.__AAP__?.baseUrl)
   const conversations = useStore((s) => s.agentConversations)
   const conversationsLoaded = useStore((s) => s.agentConversationsLoaded)
   const activeConversationId = useStore((s) => s.activeAgentConversationId)
@@ -337,10 +346,23 @@ export default function AgentWorkspace() {
   const showToast = useStore((s) => s.showToast)
   const agentGeneratingTitleIds = useStore((s) => s.agentGeneratingTitleIds)
   const conversation = conversations.find((item) => item.id === activeConversationId) ?? null
+  const conversationIsRunning = conversation?.rounds.some((round) => round.status === 'running') ?? false
+  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false)
+  useEffect(() => {
+    if (!portalManaged) return
+    const root = document.documentElement
+    root.classList.add('aap-agent-layout')
+    root.style.setProperty('--aap-agent-sidebar-width', desktopSidebarCollapsed ? '52px' : '260px')
+    return () => {
+      root.classList.remove('aap-agent-layout')
+      root.style.removeProperty('--aap-agent-sidebar-width')
+    }
+  }, [portalManaged, desktopSidebarCollapsed])
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null)
   const [editingConversationTitle, setEditingConversationTitle] = useState('')
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const historyRef = useRef<HTMLElement>(null)
   const bottomSentinelRef = useRef<HTMLDivElement>(null)
   const messageRefs = useRef(new Map<string, HTMLElement>())
   const [scrollTargetRoundId, setScrollTargetRoundId] = useState<string | null>(null)
@@ -352,6 +374,8 @@ export default function AgentWorkspace() {
   const touchStartY = useRef(-1)
   const conversationLongPressTimer = useRef<number | null>(null)
   const autoScrollStateRef = useRef<{ conversationId: string | null; lastUserMessageSignature: string | null }>({ conversationId: null, lastUserMessageSignature: null })
+  const followBottomRef = useRef(true)
+  const previousScrollTopRef = useRef(0)
   const errorCopyPointerDownRef = useRef<{ x: number; y: number } | null>(null)
 
   const updateIsScrolledToBottom = useCallback(() => {
@@ -361,14 +385,74 @@ export default function AgentWorkspace() {
       return
     }
 
-    const viewportHeight = window.visualViewport?.height ?? window.innerHeight
-    setIsScrolledToBottom(sentinel.getBoundingClientRect().top <= viewportHeight + 24)
-  }, [appMode])
+    const viewportHeight = portalManaged ? window.innerHeight : window.visualViewport?.height ?? window.innerHeight
+    const position = { scrollTop: getPageScrollTop(), scrollHeight: (document.scrollingElement ?? document.documentElement).scrollHeight, viewportHeight }
+    const atBottom = portalManaged
+      ? isAgentScrollAtBottom(position)
+      : sentinel.getBoundingClientRect().top <= viewportHeight + 24
+    followBottomRef.current = portalManaged
+      ? shouldFollowAgentScroll(followBottomRef.current, previousScrollTopRef.current, position)
+      : atBottom
+    previousScrollTopRef.current = position.scrollTop
+    setIsScrolledToBottom(atBottom)
+  }, [appMode, portalManaged])
 
   const scrollToAgentBottom = useCallback(() => {
+    followBottomRef.current = true
     const scrollingElement = document.scrollingElement ?? document.documentElement
     window.scrollTo({ top: scrollingElement.scrollHeight, behavior: 'smooth' })
   }, [])
+
+  useEffect(() => {
+    if (!portalManaged || appMode !== 'agent' || !scrollContainerRef.current || !conversation?.messages.length) return
+    let frame: number | null = null
+    const keepBottom = () => {
+      if (!followBottomRef.current || frame != null) return
+      frame = window.requestAnimationFrame(() => {
+        frame = null
+        if (!followBottomRef.current) return
+        const page = document.scrollingElement ?? document.documentElement
+        window.scrollTo({ top: page.scrollHeight, behavior: 'instant' })
+        setIsScrolledToBottom(true)
+      })
+    }
+    const beforeComposerResize = () => {
+      const page = document.scrollingElement ?? document.documentElement
+      followBottomRef.current = followBottomRef.current || isAgentScrollAtBottom({ scrollTop: getPageScrollTop(), scrollHeight: page.scrollHeight, viewportHeight: window.innerHeight })
+      keepBottom()
+    }
+    const stopFollowing = () => {
+      followBottomRef.current = false
+      if (frame != null) { window.cancelAnimationFrame(frame); frame = null }
+    }
+    const onWheel = (event: WheelEvent) => { if (event.deltaY < 0) stopFollowing() }
+    let touchY: number | null = null
+    const onTouchStart = (event: TouchEvent) => { touchY = event.touches[0]?.clientY ?? null }
+    const onTouchMove = (event: TouchEvent) => {
+      const nextY = event.touches[0]?.clientY
+      if (touchY != null && nextY != null && nextY > touchY + 6) stopFollowing()
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLElement && event.target.closest('input,textarea,[contenteditable="true"],[role="dialog"]')) return
+      if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) stopFollowing()
+    }
+    const observer = new ResizeObserver(keepBottom)
+    observer.observe(scrollContainerRef.current)
+    window.addEventListener(INPUT_BAR_LAYOUT_EVENT, beforeComposerResize)
+    window.addEventListener('wheel', onWheel, { passive: true })
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchmove', onTouchMove, { passive: true })
+    window.addEventListener('keydown', onKey)
+    return () => {
+      if (frame != null) window.cancelAnimationFrame(frame)
+      observer.disconnect()
+      window.removeEventListener(INPUT_BAR_LAYOUT_EVENT, beforeComposerResize)
+      window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [appMode, portalManaged, conversation?.id, Boolean(conversation?.messages.length)])
 
   const handleTouchStart = (e: React.TouchEvent) => {
     const touchY = e.touches[0]?.clientY ?? -1
@@ -564,7 +648,7 @@ export default function AgentWorkspace() {
   useEffect(() => {
     const frame = window.requestAnimationFrame(updateIsScrolledToBottom)
     return () => window.cancelAnimationFrame(frame)
-  }, [activeMessages, activeRounds, updateIsScrolledToBottom])
+  }, [conversation?.id, updateIsScrolledToBottom])
 
   useEffect(() => {
     if (!scrollTargetRoundId) return
@@ -615,6 +699,10 @@ export default function AgentWorkspace() {
         : undefined,
       action: async (deleteGeneratedImages = false) => {
         deleteConversation(id)
+        if (portalManaged) {
+          try { deleteEcommerceWorkspace(localStorage, (window.__AAP__ as { userId?: number })?.userId, id) }
+          catch { showToast('对话已删除，电商表单清理失败，请检查浏览器本机存储。', 'error') }
+        }
         if (deleteGeneratedImages && relatedTaskIds.length > 0) await removeMultipleTasks(relatedTaskIds)
       },
     })
@@ -674,6 +762,7 @@ export default function AgentWorkspace() {
 
   const handleConversationSelect = (id: string) => {
     setActiveConversationId(id)
+    if (portalManaged) setSidebarCollapsed(true)
     if (conversationActionsId && conversationActionsId !== id) setConversationActionsId(null)
   }
 
@@ -786,7 +875,7 @@ export default function AgentWorkspace() {
         })
       }
     }
-    setPrompt(content)
+    setPrompt(content); requestInputBarExpansion()
   }
 
   const handleCopyMessage = async (content: string, successMessage = '提示词已复制', failureMessage = '复制提示词失败') => {
@@ -821,6 +910,8 @@ export default function AgentWorkspace() {
   return (
     <main 
       data-agent-workspace 
+      data-aap-agent-workspace={portalManaged ? (desktopSidebarCollapsed ? 'collapsed' : 'expanded') : undefined}
+      data-aap-agent-empty={portalManaged && activeMessages.length === 0 || undefined}
       className="safe-area-x mx-auto flex min-h-[calc(100vh-100px)] flex-col lg:flex-row max-w-7xl lg:gap-3 px-3 lg:px-0 relative overflow-visible transition-all duration-300"
     >
       {/* Pull Down Indicator */}
@@ -841,24 +932,28 @@ export default function AgentWorkspace() {
       )}
       
       {/* Left Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 flex w-4/5 max-w-[320px] flex-col border-r border-gray-200 bg-white/95 shadow-2xl backdrop-blur transition-transform duration-300 dark:border-white/[0.08] dark:bg-gray-950/95 lg:hidden ${!sidebarCollapsed ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="pl-[max(1rem,env(safe-area-inset-left))] flex h-full min-h-0 w-full flex-col">
+      {portalManaged ? <ManagedAgentSidebar conversations={filteredConversations} activeId={activeConversationId} collapsed={desktopSidebarCollapsed} mobileOpen={!sidebarCollapsed} query={conversationSearchQuery} onQueryChange={setConversationSearchQuery} onCreate={() => { createConversation(); setSidebarCollapsed(true) }} onSelect={handleConversationSelect} onToggle={() => setDesktopSidebarCollapsed(value => !value)} onCloseMobile={() => setSidebarCollapsed(true)} onRename={renameConversation} onDelete={handleDeleteConversation} generatingTitleIds={agentGeneratingTitleIds} historyRef={historyRef} /> : <aside ref={historyRef} id="agent-conversation-history" aria-label="Agent 会话列表" className={`fixed inset-y-0 left-0 z-50 flex w-4/5 max-w-[320px] flex-col border-r border-gray-200 bg-white/95 shadow-2xl backdrop-blur transition-transform duration-300 dark:border-white/[0.08] dark:bg-gray-950/95 lg:sticky lg:top-[calc(var(--aap-bar-h,0px)+4rem)] lg:z-10 lg:h-[calc(100dvh-var(--aap-bar-h,0px)-4rem)] lg:w-64 lg:shrink-0 lg:self-start lg:translate-x-0 lg:rounded-2xl lg:border lg:shadow-none ${desktopSidebarCollapsed ? 'lg:hidden' : 'lg:flex'} ${!sidebarCollapsed ? 'translate-x-0' : '-translate-x-full'}`}>
+        {portalManaged && <button type="button" data-aap-agent-rail-new aria-label="新对话" title="新对话" onClick={createConversation} className="mx-auto mt-3 hidden rounded-xl bg-blue-600 p-2.5 text-white hover:bg-blue-700"><EditIcon className="h-5 w-5" /></button>}
+        <div data-aap-agent-history={portalManaged || undefined} className="pl-[max(1rem,env(safe-area-inset-left))] flex h-full min-h-0 w-full flex-col">
           <div className="safe-area-top shrink-0">
             <div className="flex h-14 items-center justify-between gap-2 px-4">
-              <button type="button" onClick={() => setSidebarCollapsed(true)} className="lg:hidden p-2 -ml-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 rounded-lg transition-colors" title="折叠左侧边栏">
+              <button type="button" aria-label="关闭会话历史" onClick={() => setSidebarCollapsed(true)} className="lg:hidden p-2 -ml-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 rounded-lg transition-colors" title="折叠左侧边栏">
                 <SidebarLeftIcon className="w-5 h-5" />
               </button>
-              <button type="button" onClick={createConversation} className="p-2 -mr-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 lg:hover:bg-gray-100 lg:dark:hover:bg-white/[0.04] rounded-lg transition-colors" title="新对话">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">创作会话</span>
+              {!portalManaged && <button type="button" onClick={createConversation} className="p-2 -mr-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 lg:hover:bg-gray-100 lg:dark:hover:bg-white/[0.04] rounded-lg transition-colors" title="新对话">
                 <EditIcon className="w-5 h-5" />
-              </button>
+              </button>}
             </div>
           </div>
+          {portalManaged && <button data-aap-agent-new type="button" onClick={() => { createConversation(); setSidebarCollapsed(true) }} className="mx-4 mb-3 inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"><EditIcon className="h-4 w-4" />新对话</button>}
           <div className="shrink-0 px-4 pb-3">
             <input
               type="text"
+              aria-label="搜索会话"
               value={conversationSearchQuery}
               onChange={(e) => setConversationSearchQuery(e.target.value)}
-              placeholder="搜索聊天..."
+              placeholder="搜索标题或对话内容"
               className="w-full rounded-xl border border-gray-200 bg-gray-100/80 px-3 py-2 text-sm text-gray-900 outline-none transition-colors placeholder:text-gray-400 focus:border-blue-400 focus:bg-white dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white dark:focus:border-blue-400 dark:focus:bg-white/[0.07]"
             />
           </div>
@@ -872,7 +967,7 @@ export default function AgentWorkspace() {
               <div
                 key={item.id}
                 data-agent-conversation-item
-                className="group flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-gray-100 dark:hover:bg-white/[0.04]"
+                className={`group flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-gray-100 dark:hover:bg-white/[0.04] ${item.id === activeConversationId ? 'bg-gray-100 dark:bg-white/[0.06]' : ''}`}
                 onPointerDown={(e) => handleConversationPointerDown(item.id, e)}
                 onPointerUp={clearConversationLongPressTimer}
                 onPointerCancel={clearConversationLongPressTimer}
@@ -895,7 +990,7 @@ export default function AgentWorkspace() {
                     />
                   </div>
                 ) : (
-                  <button type="button" className="min-w-0 flex-1 text-left" onClick={() => handleConversationSelect(item.id)}>
+                  <button type="button" aria-current={item.id === activeConversationId ? 'page' : undefined} className="min-w-0 flex-1 text-left" onClick={() => handleConversationSelect(item.id)}>
                     <div className={`truncate ${item.id === activeConversationId ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>{item.title}</div>
                     <div className="text-xs text-gray-400">{formatTime(item.updatedAt)}</div>
                   </button>
@@ -927,58 +1022,84 @@ export default function AgentWorkspace() {
           })}
         </div>
         </div>
-      </aside>
+      </aside>}
 
       {/* Center Chat Area */}
       <section className="min-w-0 flex-1 flex flex-col relative">
+        {(!portalManaged || activeMessages.length > 0) && <div data-agent-desktop-toolbar className="hidden lg:flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-white/[0.08]">
+          {!portalManaged && <button type="button" aria-label={desktopSidebarCollapsed ? '展开会话列表' : '折叠会话列表'} aria-expanded={!desktopSidebarCollapsed} onClick={() => setDesktopSidebarCollapsed((value) => !value)} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-white/[0.06]">
+            <SidebarLeftIcon className="h-5 w-5" />
+          </button>}
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800 dark:text-gray-200">{conversation?.title || 'Agent 创作'}</span>
+          {portalManaged && <button type="button" onClick={requestEcommerceWorkspace} className="rounded-lg border border-[color:var(--app-border)] px-3 py-2 text-xs text-[color:var(--app-text-muted)] hover:bg-[color:var(--app-bg-soft)]">电商套图</button>}
+          {!portalManaged && <button type="button" onClick={createConversation} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:border-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.06]">
+            <EditIcon className="h-4 w-4" />新对话
+          </button>}
+        </div>}
+        {conversationIsRunning && (
+          <div role="status" className="flex items-center justify-between gap-3 px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+            <span className="inline-flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />Agent 正在创作</span>
+            <button type="button" aria-label="停止生成" onClick={() => stopAgentResponse(conversation?.id)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-gray-700 hover:bg-gray-100 dark:border-white/[0.1] dark:text-gray-200 dark:hover:bg-white/[0.06]">停止生成</button>
+          </div>
+        )}
         {/* Mobile Header Toggles */}
-        <div className={`sticky top-0 z-20 lg:hidden overflow-hidden transition-all duration-300 ease-in-out ${mobileTopBarVisible ? 'max-h-16 opacity-100 mb-2' : 'max-h-0 opacity-0 mb-0 pointer-events-none'}`}>
+        <div data-agent-mobile-toolbar className={`sticky top-0 z-20 lg:hidden overflow-hidden transition-all duration-300 ease-in-out ${(typeof window !== 'undefined' && window.__AAP__?.baseUrl) || mobileTopBarVisible ? 'max-h-16 opacity-100 mb-2' : 'max-h-0 opacity-0 mb-0 pointer-events-none'}`}>
           <div
             className="flex h-14 items-center justify-between border-b border-gray-200 bg-white/80 px-2 backdrop-blur dark:border-white/[0.08] dark:bg-gray-950/80"
             onTouchStart={handleHeaderTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
           >
-            <button type="button" onClick={() => setSidebarCollapsed(false)} className="p-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-lg transition-colors" title="展开对话列表">
+            <button type="button" aria-label="展开对话列表" aria-controls="agent-conversation-history" aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed(false)} className="p-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-lg transition-colors" title="展开对话列表">
               <SidebarLeftIcon className="w-5 h-5" />
             </button>
             <button
               type="button"
               onClick={() => {
                 setSidebarCollapsed(false)
-                if (conversation) {
+                if (conversation && !portalManaged) {
                   useStore.getState().setAgentEditingConversationId(conversation.id)
                 }
               }}
               className="text-sm font-semibold text-gray-700 dark:text-gray-300 truncate flex-1 text-center px-2 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded transition-colors"
             >
-              {conversation?.title || 'Agent'}
+              {portalManaged && activeMessages.length === 0 ? 'Agent' : conversation?.title || 'Agent'}
             </button>
-            <button type="button" onClick={createConversation} className="p-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-lg transition-colors" title="新对话">
+            {portalManaged && <button type="button" onClick={requestEcommerceWorkspace} className="rounded-lg px-2 py-2 text-xs text-[color:var(--app-text-muted)]">电商套图</button>}
+            {!portalManaged && <button type="button" onClick={createConversation} className="p-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.04] rounded-lg transition-colors" title="新对话">
               <EditIcon className="w-5 h-5" />
-            </button>
+            </button>}
           </div>
         </div>
 
         <div 
+          data-aap-agent-content={portalManaged || undefined}
           ref={scrollContainerRef}
-          className="flex-1 space-y-4 overflow-visible pb-[calc(var(--input-bar-clearance,12rem)+1.5rem)] px-1 lg:pt-14 lg:px-4"
+          className="flex-1 space-y-4 overflow-visible pb-[calc(var(--input-bar-clearance,12rem)+1.5rem)] px-1 lg:pt-6 lg:px-4"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
-          {!conversation ? (
+          {portalManaged && activeMessages.length === 0 ? <ManagedAgentWelcome onChoose={value => { setPrompt(value); requestInputBarExpansion() }} /> : !conversation ? (
             <div className="py-20 text-center text-gray-400">
               <p className="mb-3">还没有 Agent 对话</p>
-              <button type="button" onClick={createConversation} className="rounded-lg bg-blue-500 px-4 py-2 text-white hover:bg-blue-600 transition-colors">创建对话</button>
+              {!portalManaged && <button type="button" onClick={createConversation} className="rounded-lg bg-blue-500 px-4 py-2 text-white hover:bg-blue-600 transition-colors">创建对话</button>}
             </div>
           ) : (
             (() => {
               if (activeMessages.length === 0) {
                 return (
-                  <div className="py-20 text-center text-gray-400">
-                    <p className="mb-2">开始新的 Agent 对话</p>
-                    <p className="text-xs">在底部输入框发送消息即可创建第一轮对话。</p>
+                  <div data-aap-agent-welcome={portalManaged || undefined} className="mx-auto max-w-2xl px-3 py-16 text-center">
+                    <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-gray-400">Agent 创作</p>
+                    <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">一句需求，展开一组作品</h2>
+                    <p className="mt-3 text-sm leading-6 text-gray-500 dark:text-gray-400">描述想法或添加参考图，生成后继续对话调整细节。</p>
+                    <div className="mt-8 grid gap-3 sm:grid-cols-3" aria-label="选择示例，开始创作">
+                      {[
+                        { title: '产品摄影', prompt: '为这款产品设计一组干净、有质感的商业摄影，先给出三个创意方向。' },
+                        { title: '海报设计', prompt: '帮我设计一张活动海报，先和我确认主题、受众和需要呈现的文字。' },
+                        { title: '延展画面', prompt: '基于参考图延展一组视觉风格一致的画面，保留主体并改变场景和光线。' },
+                      ].map((item) => <button key={item.title} type="button" onClick={() => { setPrompt(item.prompt); requestInputBarExpansion(); showToast('示例已填入，可修改后发送', 'info') }} className="rounded-2xl border border-gray-200 bg-white/60 px-4 py-5 text-left text-sm font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50/50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:hover:border-blue-400/40">{item.title}<span className="mt-2 block text-xs font-normal leading-5 text-gray-400">{item.prompt}</span></button>)}
+                    </div>
                   </div>
                 )
               }
@@ -995,6 +1116,7 @@ export default function AgentWorkspace() {
                 const tasksForRound = taskSlotsForRound.map((slot) => slot.task).filter(Boolean) as TaskRecord[]
                 const favoriteTasksForRound = tasksForRound.filter((task) => (task.outputImages?.length ?? 0) > 0)
                 const hasRoundFavoriteTasks = favoriteTasksForRound.length > 0
+                const roundOutputImageIds = [...new Set(tasksForRound.flatMap((task) => task.outputImages || []))]
                 const allRoundTasksFavorited = hasRoundFavoriteTasks && favoriteTasksForRound.every((task) => task.isFavorite)
                 const assistantBlocks = isAssistant ? getAgentAssistantBlocks(round ?? null, taskSlotsForRound, tasks, Boolean(message.content.trim())) : []
                 const inputImagesForRound = (round?.inputImageIds || []).map(id => ({ id, dataUrl: '' }))
@@ -1114,7 +1236,7 @@ export default function AgentWorkspace() {
 
                       </article>
 
-                    {!isStreamingAssistant && <div className={`mt-2 flex w-full min-w-fit items-center justify-between gap-3 px-1 transition-opacity duration-200 ${isEditing || hasBranches ? 'opacity-100' : 'opacity-100 lg:opacity-0 lg:group-hover:opacity-100'}`} onClick={e => e.stopPropagation()}>
+                    {!isStreamingAssistant && <div className={`mt-2 flex w-full min-w-fit items-center justify-between gap-3 px-1 transition-opacity duration-200 ${isAssistant || isEditing || hasBranches ? 'opacity-100' : 'opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100'}`} onClick={e => e.stopPropagation()}>
                       <div className="flex min-w-0 items-center gap-2">
                         {isEditing && (
                           <div className="inline-flex items-center rounded-md bg-blue-100 px-2 py-1 text-xs text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
@@ -1135,7 +1257,7 @@ export default function AgentWorkspace() {
                           </div>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 ml-auto text-gray-400">
+                      <div className="flex flex-wrap justify-end items-center gap-1 ml-auto text-gray-400">
                         {!isAssistant && round && hasBranches && siblingIndex >= 0 && (
                           <div className="inline-flex items-center text-sm font-bold text-gray-400 dark:text-gray-500 mr-1">
                             <AgentActionButton tooltip="上一分支" className="p-1 rounded-md hover:bg-gray-200/50 dark:hover:bg-white/10 hover:text-gray-800 dark:hover:text-gray-200 transition-colors" onClick={() => handleSwitchBranch(round, -1)}>
@@ -1154,11 +1276,20 @@ export default function AgentWorkspace() {
                             }}>
                               <CopyIcon className="w-4 h-4" />
                             </AgentActionButton>
-                            <AgentActionButton tooltip="重新生成" className="p-1.5 rounded-md text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors" onClick={() => {
+                            {portalManaged && round?.status === 'done' && message.content.trim() && <AgentAnswerAssetButton key={`${conversation.id}:${message.id}`} conversationId={conversation.id} message={message} />}
+                            <AgentActionButton tooltip={round?.status === 'error' ? '重试本轮' : '重新生成'} disabled={conversationIsRunning} className="p-1.5 rounded-md text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors" onClick={() => {
                               if (conversation && round) void regenerateAgentAssistantMessage(conversation.id, round.id);
                             }}>
                               <RefreshIcon className="w-4 h-4" />
                             </AgentActionButton>
+                            {roundOutputImageIds.length > 0 && <>
+                              <AgentActionButton tooltip="继续修改图片" disabled={conversationIsRunning} className="p-1.5 rounded-md hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 disabled:opacity-40" onClick={async () => {
+                                setAgentEditingRoundId(null)
+                                clearMaskDraft()
+                                for (const task of favoriteTasksForRound) await editOutputs(task)
+                              }}><EditIcon className="h-4 w-4" /></AgentActionButton>
+                              <AgentActionButton tooltip="在画廊查看" className="p-1.5 rounded-md hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10" onClick={() => { setAppMode('gallery'); setDetailTaskId(favoriteTasksForRound[0].id) }}><SidebarLeftIcon className="h-4 w-4" /></AgentActionButton>
+                            </>}
                             <AgentActionButton tooltip={allRoundTasksFavorited ? '取消收藏所有图片' : '收藏所有图片'} className={`p-1.5 rounded-md transition-colors ${hasRoundFavoriteTasks ? (allRoundTasksFavorited ? 'text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-500/10' : 'text-gray-400 hover:text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-500/10') : 'text-gray-300 dark:text-gray-600 opacity-50 cursor-not-allowed'}`} disabled={!hasRoundFavoriteTasks} onClick={() => {
                               if (!hasRoundFavoriteTasks) return;
                               const nextFavorite = !allRoundTasksFavorited;
@@ -1167,8 +1298,8 @@ export default function AgentWorkspace() {
                             }}>
                               <FavoriteIcon className="w-4 h-4" filled={allRoundTasksFavorited} />
                             </AgentActionButton>
-                                                        <AgentActionButton tooltip="下载所有图片" className={`p-1.5 rounded-md transition-colors ${getRoundTasks(round ?? null, tasks).filter(Boolean).length > 0 ? 'text-gray-400 hover:text-green-500 hover:bg-green-50 dark:hover:bg-green-500/10' : 'text-gray-300 dark:text-gray-600 opacity-50 cursor-not-allowed'}`} disabled={getRoundTasks(round ?? null, tasks).filter(Boolean).length === 0} onClick={async () => {
-                               const imageIds = tasksForRound.flatMap(t => t.outputImages || []);
+                            <AgentActionButton tooltip="下载所有图片" className={`p-1.5 rounded-md transition-colors ${roundOutputImageIds.length > 0 ? 'text-gray-400 hover:text-green-500 hover:bg-green-50 dark:hover:bg-green-500/10' : 'text-gray-300 dark:text-gray-600 opacity-50 cursor-not-allowed'}`} disabled={roundOutputImageIds.length === 0} onClick={async () => {
+                               const imageIds = roundOutputImageIds;
                                if (imageIds.length === 0) return;
                                try {
                                  const roundIndex = round?.index ?? 0;
@@ -1254,6 +1385,7 @@ export default function AgentWorkspace() {
         </div>
 
         <button
+          data-aap-agent-bottom={portalManaged || undefined}
           onClick={scrollToAgentBottom}
           className={`fixed bottom-[calc(var(--input-bar-clearance,12rem)+1.5rem)] left-1/2 -translate-x-1/2 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 backdrop-blur shadow-[0_2px_12px_rgba(0,0,0,0.1)] border border-gray-200/50 text-gray-500 transition-all duration-300 hover:bg-gray-50 hover:text-gray-800 dark:border-white/[0.08] dark:bg-gray-800/90 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200 ${
             !isScrolledToBottom && activeMessages.length > 0 ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0 pointer-events-none'
@@ -1263,6 +1395,7 @@ export default function AgentWorkspace() {
           <ArrowDownIcon className="h-5 w-5" />
         </button>
       </section>
+      {portalManaged && <AgentEcommerceWorkspace />}
     </main>
   )
 }

@@ -1,0 +1,82 @@
+.aap-managed-agent-sidebar {
+  position: fixed;
+  top: var(--aap-bar-h, 0px);
+  bottom: 0;
+  left: 0;
+  z-index: 50;
+  display: flex;
+  width: min(320px, calc(100vw - 48px));
+  height: calc(100dvh - var(--aap-bar-h, 0px));
+  flex: none;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--app-border);
+  background: var(--app-bg-soft);
+  color: var(--app-text);
+  outline: none;
+  transform: translateX(-100%);
+  transition: transform 180ms ease;
+  visibility: hidden;
+}
+.aap-managed-agent-sidebar[data-mobile-open="true"] { transform: translateX(0); visibility: visible; }
+.aap-managed-agent-sidebar .aap-agent-history-expanded { display: flex; width: 100%; height: 100%; min-height: 0; flex-direction: column; }
+.aap-managed-agent-sidebar .aap-agent-sidebar-top { display: flex; height: 56px; flex-shrink: 0; align-items: center; gap: 8px; padding: 8px 12px; }
+.aap-managed-agent-sidebar .aap-agent-sidebar-heading { flex: 1; font-size: 14px; font-weight: 600; }
+.aap-managed-agent-sidebar .aap-agent-icon-button { display: inline-flex; width: 34px; height: 34px; flex-shrink: 0; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: var(--app-text-muted); cursor: pointer; }
+.aap-managed-agent-sidebar .aap-agent-icon-button svg { width: 19px; height: 19px; }
+.aap-managed-agent-sidebar .aap-agent-icon-button:hover,
+.aap-managed-agent-sidebar .aap-agent-sidebar-footer button:hover { background: var(--app-border); color: var(--app-text); }
+.aap-managed-agent-sidebar button:focus-visible,
+.aap-managed-agent-sidebar input:focus-visible { outline: 2px solid #60a5fa; outline-offset: 1px; }
+.aap-managed-agent-sidebar .aap-agent-desktop-toggle { display: none; }
+.aap-managed-agent-sidebar .aap-agent-history-search { flex-shrink: 0; padding: 0 12px 10px; }
+.aap-managed-agent-sidebar .aap-agent-history-search input { display: block; width: 100%; height: 36px; min-width: 0; padding: 0 11px; border: 1px solid var(--app-border); border-radius: 9px; background: var(--app-input); color: var(--app-text); font-size: 12px; }
+.aap-managed-agent-sidebar .aap-agent-history-search input::placeholder { color: var(--app-text-subtle); }
+.aap-managed-agent-sidebar .aap-agent-history-list { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 12px; scrollbar-width: thin; }
+.aap-managed-agent-sidebar .aap-agent-history-group + .aap-agent-history-group { margin-top: 14px; }
+.aap-managed-agent-sidebar .aap-agent-history-group h3 { margin: 0; padding: 9px 10px 5px; color: var(--app-text-subtle); font-size: 11px; font-weight: 500; }
+.aap-managed-agent-sidebar .aap-agent-history-row { display: flex; min-width: 0; height: 36px; align-items: center; gap: 2px; border-radius: 8px; padding: 0 3px 0 10px; }
+.aap-managed-agent-sidebar .aap-agent-history-row:hover,
+.aap-managed-agent-sidebar .aap-agent-history-row[data-active],
+.aap-managed-agent-sidebar .aap-agent-history-row[data-menu-open] { background: var(--app-border); }
+.aap-managed-agent-sidebar .aap-agent-history-title { display: block; height: 100%; min-width: 0; flex: 1; overflow: hidden; border: 0; background: transparent; color: var(--app-text-muted); font-size: 13px; line-height: 36px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.aap-managed-agent-sidebar .aap-agent-history-title[aria-current] { color: var(--app-text); font-weight: 500; }
+.aap-managed-agent-sidebar .aap-agent-history-more { width: 28px; height: 28px; opacity: 0; }
+.aap-managed-agent-sidebar .aap-agent-history-row:hover .aap-agent-history-more,
+.aap-managed-agent-sidebar .aap-agent-history-row:focus-within .aap-agent-history-more,
+.aap-managed-agent-sidebar .aap-agent-history-row[data-menu-open] .aap-agent-history-more { opacity: 1; }
+.aap-managed-agent-sidebar .aap-agent-rename-input { width: 0; min-width: 0; height: 28px; flex: 1; border: 1px solid #60a5fa; border-radius: 5px; background: var(--app-input); padding: 0 5px; color: var(--app-text); font-size: 13px; }
+.aap-managed-agent-sidebar .aap-agent-history-empty { padding: 28px 12px; color: var(--app-text-subtle); font-size: 12px; line-height: 1.7; text-align: center; }
+.aap-managed-agent-sidebar .aap-agent-sidebar-footer { flex-shrink: 0; border-top: 1px solid var(--app-border); padding: 8px 10px max(10px, env(safe-area-inset-bottom)); }
+.aap-managed-agent-sidebar .aap-agent-sidebar-footer button { display: flex; width: 100%; height: 36px; align-items: center; gap: 10px; border: 0; border-radius: 8px; background: transparent; padding: 0 10px; color: var(--app-text-muted); font-size: 12px; text-align: left; cursor: pointer; }
+.aap-managed-agent-sidebar .aap-agent-sidebar-footer svg { width: 16px; height: 16px; flex-shrink: 0; }
+.aap-managed-agent-sidebar .aap-agent-sidebar-rail { display: none; min-height: 0; height: 100%; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0; }
+.aap-managed-agent-sidebar .aap-agent-rail-settings { margin-top: auto; }
+.aap-agent-sidebar-menu[data-aap-agent-menu] { position: fixed; z-index: 1100; width: 192px; border: 1px solid var(--app-border); border-radius: 12px; background: var(--app-surface-elevated); padding: 5px; color: var(--app-text); box-shadow: var(--app-shadow); }
+.aap-agent-sidebar-menu[data-aap-agent-menu] button { display: flex; width: 100%; min-height: 36px; align-items: center; gap: 9px; border: 0; border-radius: 7px; background: transparent; padding: 8px 10px; color: var(--app-text); font-size: 13px; text-align: left; cursor: pointer; }
+.aap-agent-sidebar-menu[data-aap-agent-menu] button svg { width: 16px; height: 16px; }
+.aap-agent-sidebar-menu[data-aap-agent-menu] button:hover,
+.aap-agent-sidebar-menu[data-aap-agent-menu] button:focus-visible { background: var(--app-bg-soft); outline: none; }
+.aap-agent-sidebar-menu[data-aap-agent-menu] button:disabled { opacity: .4; cursor: default; }
+.aap-agent-sidebar-menu[data-aap-agent-menu] .aap-agent-menu-delete { color: #dc2626; }
+@media (max-width: 1023px) {
+  .aap-managed-agent-sidebar .aap-agent-sidebar-top { height: 60px; }
+  .aap-managed-agent-sidebar .aap-agent-icon-button { width: 44px; height: 44px; }
+  .aap-managed-agent-sidebar .aap-agent-history-row { height: 44px; }
+  .aap-managed-agent-sidebar .aap-agent-history-title { line-height: 44px; }
+  .aap-managed-agent-sidebar .aap-agent-sidebar-footer button,
+  .aap-agent-sidebar-menu[data-aap-agent-menu] button { min-height: 44px; }
+}
+@media (hover: none) {
+  .aap-managed-agent-sidebar .aap-agent-history-more { opacity: 1; }
+}
+@media (min-width: 1024px) {
+  body .aap-managed-agent-sidebar { position: sticky; z-index: 10; width: var(--aap-agent-sidebar-width, 260px); align-self: flex-start; transform: none; visibility: visible; transition: none; }
+  .aap-managed-agent-sidebar .aap-agent-mobile-close { display: none; }
+  .aap-managed-agent-sidebar .aap-agent-desktop-toggle { display: inline-flex; }
+  .aap-managed-agent-sidebar[data-collapsed="true"] .aap-agent-history-expanded { display: none; }
+  .aap-managed-agent-sidebar[data-collapsed="true"] .aap-agent-sidebar-rail { display: flex; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aap-managed-agent-sidebar { transition: none; }
+}

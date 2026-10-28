@@ -3,6 +3,8 @@
 import type { VideoTaskRecord, MediaRecord, MediaPosterRecord } from './videoTypes'
 import { dbTransaction } from './db'
 import { createLocalId } from './localId'
+import { notifyNewStudioMedia } from './portalAssetEvents'
+import { claimManagedLocalAsset } from './portalAssetOwnership'
 
 const STORE_VIDEO_TASKS = 'videoTasks'
 const STORE_MEDIA = 'media'
@@ -213,6 +215,7 @@ export async function uploadMediaFile(
   source: 'upload' | 'generated' | 'extracted',
 ): Promise<string> {
   const id = createLocalId()
+  claimManagedLocalAsset(`media:${id}`)
   const blob = new Blob([file], { type: file.type })
   const mime = file.type
   const size = file.size
@@ -259,6 +262,7 @@ export async function uploadMediaFile(
   }
 
   await putMedia(media)
+  if (source !== 'extracted') notifyNewStudioMedia('media', id, file.name || '视频素材', 'video')
   return id
 }
 

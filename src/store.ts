@@ -1,4 +1,7 @@
+import type { GalleryFilters } from './lib/galleryPresentation'
 import { create } from 'zustand'
+import { requestInputBarExpansion } from './lib/inputBarPresentation'
+import { getAgentPersistDraft } from './lib/workspacePreferences'
 import { persist } from 'zustand/middleware'
 import type {
   AgentConversation,
@@ -18,7 +21,7 @@ import type {
 } from './types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_PARAMS } from './types'
 import { ensureGalleryImageAssets } from './lib/videoAssetBridge'
-import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
+import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, redactManagedKeys, validateApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
@@ -42,6 +45,7 @@ import {
   storeImage,
 } from './lib/db'
 import { callImageApi } from './lib/api'
+import { describeUpscale, normalizeUpscaleParams, upscaleImage, type UpscaleParams } from './lib/upscaleApi'
 import { callAgentConversationTitleApi, callAgentResponsesApi, parseBatchImageCallArguments, type AgentApiResultImage } from './lib/agentApi'
 import { collectAgentRoundOutputImageSlots, extractAgentReferenceIds, getAgentCurrentReferenceId, getAgentGeneratedImageReferenceId, replaceAgentPromptImageReferencesForApi } from './lib/agentImageReferences'
 import { IMAGE_FETCH_CORS_HINT } from './lib/imageApiShared'
@@ -604,9 +608,10 @@ function getLatestAgentConversation(conversations: AgentConversation[]) {
 
 export function getPersistedState(state: AppState) {
   const settings = normalizeSettings(state.settings)
+  const persistedSettings = redactManagedKeys(settings)
   const galleryInputDraft = getPersistableGalleryInputDraft(state)
   return {
-    settings,
+    settings: persistedSettings,
     params: state.params,
     ...(settings.persistInputOnRestart && (state.appMode === 'gallery' || galleryInputDraft)
       ? {
@@ -623,7 +628,7 @@ export function getPersistedState(state: AppState) {
       ? { agentConversations: getPersistableAgentConversations(state.agentConversations) }
       : {}),
     activeAgentConversationId: state.activeAgentConversationId,
-    agentInputDrafts: getPersistableAgentInputDrafts(state),
+    agentInputDrafts: getAgentPersistDraft(settings) ? getPersistableAgentInputDrafts(state) : {},
     agentSidebarCollapsed: state.agentSidebarCollapsed,
     agentAssetTab: state.agentAssetTab,
     agentAssetPanelCollapsed: state.agentAssetPanelCollapsed,
@@ -666,11 +671,11 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
         maskEditorImageId: null,
       })
     : null
-  const normalizedAgentInputDrafts = hasPersistedAgentConversations
+  const normalizedAgentInputDrafts = !getAgentPersistDraft(settings) ? {} : hasPersistedAgentConversations
     ? normalizeAgentInputDrafts(persisted.agentInputDrafts, agentConversations)
     : normalizeAgentInputDraftsByKey(persisted.agentInputDrafts)
   let agentInputDrafts = cleanStaleAgentInputDrafts(normalizedAgentInputDrafts, activeAgentConversationId)
-  if (appMode === 'agent' && activeAgentConversationId && !agentInputDrafts[activeAgentConversationId] && settings.persistInputOnRestart && typeof persisted.prompt === 'string') {
+  if (appMode === 'agent' && activeAgentConversationId && !agentInputDrafts[activeAgentConversationId] && getAgentPersistDraft(settings) && !Object.prototype.hasOwnProperty.call(persisted, 'galleryInputDraft') && typeof persisted.prompt === 'string') {
     agentInputDrafts = {
       ...agentInputDrafts,
       [activeAgentConversationId]: normalizeAgentInputDraft({
@@ -684,6 +689,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
   const restoredAgentDraft = appMode === 'agent' && activeAgentConversationId
     ? agentInputDrafts[activeAgentConversationId] ?? null
     : null
+  const visibleDraft = appMode === 'agent' ? restoredAgentDraft : galleryInputDraft
   return {
     ...currentState,
     ...persisted,
@@ -699,10 +705,10 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     supportPromptDismissed: Boolean(persisted.supportPromptDismissed),
     supportPromptOpen: Boolean(persisted.supportPromptOpen),
     supportPromptSkippedForImportedData: Boolean(persisted.supportPromptSkippedForImportedData),
-    prompt: restoredAgentDraft ? restoredAgentDraft.prompt : galleryInputDraft?.prompt ?? '',
-    inputImages: restoredAgentDraft ? restoredAgentDraft.inputImages : galleryInputDraft?.inputImages ?? [],
-    maskDraft: restoredAgentDraft ? restoredAgentDraft.maskDraft : galleryInputDraft?.maskDraft ?? null,
-    maskEditorImageId: restoredAgentDraft ? restoredAgentDraft.maskEditorImageId : galleryInputDraft?.maskEditorImageId ?? null,
+    prompt: visibleDraft?.prompt ?? '',
+    inputImages: visibleDraft?.inputImages ?? [],
+    maskDraft: visibleDraft?.maskDraft ?? null,
+    maskEditorImageId: visibleDraft?.maskEditorImageId ?? null,
   }
 }
 
@@ -783,6 +789,9 @@ interface AppState {
   filterFavorite: boolean
   setFilterFavorite: (f: boolean) => void
 
+  galleryFilters: GalleryFilters
+  setGalleryFilters: (filters: GalleryFilters) => void
+
   // 多选
   selectedTaskIds: string[]
   setSelectedTaskIds: (ids: string[] | ((prev: string[]) => string[])) => void
@@ -795,6 +804,9 @@ interface AppState {
   lightboxImageId: string | null
   lightboxImageList: string[]
   setLightboxImageId: (id: string | null, list?: string[]) => void
+  /** 高清放大对话框：null 表示关闭；对象里的 imageId 是预选的待放大图片（可为空，由用户在对话框里选） */
+  upscaleDialog: { imageId: string | null } | null
+  setUpscaleDialog: (v: { imageId: string | null } | null) => void
   showSettings: boolean
   settingsTabRequest: SettingsTab | null
   setShowSettings: (v: boolean, tab?: SettingsTab) => void
@@ -1421,6 +1433,9 @@ export const useStore = create<AppState>()(
       filterFavorite: false,
       setFilterFavorite: (filterFavorite) => set({ filterFavorite }),
 
+      galleryFilters: {},
+      setGalleryFilters: (galleryFilters) => set({ galleryFilters }),
+
       // Selection
       selectedTaskIds: [],
       setSelectedTaskIds: (updater) => set((s) => ({
@@ -1449,6 +1464,11 @@ export const useStore = create<AppState>()(
       setLightboxImageId: (lightboxImageId, list) => {
         if (lightboxImageId) dismissAllTooltips()
         set({ lightboxImageId, lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []) })
+      },
+      upscaleDialog: null,
+      setUpscaleDialog: (upscaleDialog) => {
+        if (upscaleDialog) dismissAllTooltips()
+        set({ upscaleDialog })
       },
       showSettings: false,
       settingsTabRequest: null,
@@ -1562,7 +1582,27 @@ export function getCodexCliPromptKey(settings: AppSettings): string {
 }
 
 function isOpenAITask(task: TaskRecord) {
+  // 放大任务有自己的断点续查流程，不能被当成普通生图任务中断、超时或重发（重发会再次扣费）
+  if (task.upscale) return false
   return (task.apiProvider ?? 'openai') !== 'fal'
+}
+
+/** 重启后仍在 running 的放大任务：已拿到中转站任务编号的继续查询；还没提交出去的没有扣费也无从恢复，标为中断。 */
+export function markInterruptedUpscaleTasks(tasks: TaskRecord[], now = Date.now()) {
+  const interruptedTasks: TaskRecord[] = []
+  const updatedTasks = tasks.map((task) => {
+    if (!task.upscale || task.status !== 'running' || task.upscale.remoteTaskId) return task
+    const updated: TaskRecord = {
+      ...task,
+      status: 'error',
+      error: OPENAI_INTERRUPTED_ERROR,
+      finishedAt: now,
+      elapsed: Math.max(0, now - task.createdAt),
+    }
+    interruptedTasks.push(updated)
+    return updated
+  })
+  return { tasks: updatedTasks, interruptedTasks }
 }
 
 function isRunningOpenAITask(task: TaskRecord) {
@@ -1980,7 +2020,10 @@ export async function initStore() {
   if (shouldRewritePersistedLocalState) {
     useStore.setState({})
   }
-  const { tasks: markedTasks, interruptedTasks } = markInterruptedOpenAIRunningTasks(storedTasks)
+  const openAIMarked = markInterruptedOpenAIRunningTasks(storedTasks)
+  const upscaleMarked = markInterruptedUpscaleTasks(openAIMarked.tasks)
+  const markedTasks = upscaleMarked.tasks
+  const interruptedTasks = [...openAIMarked.interruptedTasks, ...upscaleMarked.interruptedTasks]
   const interruptedTaskIds = new Set(interruptedTasks.map((task) => task.id))
   const tasks = markedTasks.map(getPersistableTask)
   await Promise.all(tasks
@@ -2002,6 +2045,10 @@ export async function initStore() {
       (task.status === 'running' || task.customRecoverable)
     ) {
       scheduleCustomRecovery(task.id, 0)
+    }
+    // 放大任务：已提交到中转站的，凭任务编号继续查询，不重新提交
+    if (task.upscale?.remoteTaskId && task.status === 'running') {
+      void executeUpscaleTask(task.id)
     }
   }
 
@@ -4118,6 +4165,10 @@ async function executeTask(taskId: string) {
   const { settings } = useStore.getState()
   const task = useStore.getState().tasks.find((t) => t.id === taskId)
   if (!task) return
+  if (task.upscale) {
+    await executeUpscaleTask(taskId)
+    return
+  }
   const taskProfile = getTaskApiProfile(settings, task)
   if (!taskProfile && task.apiProfileId) {
     updateTaskInStore(taskId, {
@@ -4345,8 +4396,119 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
   if (task) putTask(task)
 }
 
+const upscaleInFlight = new Set<string>()
+
+/** 放大一张图：作为一条新任务进入历史。输入图必须已在图片库里（用 image id 引用）。 */
+export async function submitUpscaleTask(options: { imageId: string; params: Partial<UpscaleParams> }) {
+  const { settings, showToast } = useStore.getState()
+  const profile = getActiveApiProfile(settings)
+  if (!profile.apiKey.trim()) {
+    showToast('请先在设置里填写 API Key', 'error')
+    useStore.getState().setShowSettings(true)
+    return null
+  }
+  const dataUrl = await ensureImageCached(options.imageId)
+  if (!dataUrl) {
+    showToast('要放大的图片已不存在', 'error')
+    return null
+  }
+
+  const upscale = normalizeUpscaleParams(options.params)
+  const now = Date.now()
+  const task: TaskRecord = {
+    id: genId(),
+    sourceMode: 'gallery',
+    prompt: describeUpscale(upscale),
+    params: { ...DEFAULT_PARAMS, output_format: upscale.format === 'png' ? 'png' : upscale.format === 'webp' ? 'webp' : 'jpeg' },
+    apiProvider: profile.provider,
+    apiProfileId: profile.id,
+    apiProfileName: profile.name,
+    apiMode: profile.apiMode,
+    apiModel: upscale.model,
+    upscale: { model: upscale.model, factor: upscale.factor, format: upscale.format },
+    inputImageIds: [options.imageId],
+    maskTargetImageId: null,
+    maskImageId: null,
+    outputImages: [],
+    status: 'running',
+    error: null,
+    createdAt: now,
+    finishedAt: null,
+    elapsed: null,
+  }
+  useStore.getState().setTasks([task, ...useStore.getState().tasks])
+  await putTask(task)
+  showToast('放大任务已提交', 'success')
+  void executeUpscaleTask(task.id)
+  return task.id
+}
+
+async function executeUpscaleTask(taskId: string) {
+  // 同一任务同一时间只跑一个，避免恢复流程和手动重试同时发起造成重复提交
+  if (upscaleInFlight.has(taskId)) return
+  upscaleInFlight.add(taskId)
+  try {
+    const task = useStore.getState().tasks.find((t) => t.id === taskId)
+    if (!task?.upscale) return
+    const { settings } = useStore.getState()
+    const profile = getTaskApiProfile(settings, task) ?? getActiveApiProfile(settings)
+    const remoteTaskId = task.upscale.remoteTaskId
+
+    const inputDataUrl = remoteTaskId ? '' : await ensureImageCached(task.inputImageIds[0])
+    if (!remoteTaskId && !inputDataUrl) throw new Error('要放大的图片已不存在')
+
+    const result = await upscaleImage({
+      profile,
+      params: task.upscale,
+      imageDataUrl: inputDataUrl ?? '',
+      // 一律用任务方式：先拿到任务编号并立刻记下，刷新页面或断网都不会丢图，也不会重复扣费
+      asTask: true,
+      resumeTaskId: remoteTaskId,
+      onTaskEnqueued: ({ taskId: remote }) => {
+        const latest = useStore.getState().tasks.find((t) => t.id === taskId)
+        if (latest?.upscale) updateTaskInStore(taskId, { upscale: { ...latest.upscale, remoteTaskId: remote } })
+      },
+    })
+
+    const latest = useStore.getState().tasks.find((t) => t.id === taskId)
+    if (!latest || latest.status !== 'running') return
+
+    // 结果地址只保留 5 小时，必须马上转存到本地图片库
+    const outputId = await storeImage(result.image, 'generated')
+    cacheImage(outputId, result.image)
+    updateTaskInStore(taskId, {
+      outputImages: [outputId],
+      status: 'done',
+      error: null,
+      finishedAt: Date.now(),
+      elapsed: Date.now() - task.createdAt,
+    })
+    useStore.getState().showToast('高清放大完成', 'success')
+  } catch (err) {
+    const latest = useStore.getState().tasks.find((t) => t.id === taskId)
+    if (!latest || latest.status !== 'running') return
+    updateTaskInStore(taskId, {
+      status: 'error',
+      error: err instanceof Error ? err.message : String(err),
+      finishedAt: Date.now(),
+      elapsed: Date.now() - latest.createdAt,
+    })
+  } finally {
+    upscaleInFlight.delete(taskId)
+  }
+}
+
 /** 重试失败的任务：创建新任务并执行 */
 export async function retryTask(task: TaskRecord) {
+  if (task.upscale) {
+    // 重新提交会再次扣费；已有中转站任务编号且还没出结果的，直接继续查询而不是新建
+    if (task.upscale.remoteTaskId && task.status === 'running') {
+      void executeUpscaleTask(task.id)
+      return
+    }
+    await submitUpscaleTask({ imageId: task.inputImageIds[0], params: task.upscale })
+    return
+  }
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0 })
@@ -4420,6 +4582,7 @@ export async function reuseConfig(task: TaskRecord) {
   }
   setInputImages(imgs)
   setPrompt(task.prompt)
+  requestInputBarExpansion()
   const maskTargetImageId = task.maskTargetImageId ?? (task.maskImageId ? task.inputImageIds[0] : null)
   if (maskTargetImageId && task.maskImageId && imgs.some((img) => img.id === maskTargetImageId)) {
     const maskDataUrl = await ensureImageCached(task.maskImageId)
@@ -4768,7 +4931,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
       exportedAt: new Date(exportedAt).toISOString(),
     }
 
-    if (options.exportConfig) manifest.settings = settings
+    if (options.exportConfig) manifest.settings = redactManagedKeys(settings)
     if (options.exportTasks) {
       manifest.tasks = tasks
       manifest.agentConversations = getPersistableAgentConversations(agentConversations)

@@ -4,7 +4,7 @@ import { useVideoStore } from '../videoStore'
 import { copyImageSourceToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import { suppressGlobalClicks } from '../lib/clickSuppression'
-import { CopyIcon, DownloadIcon, EditIcon, TrashIcon } from './icons'
+import { CopyIcon, DownloadIcon, EditIcon, TrashIcon, UpscaleIcon } from './icons'
 
 export default function ImageContextMenu() {
   const [menuInfo, setMenuInfo] = useState<{ src: string; imageId?: string; outputImageIds: string[]; referenceId?: string; x: number; y: number } | null>(null)
@@ -13,6 +13,7 @@ export default function ImageContextMenu() {
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
+  const setUpscaleDialog = useStore((s) => s.setUpscaleDialog)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -189,12 +190,26 @@ export default function ImageContextMenu() {
     }
   }
 
+  const handleUpscale = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const imageId = menuInfo.imageId
+    setMenuInfo(null)
+    if (!imageId) {
+      showToast('这张图片不在本地图片库里，请从历史记录里选择', 'error')
+      return
+    }
+    setDetailTaskId(null)
+    setLightboxImageId(null)
+    setMaskEditorImageId(null)
+    setUpscaleDialog({ imageId })
+  }
+
   // 保证菜单在视口内
   let left = menuInfo.x
   let top = menuInfo.y
   const MENU_WIDTH = menuInfo.referenceId ? 160 : 120
   const showDownloadAll = menuInfo.outputImageIds.length > 1
-  const MENU_HEIGHT = (menuInfo.src ? (showDownloadAll ? 160 : 128) : 8) + (menuInfo.referenceId ? 40 : 0)
+  const MENU_HEIGHT = (menuInfo.src ? (showDownloadAll ? 160 : 128) + (menuInfo.imageId ? 40 : 0) : 8) + (menuInfo.referenceId ? 40 : 0)
 
   if (left + MENU_WIDTH > window.innerWidth) {
     left -= MENU_WIDTH
@@ -241,6 +256,15 @@ export default function ImageContextMenu() {
           <EditIcon className="w-4 h-4 flex-shrink-0" />
           编辑
         </button>
+        {menuInfo.imageId && (
+          <button
+            onClick={handleUpscale}
+            className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+          >
+            <UpscaleIcon className="w-4 h-4 flex-shrink-0" />
+            高清放大
+          </button>
+        )}
       </>}
       {menuInfo.referenceId && (
         <button

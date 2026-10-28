@@ -12,7 +12,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { downloadImageIds } from '../lib/downloadImages'
 import { isAgentTaskPromptPending } from '../lib/taskPromptDisplay'
-import { CloseIcon, CodeIcon, CopyIcon, DownloadIcon, EditIcon, LinkIcon, TrashIcon } from './icons'
+import { CloseIcon, CodeIcon, CopyIcon, DownloadIcon, EditIcon, LinkIcon, TrashIcon, UpscaleIcon } from './icons'
 
 import ViewportTooltip from './ViewportTooltip'
 
@@ -20,6 +20,7 @@ export default function DetailModal() {
   const tasks = useStore((s) => s.tasks)
   const detailTaskId = useStore((s) => s.detailTaskId)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
+  const setUpscaleDialog = useStore((s) => s.setUpscaleDialog)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
@@ -54,6 +55,7 @@ export default function DetailModal() {
   const downloadImageTooltip = useTooltip()
   const downloadAllTooltip = useTooltip()
   const downloadOriginalImageTooltip = useTooltip()
+  const upscaleTooltip = useTooltip()
 
   const clearTextSelection = () => {
     const selection = window.getSelection()
@@ -490,6 +492,26 @@ export default function DetailModal() {
                   </button>
                   <ViewportTooltip visible={downloadAllTooltip.visible} className="whitespace-nowrap">
                     下载全部
+                  </ViewportTooltip>
+                </div>
+              )}
+              {currentOutputImageId && (
+                <div className="relative group flex">
+                  <button
+                    type="button"
+                    {...upscaleTooltip.handlers}
+                    onClick={() => {
+                      upscaleTooltip.handlers.onClick()
+                      setDetailTaskId(null)
+                      setUpscaleDialog({ imageId: currentOutputImageId })
+                    }}
+                    className="flex items-center justify-center px-1.5 py-0.5 bg-black/50 text-white rounded backdrop-blur-sm hover:bg-black/70 transition focus:outline-none focus:ring-1 focus:ring-white/50"
+                    aria-label="高清放大"
+                  >
+                    <UpscaleIcon className="h-4 w-4" />
+                  </button>
+                  <ViewportTooltip visible={upscaleTooltip.visible} className="whitespace-nowrap">
+                    高清放大
                   </ViewportTooltip>
                 </div>
               )}
@@ -983,6 +1005,7 @@ export default function DetailModal() {
 
           {/* 操作按钮 */}
           <div className="grid grid-cols-4 sm:flex gap-2 pt-4 border-t border-gray-100 dark:border-white/[0.08]">
+            {window.__AAP__?.baseUrl && task.status === 'done' && <button type="button" onClick={handleRetry} className="col-span-2 flex items-center justify-center rounded-xl bg-blue-500 px-3 py-2 text-sm font-medium text-white">再次生成</button>}
             <button
               onClick={handleReuse}
               className="col-span-2 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition text-sm font-medium whitespace-nowrap"

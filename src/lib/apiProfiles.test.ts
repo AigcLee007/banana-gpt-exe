@@ -12,6 +12,8 @@ import {
   importCustomProviderDefinitionFromJson,
   importCustomProviderSettingsFromJson,
   mergeImportedSettings,
+  mergePortalProfile,
+  redactManagedKeys,
   normalizeSettings,
   switchApiProfileProvider,
 } from './apiProfiles'
@@ -355,6 +357,61 @@ describe('mergeImportedSettings', () => {
       apiKey: 'custom-key',
       model: 'custom-model',
     })
+  })
+})
+
+describe('mergePortalProfile', () => {
+  it('overrides the managed profile while preserving user profiles', () => {
+    const current = normalizeSettings({
+      profiles: [
+        createDefaultOpenAIProfile({ id: 'default-openai', apiKey: 'old-key' }),
+        createDefaultOpenAIProfile({ id: 'user-profile', name: '我的渠道', apiKey: 'user-key' }),
+      ],
+      activeProfileId: 'user-profile',
+    })
+
+    const merged = mergePortalProfile(current, {
+      baseUrl: '/gw/v1',
+      key: 'sk-runtime-only',
+      portalName: 'AITTO Studio',
+      lockProfile: true,
+    })
+
+    expect(merged.agentTextModel).toBe('gpt-6-astra')
+    expect(merged.activeProfileId).toBe('portal-managed')
+    expect(merged.profiles).toHaveLength(3)
+    expect(merged.profiles[0]).toMatchObject({
+      id: 'portal-managed',
+      name: 'AITTO Studio',
+      baseUrl: '/gw/v1',
+      apiKey: 'sk-runtime-only',
+      model: 'gpt-image-2',
+      apiMode: 'images',
+      locked: true,
+    })
+    expect(merged.profiles[1]).toMatchObject({ id: 'default-openai', apiKey: 'old-key' })
+    expect(merged.profiles[2]).toMatchObject({ id: 'user-profile', apiKey: 'user-key' })
+  })
+
+  it('replaces only the untouched placeholder and does not duplicate the managed profile', () => {
+    const bootstrap = { baseUrl: '/gw/v1', key: 'runtime-placeholder' }
+    const first = mergePortalProfile(DEFAULT_SETTINGS, bootstrap)
+    const refreshed = mergePortalProfile(first, { ...bootstrap, key: 'rotated-placeholder' })
+    expect(refreshed.profiles).toHaveLength(1)
+    expect(refreshed.profiles[0].apiKey).toBe('rotated-placeholder')
+  })
+})
+
+describe('redactManagedKeys', () => {
+  it('removes managed credentials from backups while preserving custom and standalone settings', () => {
+    const standalone = normalizeSettings({ apiKey: 'custom-placeholder' })
+    expect(redactManagedKeys(standalone)).toBe(standalone)
+    const settings = mergePortalProfile(standalone, { baseUrl: '/gw/v1', key: 'managed-placeholder' })
+    const redacted = redactManagedKeys(settings)
+    expect(redacted.apiKey).toBe('')
+    expect(redacted.profiles.find(p => p.id === 'portal-managed')?.apiKey).toBe('')
+    expect(redacted.profiles.find(p => p.id === 'default-openai')?.apiKey).toBe('custom-placeholder')
+    expect(settings.apiKey).toBe('managed-placeholder')
   })
 })
 

@@ -5,7 +5,7 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
 import HelpModal from './HelpModal'
 import HistoryModal from './HistoryModal'
-import { EditIcon, HelpCircleIcon, HistoryIcon, SettingsIcon } from './icons'
+import { EditIcon, HelpCircleIcon, HistoryIcon, SettingsIcon, UpscaleIcon } from './icons'
 
 const APP_BRAND_NAME = '艾特智绘'
 type ThemeMode = 'dark' | 'light' | 'sepia'
@@ -20,6 +20,7 @@ export default function Header() {
   const appMode = useStore((s) => s.appMode)
   const setAppMode = useStore((s) => s.setAppMode)
   const setShowSettings = useStore((s) => s.setShowSettings)
+  const setUpscaleDialog = useStore((s) => s.setUpscaleDialog)
   const agentMobileHeaderVisible = useStore((s) => s.agentMobileHeaderVisible)
   const agentConversations = useStore((s) => s.agentConversations)
   const activeAgentConversationId = useStore((s) => s.activeAgentConversationId)
@@ -83,6 +84,7 @@ export default function Header() {
   }, [])
 
   const helpTooltip = useTooltip()
+  const upscaleTooltip = useTooltip()
   const settingsTooltip = useTooltip()
   const themeTooltip = useTooltip()
   const currentThemeLabel = THEME_OPTIONS.find((option) => option.value === theme)?.label ?? '暗夜'
@@ -98,7 +100,7 @@ export default function Header() {
             <h1 className="inline-flex items-start relative mr-2">
               <div className="inline-flex items-center gap-3 text-[17px] sm:text-lg font-bold tracking-tight text-gray-800 dark:text-gray-100">
                 <img
-                  src="/aittco-icon.png"
+                  src="./aittco-icon.png"
                   alt={APP_BRAND_NAME}
                   className="h-9 w-9 rounded-full object-cover shadow-sm ring-1 ring-black/5 dark:ring-white/10"
                 />
@@ -106,7 +108,7 @@ export default function Header() {
               </div>
             </h1>
             {appMode === 'agent' && (
-              <div className="hidden sm:flex items-center gap-1 relative">
+              <div data-agent-header-actions className="hidden sm:flex items-center gap-1 relative">
                 <button
                   ref={historyButtonRef}
                   type="button"
@@ -135,7 +137,7 @@ export default function Header() {
           </div>
 
           {appMode === 'agent' && activeConversation && (
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden sm:flex max-w-[30%]">
+            <div data-agent-header-title className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden sm:flex max-w-[30%]">
               <button
                 type="button"
                 onClick={() => {
@@ -151,7 +153,7 @@ export default function Header() {
             </div>
           )}
 
-          <div className="hidden sm:flex items-center gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mr-4">
+          <div data-aap-mode-tabs className="hidden sm:flex items-center gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mr-4">
             <button
               type="button"
               onClick={() => setAppMode('gallery')}
@@ -216,6 +218,23 @@ export default function Header() {
               )}
             </div>
 
+            <div className="relative" {...upscaleTooltip.handlers}>
+              <button
+                type="button"
+                onClick={() => {
+                  dismissAllTooltips()
+                  setUpscaleDialog({ imageId: null })
+                }}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+                aria-label="高清放大"
+              >
+                <UpscaleIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              </button>
+              <ViewportTooltip visible={upscaleTooltip.visible} className="whitespace-nowrap">
+                高清放大
+              </ViewportTooltip>
+            </div>
+
             <div className="relative" {...helpTooltip.handlers}>
               <button
                 onClick={() => {
@@ -234,7 +253,10 @@ export default function Header() {
 
             <div className="relative" {...settingsTooltip.handlers}>
               <button
-                onClick={() => setShowSettings(true)}
+                onClick={() => {
+                  dismissAllTooltips()
+                  setShowSettings(true)
+                }}
                 className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
                 aria-label="设置"
               >
@@ -248,6 +270,7 @@ export default function Header() {
         </div>
 
         <div
+          data-aap-mode-tabs
           className={`safe-area-x sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${appMode === 'gallery' && scrollDirection === 'down' ? 'max-h-0 opacity-0 pb-0' : 'max-h-20 opacity-100 pb-2'}`}
         >
           <div className="grid grid-cols-3 gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mx-2">
@@ -290,6 +313,7 @@ export default function Header() {
       >
         <div className="safe-header-inner" />
         <div
+          data-aap-mode-tabs
           className={`safe-area-x sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${appMode === 'gallery' && scrollDirection === 'down' ? 'max-h-0 pb-0' : 'max-h-20 pb-2'}`}
         >
           <div className="p-1">

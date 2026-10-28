@@ -15,6 +15,12 @@ const BANANA_T3_BY_SIZE: Record<SizeTier, { requestModel: string; yuan: number }
 export interface BananaGalleryModel {
   displayName: string
   model: string
+  familyId?: string
+  familyLabel?: string
+  lineLabel?: string
+  lineShortLabel?: string
+  isBackupLine?: boolean
+  capabilities?: readonly string[]
   providerRoute: BananaModelRoute
   supportsReferenceImages: boolean
   supportedSizeTiers?: readonly SizeTier[]
@@ -34,6 +40,10 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'Nano Banana Pro（优惠线路）',
     model: 'gemini-3-pro-image-preview',
+    familyId: 'nano-banana-pro',
+    familyLabel: 'Nano Banana Pro',
+    lineLabel: '优惠线路',
+    lineShortLabel: '优惠',
     providerRoute: 'gemini-native',
     supportsReferenceImages: true,
     pricePerImageYuan: 0.4,
@@ -41,6 +51,10 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'GPT-Image-2.5 Sunburst',
     model: 'gpt-image-2.5-sunburst',
+    familyId: 'gpt-image-2.5-sunburst',
+    familyLabel: 'GPT-Image-2.5 Sunburst',
+    lineLabel: '标准线路',
+    lineShortLabel: '标准',
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     supportedSizeTiers: SIZE_TIERS,
@@ -49,6 +63,11 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'GPT-Image-2.5 Sunburst(官渠，支持max）',
     model: 'gpt-image-2.5-sunburst-官渠（支持max）',
+    familyId: 'gpt-image-2.5-sunburst',
+    familyLabel: 'GPT-Image-2.5 Sunburst',
+    lineLabel: '官渠线路',
+    lineShortLabel: '官渠',
+    capabilities: ['支持 Max'],
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     supportedSizeTiers: SIZE_TIERS,
@@ -58,6 +77,10 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'GPT-Image-2.5 Flare',
     model: 'gpt-image-2.5-flare',
+    familyId: 'gpt-image-2.5-flare',
+    familyLabel: 'GPT-Image-2.5 Flare',
+    lineLabel: '标准线路',
+    lineShortLabel: '标准',
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     supportedSizeTiers: SIZE_TIERS,
@@ -66,6 +89,11 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'GPT-Image-2(4K线路）',
     model: 'gpt-image-2',
+    familyId: 'gpt-image-2',
+    familyLabel: 'GPT-Image-2',
+    lineLabel: '4K 线路',
+    lineShortLabel: '4K',
+    capabilities: ['支持 4K'],
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     pricePerImageYuan: 0.3,
@@ -73,6 +101,11 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'Seedream 5 Pro (1K/2K)',
     model: 'seedream-5-pro',
+    familyId: 'seedream-5-pro',
+    familyLabel: 'Seedream 5 Pro',
+    lineLabel: '标准线路',
+    lineShortLabel: '标准',
+    capabilities: ['1K / 2K'],
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     supportedSizeTiers: ['1K', '2K'],
@@ -81,6 +114,10 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'Nano Banana 2',
     model: 'gemini-3.1-flash-image-preview',
+    familyId: 'nano-banana-2',
+    familyLabel: 'Nano Banana 2',
+    lineLabel: '标准线路',
+    lineShortLabel: '标准',
     providerRoute: 'gemini-native',
     supportsReferenceImages: true,
     pricePerImageYuan: 0.2,
@@ -88,6 +125,10 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'Nano Banana 2 Lite',
     model: 'gemini-3.1-flash-lite-image',
+    familyId: 'nano-banana-2-lite',
+    familyLabel: 'Nano Banana 2 Lite',
+    lineLabel: '标准线路',
+    lineShortLabel: '标准',
     providerRoute: 'gemini-native',
     supportsReferenceImages: true,
     pricePerImageYuan: 0.1,
@@ -95,12 +136,22 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'Nano Banana Pro（官方T3）',
     model: OFFICIAL_T3_MODEL,
+    familyId: 'nano-banana-pro',
+    familyLabel: 'Nano Banana Pro',
+    lineLabel: '官方 T3',
+    lineShortLabel: '官方 T3',
+    capabilities: ['1K / 2K / 4K'],
     providerRoute: 'banana-t3-images',
     supportsReferenceImages: true,
   },
   {
     displayName: 'GPT-Image-2(官转线路，支持高质量4K）',
     model: 'gpt-image-2-official',
+    familyId: 'gpt-image-2',
+    familyLabel: 'GPT-Image-2',
+    lineLabel: '官转线路',
+    lineShortLabel: '官转',
+    capabilities: ['高质量 4K'],
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     pricePerImageYuan: 0.8,
@@ -108,6 +159,11 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'Nano Banana Pro（备选）',
     model: 'nano-banana-pro',
+    familyId: 'nano-banana-pro',
+    familyLabel: 'Nano Banana Pro',
+    lineLabel: '备用线路',
+    lineShortLabel: '备用',
+    isBackupLine: true,
     providerRoute: 'gemini-native',
     supportsReferenceImages: true,
     pricePerImageYuan: 0.4,
@@ -115,6 +171,11 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'GPT-Image-2（备用）',
     model: 'gpt-image-2-svip',
+    familyId: 'gpt-image-2',
+    familyLabel: 'GPT-Image-2',
+    lineLabel: '备用线路',
+    lineShortLabel: '备用',
+    isBackupLine: true,
     providerRoute: 'openai-images',
     supportsReferenceImages: true,
     pricePerImageYuan: 0.3,

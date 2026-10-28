@@ -11,12 +11,17 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelCreditLabel, getBananaModelRoute, getBananaQualityOptions, getBananaSupportedSizeTiers, normalizeBananaModelId, usesGeminiImageParams } from '../lib/bananaModels'
+import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelRoute, getBananaQualityOptions, getBananaSupportedSizeTiers, normalizeBananaModelId, usesGeminiImageParams } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
-import { getInputBarClearance } from '../lib/inputBarLayout'
-import { getInputBarExpandFocusTarget, getInputBarPresentation } from '../lib/inputBarPresentation'
+import { getInputBarClearance, INPUT_BAR_LAYOUT_EVENT } from '../lib/inputBarLayout'
+import { getInputBarExpandFocusTarget, getInputBarPresentation, INPUT_BAR_EXPAND_EVENT } from '../lib/inputBarPresentation'
+import { filterGalleryTasks, toggleVisibleGallerySelection } from '../lib/galleryPresentation'
 import Select from './Select'
+import ImageModelPicker from './ImageModelPicker'
+import AgentInputOptions from './AgentInputOptions'
+import { pickStudioAssets } from '../lib/portalAssets'
+import { getAgentEnterSubmit } from '../lib/workspacePreferences'
 import SizePickerModal from './SizePickerModal'
 import ViewportTooltip from './ViewportTooltip'
 import { ChevronDownIcon, CloseIcon } from './icons'
@@ -389,6 +394,7 @@ function AtImageOptionThumb({ option }: { option: AtImageOption }) {
 }
 
 export default function InputBar() {
+  const portalManaged = Boolean(window.__AAP__?.baseUrl)
   const prompt = useStore((s) => s.prompt)
   const appMode = useStore((s) => s.appMode)
   const setPrompt = useStore((s) => s.setPrompt)
@@ -406,7 +412,7 @@ export default function InputBar() {
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const showToast = useStore((s) => s.showToast)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
-  const selectedTaskIds = useStore((s) => s.selectedTaskIds)
+  const storedSelectedTaskIds = useStore((s) => s.selectedTaskIds)
   const setSelectedTaskIds = useStore((s) => s.setSelectedTaskIds)
   const clearSelection = useStore((s) => s.clearSelection)
   const tasks = useStore((s) => s.tasks)
@@ -414,31 +420,17 @@ export default function InputBar() {
   const activeAgentConversationId = useStore((s) => s.activeAgentConversationId)
   const filterStatus = useStore((s) => s.filterStatus)
   const filterFavorite = useStore((s) => s.filterFavorite)
+  const galleryFilters = useStore((s) => s.galleryFilters)
   const searchQuery = useStore((s) => s.searchQuery)
 
-  const filteredTasks = useMemo(() => {
-    const sorted = [...tasks].sort((a, b) => b.createdAt - a.createdAt)
-    const q = searchQuery.trim().toLowerCase()
-    
-    return sorted.filter((t) => {
-      if (filterFavorite && !t.isFavorite) return false
-      const matchStatus = filterStatus === 'all' || t.status === filterStatus
-      if (!matchStatus) return false
-      
-      if (!q) return true
-      const prompt = (t.prompt || '').toLowerCase()
-      const paramStr = JSON.stringify(t.params).toLowerCase()
-      return prompt.includes(q) || paramStr.includes(q)
-    })
-  }, [tasks, searchQuery, filterStatus, filterFavorite])
+  const filteredTasks = useMemo(() => filterGalleryTasks(tasks, searchQuery, filterStatus, filterFavorite, galleryFilters), [tasks, searchQuery, filterStatus, filterFavorite, galleryFilters])
+  const selectedTaskIds = useMemo(() => filteredTasks.filter(task => storedSelectedTaskIds.includes(task.id)).map(task => task.id), [filteredTasks, storedSelectedTaskIds])
+  const allVisibleSelected = filteredTasks.length > 0 && filteredTasks.every((task) => selectedTaskIds.includes(task.id))
+  const selectedImageCount = tasks.filter((task) => selectedTaskIds.includes(task.id)).reduce((count, task) => count + task.outputImages.length, 0)
 
   const handleSelectAllToggle = useCallback(() => {
-    if (selectedTaskIds.length === filteredTasks.length && filteredTasks.length > 0) {
-      clearSelection()
-    } else {
-      setSelectedTaskIds(filteredTasks.map((t) => t.id))
-    }
-  }, [selectedTaskIds.length, filteredTasks, clearSelection, setSelectedTaskIds])
+    setSelectedTaskIds(toggleVisibleGallerySelection(selectedTaskIds, filteredTasks.map((task) => task.id)))
+  }, [selectedTaskIds, filteredTasks, setSelectedTaskIds])
 
   const handleToggleFavorite = useCallback(() => {
     const selectedTasks = tasks.filter((t) => selectedTaskIds.includes(t.id))
@@ -506,6 +498,7 @@ export default function InputBar() {
   const textareaRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
+  const inputBarRef = useRef<HTMLDivElement>(null)
   const expandButtonRef = useRef<HTMLButtonElement>(null)
   const collapseButtonRef = useRef<HTMLButtonElement>(null)
   const mobileCollapseButtonRef = useRef<HTMLButtonElement>(null)
@@ -518,7 +511,7 @@ export default function InputBar() {
   const [submitHover, setSubmitHover] = useState(false)
   const [attachHover, setAttachHover] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
-  const [isComposerCollapsed, setIsComposerCollapsed] = useState(false)
+  const [isComposerCollapsed, setIsComposerCollapsed] = useState(portalManaged)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [showMobileUploadMenu, setShowMobileUploadMenu] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
@@ -545,6 +538,25 @@ export default function InputBar() {
   const isMobile = useIsMobile()
   const inputBarPresentation = getInputBarPresentation(isComposerCollapsed)
 
+  // Explicit actions such as reusing a prompt or choosing a starter should reveal
+  // their populated draft. Typing and restoring a mode never override collapse.
+  useEffect(() => {
+    if (!portalManaged) return
+    const reveal = () => {
+      setIsComposerCollapsed(false)
+      window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
+    }
+    window.addEventListener(INPUT_BAR_EXPAND_EVENT, reveal)
+    const unsubscribe = useStore.subscribe((next, previous) => {
+      if (next.appMode !== previous.appMode) { setIsComposerCollapsed(true); return }
+      if (isUserInputRef.current) return
+      if ((next.prompt !== previous.prompt && next.prompt.trim()) || next.inputImages.length > previous.inputImages.length) {
+        setIsComposerCollapsed(false)
+      }
+    })
+    return () => { unsubscribe(); window.removeEventListener(INPUT_BAR_EXPAND_EVENT, reveal) }
+  }, [portalManaged])
+
   const collapseComposer = useCallback(() => {
     setAtImageMenuDismissed(true)
     setAtImageMenuIndex(0)
@@ -552,7 +564,11 @@ export default function InputBar() {
     setShowSizePicker(false)
     dismissAllTooltips()
     setIsComposerCollapsed(true)
-    window.requestAnimationFrame(() => expandButtonRef.current?.focus())
+    window.requestAnimationFrame(() => {
+      const welcomeStart = document.querySelector<HTMLButtonElement>('[data-aap-agent-start]')
+      if (welcomeStart && welcomeStart.getClientRects().length) welcomeStart.focus({ preventScroll: true })
+      else expandButtonRef.current?.focus()
+    })
   }, [])
 
   const expandComposer = useCallback(() => {
@@ -567,15 +583,22 @@ export default function InputBar() {
   }, [isMobile])
 
   const updateInputBarClearance = useCallback(() => {
-    const visibleElement = isComposerCollapsed ? capsuleRef.current : composerRef.current
-    if (!visibleElement) return
-
-    const clearance = getInputBarClearance(window.innerHeight, visibleElement.getBoundingClientRect())
-    document.documentElement.style.setProperty('--input-bar-clearance', `${clearance}px`)
+    const bar = inputBarRef.current
+    const capsule = capsuleRef.current
+    if (!bar || isComposerCollapsed && !capsule) return
+    // The inner composer and capsule animate with translateY. Their rects are
+    // transient and transforms do not trigger ResizeObserver after settling.
+    const clearance = getInputBarClearance(window.innerHeight, bar.getBoundingClientRect(), isComposerCollapsed ? capsule!.offsetHeight : undefined)
+    const root = document.documentElement
+    const next = `${clearance}px`
+    if (root.style.getPropertyValue('--input-bar-clearance') === next) return
+    // Let the chat capture its pre-resize reading position before padding changes.
+    window.dispatchEvent(new Event(INPUT_BAR_LAYOUT_EVENT))
+    root.style.setProperty('--input-bar-clearance', next)
   }, [isComposerCollapsed])
 
   useLayoutEffect(() => {
-    const visibleElement = isComposerCollapsed ? capsuleRef.current : composerRef.current
+    const visibleElement = inputBarRef.current
     if (!visibleElement) return
 
     const frame = window.requestAnimationFrame(updateInputBarClearance)
@@ -593,9 +616,9 @@ export default function InputBar() {
       window.removeEventListener('resize', updateInputBarClearance)
       visualViewport?.removeEventListener('resize', updateInputBarClearance)
       visualViewport?.removeEventListener('scroll', updateInputBarClearance)
-      document.documentElement.style.removeProperty('--input-bar-clearance')
     }
   }, [isComposerCollapsed, updateInputBarClearance])
+  useLayoutEffect(() => () => { document.documentElement.style.removeProperty('--input-bar-clearance') }, [])
   const imageHintTimerRef = useRef<number | null>(null)
   const [outputCompressionInput, setOutputCompressionInput] = useState(
     params.output_compression == null ? '' : String(params.output_compression),
@@ -698,27 +721,19 @@ export default function InputBar() {
     ? resolvedGalleryModel
     : DEFAULT_GALLERY_MODEL
   const activeImageModel = getActiveBananaModelForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
+  const hideOutputCompression = portalManaged && activeImageModel.startsWith('gpt-')
   const supportedSizeTiers = getBananaSupportedSizeTiers(activeImageModel)
   const activeImageModelRoute = getActiveBananaModelRouteForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
   const usesGeminiParamControls = activeImageModelRoute === 'gemini-native' || activeImageModelRoute === 'banana-t3-images'
   const usesGeminiGalleryParams = appMode === 'gallery' && usesGeminiImageParams(galleryModel)
-  const desktopParamGridColumns = getBananaDesktopParamGridColumnsForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
   const transparentOutputAvailable = appMode === 'gallery' && !usesGeminiGalleryParams
   const showTransparentOutputControl = transparentOutputAvailable && params.output_format === 'png'
+  const desktopParamGridColumns = hideOutputCompression
+    ? showTransparentOutputControl ? 'grid-cols-7' : 'grid-cols-6'
+    : getBananaDesktopParamGridColumnsForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
   const transparentOutputEnabled = showTransparentOutputControl && params.transparent_output
   const geminiAspectRatio = normalizeGeminiAspectRatio(params.geminiAspectRatio ?? params.size)
   const geminiImageSize = normalizeGeminiImageSize(params.geminiImageSize ?? '2K')
-  const imageModelOptions = BANANA_GALLERY_MODELS.map((item) => ({
-    label: item.displayName,
-    secondaryLabel: getBananaModelCreditLabel(item.model, geminiImageSize),
-    value: item.model,
-  }))
-  const getImageModelOptionLabel = (model: string) => {
-    const item = BANANA_GALLERY_MODELS.find((candidate) => candidate.model === model)
-    return item
-      ? `${item.displayName} · ${getBananaModelCreditLabel(item.model, geminiImageSize)}`
-      : String(model)
-  }
   const geminiRatioOptions = GEMINI_ASPECT_RATIOS.map((ratio) => ({
     label: (
       <span className="inline-flex items-center gap-2">
@@ -891,11 +906,12 @@ export default function InputBar() {
 
   useEffect(() => {
     const normalizedParams = normalizeParamsForSettings(params, paramsNormalizationSettings, { hasInputImages: inputImages.length > 0 })
+    if (hideOutputCompression) normalizedParams.output_compression = null
     const patch = getChangedParams(params, normalizedParams)
     if (Object.keys(patch).length) {
       setParams(patch)
     }
-  }, [inputImages.length, params, paramsNormalizationSettings, setParams])
+  }, [hideOutputCompression, inputImages.length, params, paramsNormalizationSettings, setParams])
 
   useEffect(() => () => {
     if (imageHintTimerRef.current != null) {
@@ -1211,7 +1227,7 @@ export default function InputBar() {
 
       const isModifier = e.ctrlKey || e.metaKey
 
-      if (settings.enterSubmit) {
+      if (appMode === 'agent' ? getAgentEnterSubmit(settings) : settings.enterSubmit) {
         if (e.shiftKey) {
           insertPromptTextAtSelection('\n')
         } else if (!isModifier) {
@@ -1846,8 +1862,10 @@ export default function InputBar() {
       {appMode === 'gallery' && (
         <label className="flex flex-col gap-0.5">
           <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
-          <Select
+          <ImageModelPicker
             value={galleryModel}
+            imageSize={geminiImageSize}
+            memoryScope="gallery"
             onChange={(model) => {
               const nextModel = String(model)
               const nextRoute = getBananaModelRoute(nextModel)
@@ -1858,28 +1876,22 @@ export default function InputBar() {
               const patch = getChangedParams(params, nextParams)
               if (Object.keys(patch).length) setParams(patch)
             }}
-            options={imageModelOptions}
             className={selectClass}
-            menuClassName="min-w-max"
-            triggerTitle={getImageModelOptionLabel(galleryModel)}
-            truncateOptionLabel={false}
           />
         </label>
       )}
       {appMode === 'agent' && (
         <label className="flex flex-col gap-0.5">
           <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
-          <Select
+          <ImageModelPicker
             value={agentImageModel}
+            imageSize={geminiImageSize}
+            memoryScope="agent"
             onChange={(model) => {
               const nextModel = normalizeBananaModelId(String(model))
               setSettings({ agentImageModel: nextModel })
             }}
-            options={imageModelOptions}
             className={selectClass}
-            menuClassName="min-w-max"
-            triggerTitle={getImageModelOptionLabel(agentImageModel)}
-            truncateOptionLabel={false}
           />
         </label>
       )}
@@ -2009,7 +2021,7 @@ export default function InputBar() {
               />
             </label>
           )}
-          <label
+          {!hideOutputCompression && <label
             className="relative flex flex-col gap-0.5"
             onMouseEnter={compressionHint.show}
             onMouseLeave={compressionHint.hide}
@@ -2038,7 +2050,7 @@ export default function InputBar() {
               visible={compressionHint.visible}
               text={isFalProvider ? 'fal.ai does not support compression' : 'Only JPEG and WebP support compression'}
             />
-          </label>
+          </label>}
           <label
             className="relative flex flex-col gap-0.5"
             onMouseEnter={moderationHint.show}
@@ -2161,24 +2173,21 @@ export default function InputBar() {
       )}
 
       <div
+        ref={inputBarRef}
         data-input-bar
+        data-aap-agent-composer={portalManaged && appMode === 'agent' || undefined}
         data-composer-state={isComposerCollapsed ? 'collapsed' : 'expanded'}
         className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-4xl px-3 sm:px-4 transition-all duration-300"
       >
-        <div
-          id="image-generation-composer"
-          ref={composerRef}
-          aria-hidden={inputBarPresentation.composerAriaHidden}
-          inert={inputBarPresentation.composerInert}
-          className="input-bar-composer"
-        >
         {selectedTaskIds.length > 0 && (
           <div className="flex justify-center mb-3">
-            <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-lg rounded-full flex items-center p-1 border border-gray-200/50 dark:border-white/10 pointer-events-auto">
+            <div role="toolbar" aria-label={`批量操作，已选择 ${selectedTaskIds.length} 条记录`} className="bg-white/90 dark:bg-gray-800/90 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-lg rounded-full flex items-center p-1 border border-gray-200/50 dark:border-white/10 pointer-events-auto">
+              <span className="pl-3 pr-1 text-xs whitespace-nowrap text-gray-600 dark:text-gray-300">已选 {selectedTaskIds.length} 条</span>
               <button
                 onClick={clearSelection}
                 className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
                 title="取消选择"
+                aria-label="取消选择"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -2188,9 +2197,10 @@ export default function InputBar() {
               <button
                 onClick={handleSelectAllToggle}
                 className="p-2 text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
-                title={selectedTaskIds.length === filteredTasks.length && filteredTasks.length > 0 ? "取消全选" : "全选当前可见"}
+                title={allVisibleSelected ? "取消全选" : "全选当前可见"}
+                aria-label={allVisibleSelected ? "取消全选" : "全选当前可见"}
               >
-                {selectedTaskIds.length === filteredTasks.length && filteredTasks.length > 0 ? (
+                {allVisibleSelected ? (
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
                     <path d="M9 12l2 2 4-4" />
@@ -2206,6 +2216,7 @@ export default function InputBar() {
                 onClick={handleToggleFavorite}
                 className="p-2 text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300 transition-colors"
                 title="收藏/取消收藏"
+                aria-label="收藏或取消收藏选中记录"
               >
                 {selectedTaskIds.length > 0 && selectedTaskIds.every((id) => tasks.find((t) => t.id === id)?.isFavorite) ? (
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -2220,8 +2231,10 @@ export default function InputBar() {
               <div className="w-px h-5 bg-gray-200 dark:bg-white/20 mx-1"></div>
               <button
                 onClick={handleDownloadSelected}
-                className="p-2 text-green-500 dark:text-green-400 hover:text-green-600 dark:hover:text-green-300 transition-colors"
+                className="p-2 text-green-500 dark:text-green-400 hover:text-green-600 dark:hover:text-green-300 transition-colors disabled:opacity-30"
                 title="批量下载"
+                aria-label={`批量下载 ${selectedImageCount} 张图片`}
+                disabled={!selectedImageCount}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -2232,6 +2245,7 @@ export default function InputBar() {
                 onClick={handleDeleteSelected}
                 className="p-2 text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors"
                 title="删除选中"
+                aria-label={`删除选中的 ${selectedTaskIds.length} 条记录`}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -2240,18 +2254,26 @@ export default function InputBar() {
             </div>
           </div>
         )}
+        <div
+          id="image-generation-composer"
+          ref={composerRef}
+          aria-hidden={inputBarPresentation.composerAriaHidden}
+          inert={inputBarPresentation.composerInert}
+          className="input-bar-composer"
+        >
         <div ref={cardRef} className="input-bar-card bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10">
           <button
             ref={collapseButtonRef}
             type="button"
             onClick={collapseComposer}
-            className="input-bar-collapse-button hidden sm:flex"
+            className={`input-bar-collapse-button hidden sm:flex${portalManaged ? ' composer-disclosure-cue input-bar-collapse-labeled' : ''}`}
             aria-label="收起输入框"
             aria-controls="image-generation-composer"
             aria-expanded={inputBarPresentation.collapseAriaExpanded}
             title="收起输入框"
           >
             <ChevronDownIcon className="h-4 w-4" />
+            {portalManaged && <span>收起输入框</span>}
           </button>
 
           {/* 移动端拖动条 */}
@@ -2261,7 +2283,7 @@ export default function InputBar() {
               mobileCollapseButtonRef.current = node
             }}
             type="button"
-            className="sm:hidden flex justify-center pt-0.5 pb-2 -mt-1 cursor-pointer touch-none"
+            className={`sm:hidden flex justify-center pt-0.5 pb-2 -mt-1 cursor-pointer touch-none${portalManaged ? ' composer-disclosure-cue input-bar-mobile-collapse' : ''}`}
             onClick={() => {
               if (Date.now() < suppressHandleClickUntilRef.current) {
                 suppressHandleClickUntilRef.current = 0
@@ -2273,16 +2295,18 @@ export default function InputBar() {
             aria-controls="image-generation-composer"
             aria-expanded={inputBarPresentation.collapseAriaExpanded}
           >
-            <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200" />
+            {portalManaged ? <><ChevronDownIcon className="h-4 w-4" /><span>收起输入框</span></> : <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200" />}
           </button>
 
           {/* 输入图片行 */}
+          <div className={portalManaged && appMode === 'agent' ? 'aap-agent-composer-scroll' : undefined}>
+          {appMode === 'agent' && window.__AAP__?.baseUrl && <div className="flex flex-wrap items-center gap-2"><AgentInputOptions /><button type="button" onClick={() => { void pickStudioAssets().catch(() => showToast('素材暂未添加，请重试', 'error')) }} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/5">从素材库选择</button></div>}
           {inputImages.length > 0 && renderImageThumbs()}
 
           {/* 输入框 */}
           <div className="relative grid">
             {showAtImageMenu && (
-              <div style={{ left: `${menuLeft}px` }} className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
+              <div style={portalManaged && appMode === 'agent' ? undefined : { left: `${menuLeft}px` }} className={`${portalManaged && appMode === 'agent' ? 'relative col-start-1 row-start-2 mt-2 w-full' : 'absolute bottom-full mb-2 w-64'} z-50 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10`}>
                 <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">选择图片引用</div>
                 <div className="max-h-56 overflow-y-auto custom-scrollbar">
                   {atImageOptions.map((option, optionIndex) => (
@@ -2562,6 +2586,7 @@ export default function InputBar() {
             className="hidden"
             onChange={handleReplaceFileUpload}
           />
+          </div>
         </div>
         </div>
         <button
@@ -2571,7 +2596,7 @@ export default function InputBar() {
           }}
           type="button"
           onClick={expandComposer}
-          className="input-bar-expand-capsule"
+          className={`input-bar-expand-capsule${portalManaged ? ' composer-disclosure-cue' : ''}`}
           aria-label="展开输入框"
           aria-controls="image-generation-composer"
           aria-expanded={inputBarPresentation.expandAriaExpanded}

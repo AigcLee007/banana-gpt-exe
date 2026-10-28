@@ -4,6 +4,12 @@ import { useStore } from '../store'
 import { downloadVideoTasks } from '../lib/downloadVideos'
 import VideoTaskCard from './VideoTaskCard'
 import { DownloadIcon, FavoriteIcon, TrashIcon } from './icons'
+import WorkspaceMoreMenu from './WorkspaceMoreMenu'
+
+const STATUS_FILTERS = [
+  ['all', '全部'], ['queued', '排队中'], ['running', '生成中'], ['processing', '处理中'],
+  ['done', '已完成'], ['error', '失败'], ['canceled', '已停止'],
+] as const
 
 interface VideoTaskGridProps {
   onOpenAssetLibrary?: () => void
@@ -14,12 +20,14 @@ export default function VideoTaskGrid({ onOpenAssetLibrary }: VideoTaskGridProps
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const showToast = useStore((s) => s.showToast)
   const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'done' | 'running' | 'error'>('all')
+  const [statusFilter, setStatusFilter] = useState<typeof STATUS_FILTERS[number][0]>('all')
   const [favoriteFilter, setFavoriteFilter] = useState(false)
 
   const filteredTasks = useMemo(() => {
     let filtered = tasks
-    if (statusFilter !== 'all') filtered = filtered.filter((task) => statusFilter === 'running' ? task.status === 'queued' || task.status === 'running' : task.status === statusFilter)
+    if (statusFilter !== 'all') filtered = filtered.filter((task) => statusFilter === 'processing'
+      ? task.status === 'running' && task.processing
+      : statusFilter === 'running' ? task.status === 'running' && !task.processing : task.status === statusFilter)
     if (favoriteFilter) filtered = filtered.filter((task) => task.isFavorite)
     const query = searchQuery.trim().toLowerCase()
     if (query) filtered = filtered.filter((task) => `${task.prompt} ${task.model} ${task.params.duration}s`.toLowerCase().includes(query))
@@ -27,15 +35,12 @@ export default function VideoTaskGrid({ onOpenAssetLibrary }: VideoTaskGridProps
   }, [tasks, statusFilter, favoriteFilter, searchQuery])
 
   const visibleIds = filteredTasks.map((task) => task.id)
-  const existingSelectedIds = [...selectedTaskIds].filter((id) => tasks.some((task) => task.id === id))
+  const existingSelectedIds = [...selectedTaskIds].filter((id) => visibleIds.includes(id))
   const selectedTasks = tasks.filter((task) => existingSelectedIds.includes(task.id))
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedTaskIds.has(id))
 
   const toggleVisibleSelection = () => {
-    const next = new Set(selectedTaskIds)
-    if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id))
-    else visibleIds.forEach((id) => next.add(id))
-    setSelection([...next])
+    setSelection(allVisibleSelected ? [] : visibleIds)
   }
 
   const batchDelete = () => setConfirmDialog({
@@ -58,17 +63,16 @@ export default function VideoTaskGrid({ onOpenAssetLibrary }: VideoTaskGridProps
 
   return (
     <div data-video-gallery className="min-w-0">
+      <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold text-[color:var(--app-text)]">视频作品</h2><span className="text-xs text-[color:var(--app-text-muted)]">{filteredTasks.length} 个任务</span></div>
       <div className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-surface)] p-3">
-        <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索提示词..." className="min-w-[180px] flex-1 rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-input)] px-4 py-2 text-sm text-[color:var(--app-text)] outline-none focus:border-blue-400" />
-        <div className="flex max-w-full gap-1 overflow-x-auto">
-          <FilterButton active={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>全部</FilterButton>
-          <FilterButton active={statusFilter === 'done'} onClick={() => setStatusFilter('done')}>已完成</FilterButton>
-          <FilterButton active={statusFilter === 'running'} onClick={() => setStatusFilter('running')}>生成中</FilterButton>
-          <FilterButton active={statusFilter === 'error'} onClick={() => setStatusFilter('error')}>失败</FilterButton>
+        <input aria-label="搜索视频任务" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索提示词、模型..." className="min-w-0 basis-48 flex-1 rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-input)] px-4 py-2 text-sm text-[color:var(--app-text)] outline-none focus:border-blue-400" />
+        <div className="order-last flex w-full gap-1 overflow-x-auto" aria-label="任务状态筛选">
+          {STATUS_FILTERS.map(([value, label]) => <FilterButton key={value} active={statusFilter === value} onClick={() => setStatusFilter(value)}>{label}</FilterButton>)}
         </div>
-        <button type="button" onClick={onOpenAssetLibrary} className="rounded-xl border border-[color:var(--app-border)] px-3 py-2 text-sm text-[color:var(--app-text-muted)] hover:bg-[color:var(--app-surface-elevated)]">▦ 资产库</button>
-        <button type="button" onClick={() => setFavoriteFilter(!favoriteFilter)} className={`rounded-xl px-3 py-2 text-sm ${favoriteFilter ? 'bg-yellow-500 text-white' : 'text-[color:var(--app-text-muted)] hover:bg-[color:var(--app-surface-elevated)]'}`}>★ 收藏</button>
+        <button type="button" onClick={onOpenAssetLibrary} className="rounded-xl border border-[color:var(--app-border)] px-3 py-2 text-sm text-[color:var(--app-text-muted)] hover:bg-[color:var(--app-surface-elevated)]">▦ {typeof window !== 'undefined' && window.__AAP__?.baseUrl ? '素材库' : '资产库'}</button>
+        <button type="button" aria-pressed={favoriteFilter} onClick={() => setFavoriteFilter(!favoriteFilter)} className={`rounded-xl px-3 py-2 text-sm ${favoriteFilter ? 'bg-yellow-500 text-white' : 'text-[color:var(--app-text-muted)] hover:bg-[color:var(--app-surface-elevated)]'}`}>★ 收藏</button>
         <button type="button" data-testid="video-select-all" onClick={toggleVisibleSelection} className="rounded-xl border border-[color:var(--app-border)] px-3 py-2 text-sm text-[color:var(--app-text-muted)]">{allVisibleSelected ? '取消全选' : '全选当前'}</button>
+        {typeof window !== 'undefined' && window.__AAP__?.baseUrl && <WorkspaceMoreMenu mode="video" section="works" />}
       </div>
 
       {selectedTasks.length > 0 && (
@@ -82,11 +86,11 @@ export default function VideoTaskGrid({ onOpenAssetLibrary }: VideoTaskGridProps
         </div>
       )}
 
-      {filteredTasks.length === 0 ? <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-[color:var(--app-border)] text-[color:var(--app-text-muted)]"><div className="mb-2 text-4xl">▧</div><div>{tasks.length === 0 ? '还没有视频作品' : '没有匹配结果'}</div></div> : <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{filteredTasks.map((task) => <VideoTaskCard key={task.id} task={task} />)}</div>}
+      {filteredTasks.length === 0 ? <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[color:var(--app-border)] px-6 text-center text-[color:var(--app-text-muted)]"><div aria-hidden="true" className="text-4xl">▧</div><div className="font-medium text-[color:var(--app-text)]">{tasks.length === 0 ? '从一个镜头开始' : '没有匹配结果'}</div><p className="max-w-sm text-sm leading-relaxed">{tasks.length === 0 ? '在创作面板填写提示词，选择模型和画面参数，创建你的第一个视频。' : '试试其他状态，或清除搜索和收藏筛选。'}</p>{tasks.length > 0 && <button type="button" onClick={() => { setStatusFilter('all'); setFavoriteFilter(false); setSearchQuery('') }} className="rounded-xl border border-[color:var(--app-border)] px-4 py-2 text-sm">重置筛选</button>}</div> : <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3">{filteredTasks.map((task) => <VideoTaskCard key={task.id} task={task} />)}</div>}
     </div>
   )
 }
 
 function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" onClick={onClick} className={`rounded-xl px-4 py-2 text-sm font-medium transition ${active ? 'bg-blue-500 text-white' : 'text-[color:var(--app-text-muted)] hover:bg-[color:var(--app-surface-elevated)]'}`}>{children}</button>
+  return <button type="button" aria-pressed={active} onClick={onClick} className={`shrink-0 rounded-xl px-3 py-2 text-xs font-medium transition ${active ? 'bg-blue-500 text-white' : 'text-[color:var(--app-text-muted)] hover:bg-[color:var(--app-surface-elevated)]'}`}>{children}</button>
 }
