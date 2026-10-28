@@ -150,6 +150,12 @@ describe('upscaleImage (sync)', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('https://f.example/o.jpg')
   })
 
+  it('says plainly when the server proxy rejects the path, instead of blaming the account', () => {
+    const message = formatUpscaleError(403, { __raw: 'Forbidden: API Proxy path restricted' })
+    expect(message).toContain('代理')
+    expect(message).not.toContain('没有权限使用该放大模型')
+  })
+
   it('turns an HTTP error into a readable message', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { code: 'pre_consume_token_quota_failed', message: 'token quota is not enough' } }, 403))
     await expect(upscaleImage({
@@ -216,6 +222,27 @@ describe('upscaleImage (task)', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('https://vip.aittco.com/v1/videos')
     expect((fetchMock.mock.calls[0][1].body as FormData).get('input_reference')).toBeInstanceOf(Blob)
     expect(fetchMock.mock.calls[1][0]).toBe('https://vip.aittco.com/v1/videos/task_1')
+  })
+
+  it('keeps the /v1 segment on the proxy path so the server proxy lets videos through', async () => {
+    vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: 'task_p', status: 'queued' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'task_p', status: 'completed', data: [{ b64_json: 'QUJD' }] }))
+    // production profile: baseUrl already ends in /v1 and the proxy is on
+    const prod = profile({ baseUrl: 'https://vip.aittco.com/v1', apiProxy: true })
+    const promise = upscaleImage({
+      profile: prod,
+      params: { model: 'upscale-standard', factor: 2, format: 'jpg' },
+      imageDataUrl: PNG_DATA_URL,
+      asTask: true,
+    })
+    await vi.advanceTimersByTimeAsync(10000)
+    await promise
+    // nginx only whitelists /api-proxy/v1/videos; /api-proxy/videos is rejected with 403
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/api-proxy/v1/videos')
+    expect(String(fetchMock.mock.calls[1][0])).toBe('/api-proxy/v1/videos/task_p')
+    vi.unstubAllEnvs()
   })
 
   it('resumes an existing task without submitting again, so the user is never charged twice', async () => {

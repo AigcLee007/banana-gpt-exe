@@ -5,6 +5,7 @@
 // 结果地址只保留 5 小时，调用方必须马上转存到本地。
 
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { buildVideoApiUrl } from './videoTransport'
 import { fetchImageUrlAsDataUrl, isDataUrl } from './imageApiShared'
 import { dataUrlToBlob } from './canvasImage'
 import type { ApiProfile } from '../types'
@@ -110,6 +111,15 @@ function requestUrl(profile: ApiProfile, path: string): string {
   return buildApiUrl(profile.baseUrl, path, proxyConfig, shouldUseApiProxy(profile.apiProxy, proxyConfig))
 }
 
+/**
+ * 任务方式的 videos 路径要走服务器代理的专用放行规则（/api-proxy/v1/videos）。
+ * buildApiUrl 在 baseUrl 已以 /v1 结尾时会去掉 v1，拼出 /api-proxy/videos，
+ * 被 nginx 兜底规则拦成 403；视频功能用的 buildVideoApiUrl 固定带 v1，这里复用它。
+ */
+function taskUrl(profile: ApiProfile, path: string): string {
+  return buildVideoApiUrl({ profileId: profile.id, baseUrl: profile.baseUrl, apiKey: profile.apiKey, apiProxy: profile.apiProxy }, path)
+}
+
 function imageExtension(dataUrl: string): string {
   const mime = /^data:(image\/[a-z0-9.+-]+)/i.exec(dataUrl)?.[1]?.toLowerCase() ?? 'image/png'
   if (mime === 'image/jpeg') return 'jpg'
@@ -160,6 +170,9 @@ export function extractErrorDetail(payload: Record<string, unknown>): string {
 export function formatUpscaleError(status: number, payload: Record<string, unknown>): string {
   const detail = extractErrorDetail(payload)
   const lower = detail.toLowerCase()
+  if (status === 403 && /api proxy path restricted/i.test(detail)) {
+    return '服务器的 API 代理没有放行放大接口，请联系管理员更新代理配置'
+  }
   if (status === 401) return 'API Key 无效或已被禁用，请在设置里检查'
   if (status === 403 && lower.includes('quota')) {
     return '账户余额不足。标准高清每次需要先预扣 3 元，出图后按实际尺寸退回多扣的部分'
@@ -213,7 +226,7 @@ async function upscaleTask(request: UpscaleRequest): Promise<UpscaleResult> {
   let taskId = request.resumeTaskId?.trim() ?? ''
   if (!taskId) {
     const form = await buildForm(request, 'input_reference')
-    const submit = await fetch(requestUrl(request.profile, 'videos'), {
+    const submit = await fetch(taskUrl(request.profile, 'videos'), {
       method: 'POST',
       headers: authHeaders(request.profile),
       body: form,
@@ -228,7 +241,7 @@ async function upscaleTask(request: UpscaleRequest): Promise<UpscaleResult> {
 
   const deadline = Date.now() + POLL_MAX_MS
   while (Date.now() < deadline) {
-    const poll = await fetch(requestUrl(request.profile, `videos/${encodeURIComponent(taskId)}`), {
+    const poll = await fetch(taskUrl(request.profile, `videos/${encodeURIComponent(taskId)}`), {
       headers: authHeaders(request.profile),
       signal: request.signal,
     })
