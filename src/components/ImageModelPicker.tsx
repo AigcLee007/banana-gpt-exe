@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { getBananaModelCreditLabel, normalizeBananaModelId } from '../lib/bananaModels'
 import {
   IMAGE_MODEL_FAMILIES, getImageModelFamily, getImageModelSelectionLabel, getPreferredImageModel,
-  getVisibleImageModelLines, parseImageModelLineMemory, positionImageModelPicker, rememberImageModelLine,
+  parseImageModelLineMemory, positionImageModelPicker, rememberImageModelLine,
   type ImageModelLineMemory,
 } from '../lib/imageModelSelection'
 import type { SizeTier } from '../lib/size'
@@ -12,21 +12,16 @@ import { ChevronDownIcon } from './icons'
 interface PickerContentProps {
   value: string
   familyId: string
-  preferredModel: string
   rememberedModel?: string
   imageSize: SizeTier
-  expanded: boolean
   onFamilyChange: (familyId: string) => void
-  onExpandedChange: (expanded: boolean) => void
   onChange: (model: string) => void
 }
 
 export function ImageModelPickerContent({
-  value, familyId, preferredModel, rememberedModel, imageSize, expanded, onFamilyChange, onExpandedChange, onChange,
+  value, familyId, rememberedModel, imageSize, onFamilyChange, onChange,
 }: PickerContentProps) {
   const family = IMAGE_MODEL_FAMILIES.find(item => item.id === familyId) ?? IMAGE_MODEL_FAMILIES[0]
-  const lines = getVisibleImageModelLines(family, expanded, preferredModel)
-  const hasHiddenLines = family.lines.some(line => !lines.includes(line))
   const selectedFamily = getImageModelFamily(value)
 
   const navigateColumn = (event: KeyboardEvent<HTMLElement>) => {
@@ -70,7 +65,7 @@ export function ImageModelPickerContent({
           </div>
           <div role="radiogroup" aria-label={family.label + ' 线路'} onKeyDown={navigateColumn} className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2">
             <div className="mb-2 px-1 text-xs font-semibold leading-5 text-[color:var(--app-text)]">{family.label}</div>
-            {lines.map(line => {
+            {family.lines.map(line => {
               const selected = line.model === normalizeBananaModelId(value)
               const remembered = !selected && line.model === rememberedModel
               return (
@@ -94,10 +89,6 @@ export function ImageModelPickerContent({
                 </button>
               )
             })}
-            {(hasHiddenLines || expanded) && <button type="button" aria-expanded={expanded} onClick={() => onExpandedChange(!expanded)}
-              className="flex w-full items-center justify-center gap-1 py-2 text-[11px] text-[color:var(--app-text-subtle)] hover:text-[color:var(--app-text)] focus-visible:outline-blue-400">
-              {expanded ? '收起备用线路' : '更多线路'}<ChevronDownIcon className={'h-3 w-3 ' + (expanded ? 'rotate-180' : '')} />
-            </button>}
           </div>
         </div>
       </div>
@@ -122,7 +113,6 @@ export default function ImageModelPicker({ value, imageSize, onChange, className
   const panelRef = useRef<HTMLDivElement>(null)
   const [isOpen, setIsOpen] = useState(false)
   const [familyId, setFamilyId] = useState(() => getImageModelFamily(value)?.id ?? IMAGE_MODEL_FAMILIES[0].id)
-  const [expanded, setExpanded] = useState(false)
   const [position, setPosition] = useState<ReturnType<typeof positionImageModelPicker> | null>(null)
   const storageKey = 'image-model-lines:' + memoryScope
   const [memory, setMemory] = useState<ImageModelLineMemory>(() => {
@@ -134,7 +124,6 @@ export default function ImageModelPicker({ value, imageSize, onChange, className
   const activeFamily = getImageModelFamily(normalizedValue)
   const activeLine = activeFamily?.lines.find(line => line.model === normalizedValue)
   const family = IMAGE_MODEL_FAMILIES.find(item => item.id === familyId) ?? IMAGE_MODEL_FAMILIES[0]
-  const preferredModel = activeFamily?.id === family.id ? normalizedValue : getPreferredImageModel(family, memory)
   const label = getImageModelSelectionLabel(value)
   const title = label + ' · ' + getBananaModelCreditLabel(value, imageSize) + ' / 张'
 
@@ -193,7 +182,6 @@ export default function ImageModelPicker({ value, imageSize, onChange, className
 
   const open = () => {
     setFamilyId(activeFamily?.id ?? IMAGE_MODEL_FAMILIES[0].id)
-    setExpanded(false)
     setPosition(null)
     setIsOpen(true)
   }
@@ -215,7 +203,6 @@ export default function ImageModelPicker({ value, imageSize, onChange, className
       const targetFamily = IMAGE_MODEL_FAMILIES.find(item => item.id === targetFamilyId) ?? family
       const targetModel = targetFamily.id === activeFamily?.id ? normalizedValue : getPreferredImageModel(targetFamily, memory)
       setFamilyId(targetFamily.id)
-      setExpanded(false)
       requestAnimationFrame(() => panelRef.current?.querySelector<HTMLButtonElement>('[data-line-model="' + targetModel + '"]')?.focus())
     } else if (event.key === 'ArrowLeft' && target.closest('[data-line-model]')) {
       event.preventDefault()
@@ -247,9 +234,8 @@ export default function ImageModelPicker({ value, imageSize, onChange, className
         <div ref={panelRef} id={id} role="dialog" aria-label="选择生图模型与线路" onKeyDown={handlePanelKeyDown}
           className="fixed z-[160] flex flex-col overflow-hidden rounded-2xl border border-[color:var(--app-border)] text-[color:var(--app-text)] shadow-[0_12px_48px_rgb(0,0,0,0.16)]"
           style={{ left: position.left, top: position.top, width: position.width, height: position.height, backgroundColor: 'var(--app-bg)' }}>
-          <ImageModelPickerContent value={value} familyId={familyId} preferredModel={preferredModel} rememberedModel={memory[family.id]} imageSize={imageSize}
-            expanded={expanded} onExpandedChange={setExpanded}
-            onFamilyChange={next => { setFamilyId(next); setExpanded(false) }} onChange={selectLine} />
+          <ImageModelPickerContent value={value} familyId={familyId} rememberedModel={memory[family.id]} imageSize={imageSize}
+            onFamilyChange={setFamilyId} onChange={selectLine} />
         </div>, document.body,
       )}
     </>

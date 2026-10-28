@@ -620,9 +620,6 @@ export default function InputBar() {
   }, [isComposerCollapsed, updateInputBarClearance])
   useLayoutEffect(() => () => { document.documentElement.style.removeProperty('--input-bar-clearance') }, [])
   const imageHintTimerRef = useRef<number | null>(null)
-  const [outputCompressionInput, setOutputCompressionInput] = useState(
-    params.output_compression == null ? '' : String(params.output_compression),
-  )
   const [nInput, setNInput] = useState(String(params.n))
   const [nInputFocused, setNInputFocused] = useState(false)
   const dragCounter = useRef(0)
@@ -701,8 +698,6 @@ export default function InputBar() {
   const activeProvider = activeProfile.provider
   const isFalProvider = activeProvider === 'fal'
   const agentAutoImageCount = appMode === 'agent'
-  const moderationDisabled = isFalProvider
-  const compressionDisabled = params.output_format === 'png' || isFalProvider
   const outputImageLimit = getOutputImageLimitForSettings(paramsNormalizationSettings)
   const isFalTextToImage = isFalProvider && inputImages.length === 0
   const nDraftValue = Number(nInput)
@@ -770,8 +765,6 @@ export default function InputBar() {
     : getBananaQualityOptions(activeImageModel).map((quality) => ({ label: quality, value: quality }))
   const atImageLimit = inputImages.length >= API_MAX_IMAGES
   const uploadImageTooltipText = atImageLimit ? `参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加` : '上传图片'
-  const compressionHint = useHintTooltip({ enabled: () => compressionDisabled })
-  const moderationHint = useHintTooltip({ enabled: () => moderationDisabled })
   const sizeHint = useHintTooltip({ enabled: () => isFalTextToImage })
   const qualityHint = useHintTooltip({ enabled: () => settings.codexCli || isFalProvider })
   const nLimitHint = useHintTooltip({ autoHideMs: 2000 })
@@ -894,12 +887,6 @@ export default function InputBar() {
   }, [setPrompt])
 
   useEffect(() => {
-    setOutputCompressionInput(
-      params.output_compression == null ? '' : String(params.output_compression),
-    )
-  }, [params.output_compression])
-
-  useEffect(() => {
     if (agentAutoImageCount) return
     setNInput(String(params.n))
   }, [agentAutoImageCount, params.n])
@@ -939,23 +926,6 @@ export default function InputBar() {
       cancelled = true
     }
   }, [maskDraft, maskTargetImage?.id, maskTargetImage?.dataUrl])
-
-  const commitOutputCompression = useCallback(() => {
-    if (outputCompressionInput.trim() === '') {
-      setOutputCompressionInput('')
-      setParams({ output_compression: null })
-      return
-    }
-
-    const nextValue = Number(outputCompressionInput)
-    if (Number.isNaN(nextValue)) {
-      setOutputCompressionInput(params.output_compression == null ? '' : String(params.output_compression))
-      return
-    }
-
-    setOutputCompressionInput(String(nextValue))
-    setParams({ output_compression: nextValue })
-  }, [outputCompressionInput, params.output_compression, setParams])
 
   const commitN = useCallback(() => {
     nLimitHint.hide()
@@ -1464,7 +1434,7 @@ export default function InputBar() {
       if (!target) return
 
       if (document.activeElement instanceof HTMLElement) {
-        // 如果当前聚焦的元素属于输入栏（主输入框、数量或压缩率输入框等）
+        // 如果当前聚焦的元素属于输入栏（主输入框、数量输入框等）
         if (document.activeElement.closest('[data-input-bar]')) {
           // 如果点击的区域不在输入栏内部
           if (!target.closest('[data-input-bar]')) {
@@ -1857,10 +1827,10 @@ export default function InputBar() {
     )
   }
 
-  const renderParams = (cols: string) => (
-    <div className={`grid ${cols} gap-2 text-xs flex-1`}>
+  const renderParams = (cols: string, mobile = false) => (
+    <div className={`input-bar-params grid min-w-0 ${cols} gap-2 text-xs flex-1`} data-param-layout={mobile ? 'mobile' : 'desktop'}>
       {appMode === 'gallery' && (
-        <label className="flex flex-col gap-0.5">
+        <label data-param="model" className={'flex min-w-0 flex-col gap-0.5' + (mobile ? ' col-span-2' : '')}>
           <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
           <ImageModelPicker
             value={galleryModel}
@@ -1881,7 +1851,7 @@ export default function InputBar() {
         </label>
       )}
       {appMode === 'agent' && (
-        <label className="flex flex-col gap-0.5">
+        <label data-param="model" className={'flex min-w-0 flex-col gap-0.5' + (mobile ? ' col-span-2' : '')}>
           <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
           <ImageModelPicker
             value={agentImageModel}
@@ -1951,7 +1921,7 @@ export default function InputBar() {
             <button
               type="button"
               onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
-              className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] focus:outline-none text-xs text-left transition-all duration-200 shadow-sm font-mono"
+              className="whitespace-nowrap px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] focus:outline-none text-xs text-left transition-all duration-200 shadow-sm font-mono"
               title="Select size"
             >
               {displaySize}
@@ -1987,24 +1957,6 @@ export default function InputBar() {
               text={isFalProvider ? <>fal.ai does not support <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> quality</> : 'Codex CLI does not support quality'}
             />
           </label>
-          <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">格式</span>
-            <Select
-              value={params.output_format}
-              onChange={(val) => setParams({
-                output_format: val as any,
-                ...(val === 'png'
-                  ? { output_compression: null }
-                  : { transparent_output: false }),
-              })}
-              options={[
-                { label: 'PNG', value: 'png' },
-                { label: 'JPEG', value: 'jpeg' },
-                { label: 'WebP', value: 'webp' },
-              ]}
-              className={selectClass}
-            />
-          </label>
           {showTransparentOutputControl && (
             <label className="flex flex-col gap-0.5">
               <span className="text-gray-400 dark:text-gray-500 ml-1">透明背景</span>
@@ -2021,62 +1973,6 @@ export default function InputBar() {
               />
             </label>
           )}
-          {!hideOutputCompression && <label
-            className="relative flex flex-col gap-0.5"
-            onMouseEnter={compressionHint.show}
-            onMouseLeave={compressionHint.hide}
-            onTouchStart={compressionHint.startTouch}
-            onTouchEnd={compressionHint.clearTimer}
-            onTouchCancel={compressionHint.hide}
-            onClick={compressionHint.show}
-          >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">压缩率</span>
-            <input
-              value={outputCompressionInput}
-              onChange={(e) => setOutputCompressionInput(e.target.value)}
-              onBlur={commitOutputCompression}
-              disabled={compressionDisabled}
-              type="number"
-              min={0}
-              max={100}
-              placeholder="0-100"
-              className={`px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] focus:outline-none text-xs transition-all duration-200 shadow-sm ${
-                compressionDisabled
-                  ? 'bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed'
-                  : 'bg-white/50 dark:bg-white/[0.03]'
-              }`}
-            />
-            <ButtonTooltip
-              visible={compressionHint.visible}
-              text={isFalProvider ? 'fal.ai does not support compression' : 'Only JPEG and WebP support compression'}
-            />
-          </label>}
-          <label
-            className="relative flex flex-col gap-0.5"
-            onMouseEnter={moderationHint.show}
-            onMouseLeave={moderationHint.hide}
-            onTouchStart={moderationHint.startTouch}
-            onTouchEnd={moderationHint.clearTimer}
-            onTouchCancel={moderationHint.hide}
-            onClick={moderationHint.show}
-          >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">审核</span>
-            <Select
-              value={moderationDisabled ? 'auto' : params.moderation}
-              onChange={(val) => {
-                if (!moderationDisabled) setParams({ moderation: val as any })
-              }}
-              options={[
-                { label: 'auto', value: 'auto' },
-                { label: 'low', value: 'low' },
-              ]}
-              disabled={moderationDisabled}
-              className={moderationDisabled
-                ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
-                : selectClass}
-            />
-            <ButtonTooltip visible={moderationDisabled && moderationHint.visible} text="fal.ai does not support moderation" />
-          </label>
         </>
       )}
       <label
@@ -2114,7 +2010,7 @@ export default function InputBar() {
           type={agentAutoImageCount ? 'text' : 'number'}
           min={agentAutoImageCount ? undefined : 1}
           max={agentAutoImageCount ? undefined : outputImageLimit}
-          className={`px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] focus:outline-none text-xs transition-all duration-200 shadow-sm ${
+          className={`min-w-0 w-full px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] focus:outline-none text-xs transition-all duration-200 shadow-sm ${
             agentAutoImageCount
               ? 'bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed'
               : 'bg-white/50 dark:bg-white/[0.03]'
@@ -2459,7 +2355,7 @@ export default function InputBar() {
 
             {/* 移动端布局 */}
             <div className="sm:hidden flex flex-col gap-2">
-              {renderParams('grid-cols-2')}
+              {renderParams('grid-cols-2', true)}
               <div className="h-2" />
 
               <div className="flex items-center gap-2">

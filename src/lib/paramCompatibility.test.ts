@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { createDefaultFalProfile, createDefaultOpenAIProfile, DEFAULT_SETTINGS, normalizeSettings } from './apiProfiles'
 import { getOutputImageLimitForSettings, normalizeParamsForSettings } from './paramCompatibility'
+import { BANANA_GALLERY_MODELS, usesGeminiImageParams } from './bananaModels'
 
 describe('parameter compatibility', () => {
   it('limits OpenAI output count to 10', () => {
@@ -51,8 +52,8 @@ describe('parameter compatibility', () => {
     expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: 'auto' }, settings, { hasInputImages: true }).size).toBe('auto')
   })
 
-  it('disables transparent output when format is not png', () => {
-    const openAIProfile = createDefaultOpenAIProfile({ apiKey: 'test-key' })
+  it('restores PNG before checking transparent output for a non-Nano model', () => {
+    const openAIProfile = createDefaultOpenAIProfile({ apiKey: 'test-key', model: 'gpt-image-2' })
     const settings = normalizeSettings({
       ...DEFAULT_SETTINGS,
       profiles: [openAIProfile],
@@ -63,9 +64,38 @@ describe('parameter compatibility', () => {
       normalizeParamsForSettings(
         { ...DEFAULT_PARAMS, output_format: 'jpeg', transparent_output: true },
         settings,
-      ).transparent_output,
-    ).toBe(false)
+      ),
+    ).toMatchObject({ output_format: 'png', transparent_output: true })
   })
+
+  it.each(BANANA_GALLERY_MODELS.filter(item => !usesGeminiImageParams(item.model)).map(item => [item.model]))(
+    'resets hidden output settings for %s, including reused or persisted values', (model) => {
+      const profile = createDefaultOpenAIProfile({ apiKey: 'test-key', model })
+      const settings = normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [profile], activeProfileId: profile.id })
+      const params = { ...DEFAULT_PARAMS, output_format: 'webp' as const, output_compression: 75, moderation: 'low' as const, n: 2, quality: 'high' as const }
+      expect(normalizeParamsForSettings(params, settings)).toMatchObject({
+        output_format: 'png', output_compression: null, moderation: 'auto', n: 2, quality: 'high',
+      })
+      expect(params).toMatchObject({ output_format: 'webp', output_compression: 75, moderation: 'low' })
+    },
+  )
+
+  it('applies hidden output defaults to fal.ai and custom model profiles', () => {
+    for (const profile of [createDefaultFalProfile(), createDefaultOpenAIProfile({ model: 'custom-image-model' })]) {
+      const settings = normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [profile], activeProfileId: profile.id })
+      expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, output_format: 'jpeg', output_compression: 80, moderation: 'low' }, settings))
+        .toMatchObject({ output_format: 'png', output_compression: null, moderation: 'auto' })
+    }
+  })
+
+  it.each(BANANA_GALLERY_MODELS.filter(item => usesGeminiImageParams(item.model)).map(item => [item.model]))(
+    'preserves Nano Banana parameter handling for %s', (model) => {
+      const profile = createDefaultOpenAIProfile({ model })
+      const settings = normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [profile], activeProfileId: profile.id })
+      expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, output_format: 'jpeg', output_compression: 80, moderation: 'low', transparent_output: true }, settings))
+        .toMatchObject({ output_format: 'jpeg', output_compression: 80, moderation: 'low', transparent_output: false })
+    },
+  )
 
   it('normalizes Nano Banana Pro official T3 with Gemini-style aspect ratio and image size params', () => {
     const openAIProfile = createDefaultOpenAIProfile({

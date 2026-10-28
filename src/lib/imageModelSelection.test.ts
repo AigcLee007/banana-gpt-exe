@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { BANANA_GALLERY_MODELS, getBananaModelCreditLabel } from './bananaModels'
 import {
   IMAGE_MODEL_FAMILIES, getImageModelFamily, getImageModelSelectionLabel,
-  getPreferredImageModel, getVisibleImageModelLines, parseImageModelLineMemory,
+  getPreferredImageModel, parseImageModelLineMemory,
   rememberImageModelLine, positionImageModelPicker,
 } from './imageModelSelection'
 
@@ -42,14 +42,6 @@ describe('image model families and lines', () => {
       expect(getBananaModelCreditLabel(t3.model, size)).toBe(price)
     },
   )
-
-  it('hides backup lines until expanded but reveals an active or remembered backup', () => {
-    const family = getImageModelFamily('nano-banana-pro')!
-    expect(getVisibleImageModelLines(family, false, 'gemini-3-pro-image-preview').map(line => line.model))
-      .not.toContain('nano-banana-pro')
-    expect(getVisibleImageModelLines(family, true).map(line => line.model)).toContain('nano-banana-pro')
-    expect(getVisibleImageModelLines(family, false, 'nano-banana-pro').map(line => line.model)).toContain('nano-banana-pro')
-  })
 })
 
 describe('per-family line memory', () => {

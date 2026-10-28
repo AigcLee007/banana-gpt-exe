@@ -204,6 +204,24 @@ body {
   position: relative;
 }
 
+.input-bar-params > label {
+  min-width: 0;
+}
+
+@media (min-width: 640px) and (max-width: 767px) {
+  .input-bar-params[data-param-layout="desktop"] {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .input-bar-params[data-param-layout="desktop"] > label {
+    grid-column: span 2;
+  }
+
+  .input-bar-params[data-param-layout="desktop"] > [data-param="model"] {
+    grid-column: 1 / -1;
+  }
+}
+
 .input-bar-card [contenteditable="true"] {
   border-color: var(--app-border-strong);
   background: var(--composer-input) !important;

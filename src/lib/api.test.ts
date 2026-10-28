@@ -1887,13 +1887,14 @@ describe('bananaModels', () => {
     expect(getActiveBananaModelForMode('gallery', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('gemini-3-pro-image-preview')
   })
 
-  it('uses the same four-column desktop parameter layout for Agent and Gallery Gemini image models', () => {
-    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-4')
-    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gpt-image-2', 'nano-banana-pro-official-t3')).toBe('grid-cols-4')
-    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'nano-banana-pro-official-t3', 'gpt-image-2')).toBe('grid-cols-4')
-    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('grid-cols-4')
-    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('grid-cols-6')
-    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-7')
+  it('gives the model the remaining width after compact image parameter controls', () => {
+    const nanoLayout = 'grid-cols-[minmax(0,1fr)_6.5rem_10rem_4rem]'
+    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe(nanoLayout)
+    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gpt-image-2', 'nano-banana-pro-official-t3')).toBe(nanoLayout)
+    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'nano-banana-pro-official-t3', 'gpt-image-2')).toBe(nanoLayout)
+    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe(nanoLayout)
+    expect(getBananaDesktopParamGridColumnsForMode('agent', 'gemini-3-pro-image-preview', 'gpt-image-2')).toBe('grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_4rem]')
+    expect(getBananaDesktopParamGridColumnsForMode('gallery', 'gpt-image-2', 'gemini-3-pro-image-preview')).toBe('grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_4.75rem_4rem]')
   })
 
   it('shows the configured gallery models and hides the legacy GPT Agent line', () => {
