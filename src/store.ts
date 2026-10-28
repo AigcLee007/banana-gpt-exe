@@ -45,13 +45,13 @@ import {
   storeImage,
 } from './lib/db'
 import { callImageApi } from './lib/api'
-import { describeUpscale, normalizeUpscaleParams, upscaleImage, type UpscaleParams } from './lib/upscaleApi'
+import { checkUpscaleLimit, describeUpscale, normalizeUpscaleParams, upscaleImage, type UpscaleParams } from './lib/upscaleApi'
 import { callAgentConversationTitleApi, callAgentResponsesApi, parseBatchImageCallArguments, type AgentApiResultImage } from './lib/agentApi'
 import { collectAgentRoundOutputImageSlots, extractAgentReferenceIds, getAgentCurrentReferenceId, getAgentGeneratedImageReferenceId, replaceAgentPromptImageReferencesForApi } from './lib/agentImageReferences'
 import { IMAGE_FETCH_CORS_HINT } from './lib/imageApiShared'
 import { getFalErrorMessage, getFalQueuedImageResult } from './lib/falAiImageApi'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
-import { validateMaskMatchesImage } from './lib/canvasImage'
+import { getImageDimensions, validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
 import { AGENT_FIXED_MODEL, getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId, usesGeminiImageParams } from './lib/bananaModels'
@@ -4414,6 +4414,28 @@ export async function submitUpscaleTask(options: { imageId: string; params: Part
   }
 
   const upscale = normalizeUpscaleParams(options.params)
+
+  // 提交前再校验一次输出尺寸，不依赖对话框：读不到尺寸也不放行，避免超大图直接发出去
+  let dimensions: { width: number; height: number }
+  try {
+    dimensions = await getImageDimensions(dataUrl)
+  } catch {
+    showToast('无法读取图片尺寸，请换一张图片再试', 'error')
+    return null
+  }
+  const limit = checkUpscaleLimit(dimensions.width, dimensions.height, upscale)
+  if (!limit.ok) {
+    // 错误提示只显示第一行且超过 80 字会被换成「操作失败」，所以这里用一句短话把原因和可行倍数讲清楚。
+    // 对话框里会显示完整说明；这里是兜底（详情页等入口）。
+    showToast(
+      limit.maxFactor
+        ? `放大后超过 100 百万像素上限，这张图最多放大 ${limit.maxFactor} 倍`
+        : '放大后超过 100 百万像素上限，请先缩小图片',
+      'error',
+    )
+    return null
+  }
+
   const now = Date.now()
   const task: TaskRecord = {
     id: genId(),

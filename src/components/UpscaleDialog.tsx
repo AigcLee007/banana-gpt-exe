@@ -6,6 +6,9 @@ import { getImageDimensions } from '../lib/canvasImage'
 import {
   UPSCALE_MAX_INPUT_BYTES,
   UPSCALE_MODELS,
+  checkUpscaleLimit,
+  estimateOutputPixels,
+  UPSCALE_MAX_OUTPUT_PIXELS,
   getUpscaleModel,
   normalizeUpscaleParams,
   type UpscaleFormat,
@@ -90,6 +93,22 @@ export default function UpscaleDialog() {
     }
   }, [size, model, factor])
 
+  // 当前选择会不会超过输出上限；尺寸还没读到时不拦（按钮本身会因为没有图片而不可用）
+  const limit = useMemo(
+    () => (size ? checkUpscaleLimit(size.width, size.height, { model, factor }) : null),
+    [size, model, factor],
+  )
+  const overLimit = limit !== null && !limit.ok
+
+  // 换了一张大图后，默认倍数可能已经超限。自动降到这张图允许的最大倍数，用户还能往下选。
+  // 只在「超限」时才调整，不会覆盖用户在允许范围内的选择。
+  useEffect(() => {
+    if (!size) return
+    const check = checkUpscaleLimit(size.width, size.height, { model, factor })
+    if (check.ok || !check.maxFactor || check.maxFactor === factor) return
+    setFactor(check.maxFactor)
+  }, [size, model, factor])
+
   const pickFile = async (file: File | undefined) => {
     if (!file) return
     if (!file.type.startsWith('image/')) {
@@ -105,7 +124,7 @@ export default function UpscaleDialog() {
   }
 
   const submit = async () => {
-    if (!imageId || busy) return
+    if (!imageId || busy || overLimit) return
     setBusy(true)
     const taskId = await submitUpscaleTask({ imageId, params: { model, factor, format } })
     setBusy(false)
@@ -217,22 +236,28 @@ export default function UpscaleDialog() {
             <section>
               <div className="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">放大倍数</div>
               <div role="radiogroup" aria-label="放大倍数" className="flex flex-wrap gap-2">
-                {option.factors.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={value === factor}
-                    onClick={() => setFactor(value)}
-                    className={`min-w-[3.25rem] rounded-full border px-3.5 py-1.5 text-sm transition ${
-                      value === factor
-                        ? 'border-blue-500 bg-blue-500 font-medium text-white'
-                        : 'border-gray-200 text-gray-600 hover:border-blue-300 dark:border-white/[0.1] dark:text-gray-300'
-                    }`}
-                  >
-                    {value === 1 ? '原尺寸增强' : `${value} 倍`}
-                  </button>
-                ))}
+                {option.factors.map((value) => {
+                  const tooBig = size ? estimateOutputPixels(size.width, size.height, value) > UPSCALE_MAX_OUTPUT_PIXELS : false
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={value === factor}
+                      aria-disabled={tooBig}
+                      disabled={tooBig}
+                      title={tooBig ? '放大后超过输出上限' : undefined}
+                      onClick={() => setFactor(value)}
+                      className={`min-w-[3.25rem] rounded-full border px-3.5 py-1.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                        value === factor
+                          ? 'border-blue-500 bg-blue-500 font-medium text-white'
+                          : 'border-gray-200 text-gray-600 hover:border-blue-300 dark:border-white/[0.1] dark:text-gray-300'
+                      }`}
+                    >
+                      {value === 1 ? '原尺寸增强' : `${value} 倍`}
+                    </button>
+                  )
+                })}
               </div>
             </section>
           )}
@@ -263,7 +288,9 @@ export default function UpscaleDialog() {
           )}
 
           <section className="rounded-2xl border border-blue-200/70 bg-blue-50/60 px-4 py-3 dark:border-blue-400/20 dark:bg-blue-500/[0.07]">
-            {estimate ? (
+            {overLimit && limit && !limit.ok ? (
+              <p role="alert" className="text-sm font-medium leading-6 text-red-600 dark:text-red-400">{limit.message}</p>
+            ) : estimate ? (
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs leading-5 text-gray-500 dark:text-gray-400">{estimate.detail}</span>
                 <span className="shrink-0 text-lg font-bold text-blue-600 dark:text-blue-300">{estimate.text}</span>
@@ -291,7 +318,7 @@ export default function UpscaleDialog() {
           </button>
           <button
             type="button"
-            disabled={!imageId || busy}
+            disabled={!imageId || busy || overLimit}
             onClick={() => void submit()}
             className="flex-1 rounded-lg bg-blue-500 py-2 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
           >

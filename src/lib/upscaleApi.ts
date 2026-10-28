@@ -51,6 +51,8 @@ export const UPSCALE_MODELS: UpscaleModelOption[] = [
 ]
 
 export const UPSCALE_MAX_INPUT_BYTES = 30 * 1024 * 1024
+/** 输出像素上限：100 百万像素（约 10000 × 10000）。和中转站插件的结算上限一致，超过就不让提交。 */
+export const UPSCALE_MAX_OUTPUT_PIXELS = 100_000_000
 const POLL_INTERVAL_MS = 6000
 const POLL_MAX_MS = 25 * 60 * 1000
 
@@ -81,6 +83,46 @@ export interface UpscaleResult {
   rawUrl: string
   width?: number
   height?: number
+}
+
+export type UpscaleLimitCheck =
+  | { ok: true; outputPixels: number }
+  | { ok: false; outputPixels: number; maxFactor: number | null; message: string }
+
+export function estimateOutputPixels(width: number, height: number, factor: number): number {
+  return Math.round(width * factor) * Math.round(height * factor)
+}
+
+/** 这张图在该模型下，输出不超过上限的最大倍数；一个都放不下时返回 null。 */
+export function getMaxAllowedFactor(width: number, height: number, model: UpscaleModelId): number | null {
+  const option = UPSCALE_MODELS.find((item) => item.id === model)
+  if (!option) return null
+  const fits = option.factors.filter((factor) => estimateOutputPixels(width, height, factor) <= UPSCALE_MAX_OUTPUT_PIXELS)
+  return fits.length ? Math.max(...fits) : null
+}
+
+/** 检查输出是否超过上限。页面置灰按钮和提交前校验都用它，保证两边结论一致。 */
+export function checkUpscaleLimit(width: number, height: number, params: Pick<UpscaleParams, 'model' | 'factor'>): UpscaleLimitCheck {
+  const outputPixels = estimateOutputPixels(width, height, params.factor)
+  if (!(width > 0 && height > 0)) return { ok: true, outputPixels: 0 }
+  if (outputPixels <= UPSCALE_MAX_OUTPUT_PIXELS) return { ok: true, outputPixels }
+
+  const maxFactor = getMaxAllowedFactor(width, height, params.model)
+  const megapixels = Math.round(outputPixels / 1_000_000)
+  const limit = UPSCALE_MAX_OUTPUT_PIXELS / 1_000_000
+  const option = UPSCALE_MODELS.find((item) => item.id === params.model)
+  // 固定倍数的模型（商用 · 创意只有 2 倍）没有可调的倍数，只能换模型或缩小图片
+  const advice = option && option.factors.length > 1 && maxFactor
+    ? `这张图最多可放大 ${maxFactor} 倍`
+    : params.model === 'upscale-creative'
+      ? '商用 · 创意固定放大 2 倍，请换成「标准高清」并降低倍数，或先缩小图片'
+      : '这张图太大，放大后超出上限，请先缩小图片'
+  return {
+    ok: false,
+    outputPixels,
+    maxFactor,
+    message: `放大后约 ${megapixels} 百万像素，超过 ${limit} 百万像素的上限。${advice}`,
+  }
 }
 
 export function getUpscaleModel(id: string | undefined): UpscaleModelOption | undefined {

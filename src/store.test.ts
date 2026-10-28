@@ -75,6 +75,14 @@ vi.mock('./lib/api', () => ({
     revisedPrompts: [],
   })),
 }))
+vi.mock('./lib/upscaleApi', async (original) => ({
+  ...await original<typeof import('./lib/upscaleApi')>(),
+  upscaleImage: vi.fn(() => new Promise(() => {})),
+}))
+vi.mock('./lib/canvasImage', async (original) => ({
+  ...await original<typeof import('./lib/canvasImage')>(),
+  getImageDimensions: vi.fn(async () => ({ width: 3840, height: 2160 })),
+}))
 vi.mock('./lib/agentApi', () => ({
   callAgentConversationTitleApi: vi.fn(async () => '标题'),
   callAgentResponsesApi: vi.fn(() => new Promise(() => {})),
@@ -98,9 +106,11 @@ vi.mock('./lib/agentApi', () => ({
 import { clearAgentConversations, clearImages, getAllAgentConversations, getAllTasks, putAgentConversation, putImage, putTask as putDbTask } from './lib/db'
 import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
 import { callImageApi } from './lib/api'
+import { upscaleImage } from './lib/upscaleApi'
+import { getImageDimensions } from './lib/canvasImage'
 import { getGeminiOutputPixels } from './lib/geminiImageSizing'
 import { AGENT_FIXED_MODEL } from './lib/bananaModels'
-import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConversation, editOutputs, ensureImageThumbnailCached, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, markInterruptedUpscaleTasks, migratePersistedState, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
+import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConversation, editOutputs, ensureImageThumbnailCached, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, markInterruptedUpscaleTasks, migratePersistedState, submitUpscaleTask, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
@@ -419,6 +429,75 @@ describe('failed task cleanup', () => {
     await clearFailedTasks()
 
     expect(useStore.getState().tasks.map((item) => item.id)).toEqual(['task-done'])
+  })
+})
+
+describe('upscale output limit at submit time', () => {
+  const image = { id: 'big-image', dataUrl: 'data:image/png;base64,big' }
+
+  // This block stores an image in the shared fake IndexedDB. Leave it empty afterwards, otherwise a later
+  // initStore() test finds an image with no thumbnail and takes the idle-callback path, which needs a DOM.
+  afterEach(async () => {
+    await clearImages()
+    useStore.setState({ tasks: [], toast: null })
+  })
+
+  beforeEach(async () => {
+    vi.mocked(upscaleImage).mockClear()
+    vi.mocked(getImageDimensions).mockResolvedValue({ width: 3840, height: 2160 })
+    await putImage({ id: image.id, dataUrl: image.dataUrl, createdAt: 1 } as never)
+    useStore.setState({
+      tasks: [],
+      toast: null,
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        apiKey: 'sk-test',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({ ...profile, apiKey: 'sk-test' })),
+      }),
+    })
+  })
+
+  it('refuses a 4K image at 8x: no task is created and nothing is sent to the relay', async () => {
+    const id = await submitUpscaleTask({ imageId: image.id, params: { model: 'upscale-standard', factor: 8, format: 'jpg' } })
+    expect(id).toBeNull()
+    expect(useStore.getState().tasks).toHaveLength(0)
+    expect(upscaleImage).not.toHaveBeenCalled()
+  })
+
+  it('tells the user how far this image can go', async () => {
+    const showToast = vi.fn()
+    useStore.setState({ showToast })
+    await submitUpscaleTask({ imageId: image.id, params: { model: 'upscale-standard', factor: 8, format: 'jpg' } })
+    expect(showToast).toHaveBeenCalledTimes(1)
+    const [message, type] = showToast.mock.calls[0]
+    expect(type).toBe('error')
+    expect(message).toContain('最多放大 3 倍')
+    expect(message).toContain('100 百万像素')
+  })
+
+  it('lets the same image through at a factor inside the limit', async () => {
+    // Resolve the (mocked) relay call so the task finishes inside the test instead of polling on afterwards.
+    vi.mocked(upscaleImage).mockResolvedValueOnce({ image: 'data:image/png;base64,out', rawUrl: '' })
+    const id = await submitUpscaleTask({ imageId: image.id, params: { model: 'upscale-standard', factor: 3, format: 'jpg' } })
+    expect(id).toBeTruthy()
+    expect(useStore.getState().tasks).toHaveLength(1)
+    await vi.waitFor(() => expect(upscaleImage).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(useStore.getState().tasks[0].status).toBe('done'))
+  })
+
+  it('does not send anything when the image size cannot be read', async () => {
+    vi.mocked(getImageDimensions).mockRejectedValueOnce(new Error('bad image'))
+    const id = await submitUpscaleTask({ imageId: image.id, params: { model: 'upscale-standard', factor: 2, format: 'jpg' } })
+    expect(id).toBeNull()
+    expect(useStore.getState().tasks).toHaveLength(0)
+    expect(upscaleImage).not.toHaveBeenCalled()
+  })
+
+  it('also blocks the creative model on an image too large for 2x', async () => {
+    vi.mocked(getImageDimensions).mockResolvedValue({ width: 8000, height: 8000 })
+    const id = await submitUpscaleTask({ imageId: image.id, params: { model: 'upscale-creative', factor: 2, format: null } })
+    expect(id).toBeNull()
+    expect(upscaleImage).not.toHaveBeenCalled()
   })
 })
 

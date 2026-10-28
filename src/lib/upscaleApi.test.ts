@@ -11,6 +11,10 @@ vi.mock('./canvasImage', async (original) => ({
 }))
 
 import {
+  checkUpscaleLimit,
+  estimateOutputPixels,
+  getMaxAllowedFactor,
+  UPSCALE_MAX_OUTPUT_PIXELS,
   describeUpscale,
   extractErrorDetail,
   formatUpscaleError,
@@ -65,6 +69,63 @@ describe('normalizeUpscaleParams', () => {
 
   it('describes the task for the history list', () => {
     expect(describeUpscale({ model: 'upscale-standard', factor: 4, format: 'jpg' })).toBe('高清放大 4 倍 · 标准高清')
+  })
+})
+
+describe('output size limit', () => {
+  it('is 100 megapixels', () => {
+    expect(UPSCALE_MAX_OUTPUT_PIXELS).toBe(100_000_000)
+  })
+
+  it('computes the output the same way the relay bills it', () => {
+    expect(estimateOutputPixels(1674, 940, 4)).toBe(6696 * 3760)
+    expect(estimateOutputPixels(256, 256, 2)).toBe(512 * 512)
+  })
+
+  it('allows everyday sizes', () => {
+    expect(checkUpscaleLimit(2560, 1440, { model: 'upscale-standard', factor: 4 }).ok).toBe(true) // 59 MP
+    expect(checkUpscaleLimit(3840, 2160, { model: 'upscale-standard', factor: 2 }).ok).toBe(true) // 33 MP
+    expect(checkUpscaleLimit(10000, 10000, { model: 'upscale-standard', factor: 1 }).ok).toBe(true) // exactly 100 MP
+  })
+
+  it('refuses a 4K image at 8x and says how far it can go', () => {
+    const result = checkUpscaleLimit(3840, 2160, { model: 'upscale-standard', factor: 8 })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.maxFactor).toBe(3) // 4K x3 = 74.6 MP fits, x4 = 132.7 MP does not
+    expect(result.message).toContain('531 百万像素')
+    expect(result.message).toContain('100 百万像素')
+    expect(result.message).toContain('最多可放大 3 倍')
+  })
+
+  it('is just under / just over the line', () => {
+    expect(checkUpscaleLimit(10000, 10000, { model: 'upscale-standard', factor: 1 }).ok).toBe(true)
+    expect(checkUpscaleLimit(10001, 10000, { model: 'upscale-standard', factor: 1 }).ok).toBe(false)
+  })
+
+  it('has no allowed factor for an image that is already too large', () => {
+    expect(getMaxAllowedFactor(12000, 12000, 'upscale-standard')).toBeNull()
+    const result = checkUpscaleLimit(12000, 12000, { model: 'upscale-standard', factor: 1 })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.maxFactor).toBeNull()
+      expect(result.message).toContain('先缩小图片')
+    }
+  })
+
+  it('tells creative users to switch model, since it is fixed at 2x', () => {
+    const result = checkUpscaleLimit(8000, 8000, { model: 'upscale-creative', factor: 2 })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.message).toContain('标准高清')
+  })
+
+  it('does not block when the size is unknown', () => {
+    expect(checkUpscaleLimit(0, 0, { model: 'upscale-standard', factor: 8 }).ok).toBe(true)
+  })
+
+  it('max factor respects each model: standard up to 8, creative only 2', () => {
+    expect(getMaxAllowedFactor(256, 256, 'upscale-standard')).toBe(8)
+    expect(getMaxAllowedFactor(256, 256, 'upscale-creative')).toBe(2)
   })
 })
 
