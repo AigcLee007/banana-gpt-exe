@@ -6,8 +6,8 @@ describe('workspace input preferences', () => {
   it('keeps the chosen Agent text model on managed bootstrap refresh', () => {
     const bootstrap = { baseUrl: '/gw/v1', key: 'test-placeholder' }
     const existing = mergePortalProfile(DEFAULT_SETTINGS, bootstrap)
-    existing.agentTextModel = 'gpt-5.6-sol'
-    expect(mergePortalProfile(existing, bootstrap).agentTextModel).toBe('gpt-5.6-sol')
+    existing.agentTextModel = 'gpt-6.1-sol'
+    expect(mergePortalProfile(existing, bootstrap).agentTextModel).toBe('gpt-6.1-sol')
   })
   it('migrates Agent input habits from existing preferences until explicitly overridden', () => {
     const settings = normalizeSettings({ enterSubmit: true, persistInputOnRestart: false })

@@ -81,7 +81,7 @@ export interface AppSettings {
   apiKey: string
   model: string
   agentImageModel: string
-  agentTextModel: 'gpt-5.6-sol' | 'gpt-6-astra'
+  agentTextModel: 'gpt-6-astra' | 'gpt-6.1-sol'
   timeout: number
   apiMode: ApiMode
   codexCli: boolean

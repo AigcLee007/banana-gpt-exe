@@ -474,7 +474,7 @@ export function mergePortalProfile(input: Partial<AppSettings> | unknown, bootst
     model: managed.model,
     apiMode: managed.apiMode,
     agentImageModel: PORTAL_IMAGE_MODEL,
-    agentTextModel: current.profiles.some(profile => profile.id === 'portal-managed') ? current.agentTextModel : 'gpt-6-astra',
+    agentTextModel: current.profiles.some(profile => profile.id === 'portal-managed') ? current.agentTextModel : AGENT_FIXED_MODEL,
     agentEnterSubmit: current.agentEnterSubmit ?? current.enterSubmit,
     agentPersistInputOnRestart: current.agentPersistInputOnRestart ?? current.persistInputOnRestart,
     profiles: [managed, ...current.profiles.filter((profile) => profile.id !== managed.id && !isDefaultOpenAIProfile(profile))],
