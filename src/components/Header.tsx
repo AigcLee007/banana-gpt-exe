@@ -5,7 +5,7 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
 import HelpModal from './HelpModal'
 import HistoryModal from './HistoryModal'
-import { EditIcon, HelpCircleIcon, HistoryIcon, SettingsIcon, UpscaleIcon } from './icons'
+import { EditIcon, HelpCircleIcon, HistoryIcon, SettingsIcon } from './icons'
 
 const APP_BRAND_NAME = '艾特智绘'
 type ThemeMode = 'dark' | 'light' | 'sepia'
@@ -84,7 +84,10 @@ export default function Header() {
   }, [])
 
   const helpTooltip = useTooltip()
+  const galleryTooltip = useTooltip()
   const upscaleTooltip = useTooltip()
+  const videoTooltip = useTooltip()
+  const agentTooltip = useTooltip()
   const settingsTooltip = useTooltip()
   const themeTooltip = useTooltip()
   const currentThemeLabel = THEME_OPTIONS.find((option) => option.value === theme)?.label ?? '暗夜'
@@ -154,27 +157,69 @@ export default function Header() {
           )}
 
           <div data-aap-mode-tabs className="hidden sm:flex items-center gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mr-4">
-            <button
-              type="button"
-              onClick={() => setAppMode('gallery')}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
-            >
-              画廊
-            </button>
-            <button
-              type="button"
-              onClick={() => setAppMode('video')}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'video' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
-            >
-              视频
-            </button>
-            <button
-              type="button"
-              onClick={() => setAppMode('agent')}
-              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
-            >
-              Agent
-            </button>
+            <div className="relative" {...galleryTooltip.handlers}>
+              <button
+                type="button"
+                onClick={() => {
+                  galleryTooltip.handlers.onClick()
+                  setAppMode('gallery')
+                }}
+                className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              >
+                画廊
+              </button>
+              <ViewportTooltip visible={galleryTooltip.visible} className="whitespace-normal leading-relaxed">
+                图片生成，最新的顶级生图模型
+              </ViewportTooltip>
+            </div>
+            <div className="relative" {...upscaleTooltip.handlers}>
+              <button
+                type="button"
+                onClick={() => {
+                  upscaleTooltip.dismiss()
+                  dismissAllTooltips()
+                  setUpscaleDialog({ imageId: null })
+                }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-amber-400/10 dark:hover:text-amber-200"
+                aria-label="高清放大"
+              >
+                <img src="./8k-ultra-hd.svg" alt="" aria-hidden="true" className="h-auto w-[20px] shrink-0" />
+                <span>8K超清</span>
+              </button>
+              <ViewportTooltip visible={upscaleTooltip.visible} className="whitespace-normal leading-relaxed">
+                提升图片的清晰度，最高8K超清
+              </ViewportTooltip>
+            </div>
+            <div className="relative" {...videoTooltip.handlers}>
+              <button
+                type="button"
+                onClick={() => {
+                  videoTooltip.handlers.onClick()
+                  setAppMode('video')
+                }}
+                className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'video' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              >
+                视频
+              </button>
+              <ViewportTooltip visible={videoTooltip.visible} className="whitespace-normal leading-relaxed">
+                视频生成，多种视频模型
+              </ViewportTooltip>
+            </div>
+            <div className="relative" {...agentTooltip.handlers}>
+              <button
+                type="button"
+                onClick={() => {
+                  agentTooltip.handlers.onClick()
+                  setAppMode('agent')
+                }}
+                className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              >
+                Agent
+              </button>
+              <ViewportTooltip visible={agentTooltip.visible} className="whitespace-normal leading-relaxed">
+                通过对话生成、编辑图片
+              </ViewportTooltip>
+            </div>
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
@@ -218,23 +263,6 @@ export default function Header() {
               )}
             </div>
 
-            <div className="relative" {...upscaleTooltip.handlers}>
-              <button
-                type="button"
-                onClick={() => {
-                  dismissAllTooltips()
-                  setUpscaleDialog({ imageId: null })
-                }}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
-                aria-label="高清放大"
-              >
-                <UpscaleIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-              </button>
-              <ViewportTooltip visible={upscaleTooltip.visible} className="whitespace-nowrap">
-                高清放大
-              </ViewportTooltip>
-            </div>
-
             <div className="relative" {...helpTooltip.handlers}>
               <button
                 onClick={() => {
@@ -273,28 +301,70 @@ export default function Header() {
           data-aap-mode-tabs
           className={`safe-area-x sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${appMode === 'gallery' && scrollDirection === 'down' ? 'max-h-0 opacity-0 pb-0' : 'max-h-20 opacity-100 pb-2'}`}
         >
-          <div className="grid grid-cols-3 gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mx-2">
-            <button
-              type="button"
-              onClick={() => setAppMode('gallery')}
-              className={`px-2 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
-            >
-              画廊
-            </button>
-            <button
-              type="button"
-              onClick={() => setAppMode('video')}
-              className={`px-2 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'video' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
-            >
-              视频
-            </button>
-            <button
-              type="button"
-              onClick={() => setAppMode('agent')}
-              className={`px-2 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
-            >
-              Agent
-            </button>
+          <div className="grid grid-cols-4 gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mx-2">
+            <div className="relative" {...galleryTooltip.handlers}>
+              <button
+                type="button"
+                onClick={() => {
+                  galleryTooltip.handlers.onClick()
+                  setAppMode('gallery')
+                }}
+                className={`px-2 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'gallery' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              >
+                画廊
+              </button>
+              <ViewportTooltip visible={galleryTooltip.visible} className="whitespace-normal leading-relaxed">
+                图片生成，最新的顶级生图模型
+              </ViewportTooltip>
+            </div>
+            <div className="relative" {...upscaleTooltip.handlers}>
+              <button
+                type="button"
+                onClick={() => {
+                  upscaleTooltip.dismiss()
+                  dismissAllTooltips()
+                  setUpscaleDialog({ imageId: null })
+                }}
+                className="inline-flex items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-amber-400/10 dark:hover:text-amber-200"
+                aria-label="高清放大"
+              >
+                <img src="./8k-ultra-hd.svg" alt="" aria-hidden="true" className="h-auto w-[20px] shrink-0" />
+                <span>8K超清</span>
+              </button>
+              <ViewportTooltip visible={upscaleTooltip.visible} className="whitespace-normal leading-relaxed">
+                提升图片的清晰度，最高8K超清
+              </ViewportTooltip>
+            </div>
+            <div className="relative" {...videoTooltip.handlers}>
+              <button
+                type="button"
+                onClick={() => {
+                  videoTooltip.handlers.onClick()
+                  setAppMode('video')
+                }}
+                className={`px-2 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'video' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              >
+                视频
+              </button>
+              <ViewportTooltip visible={videoTooltip.visible} className="whitespace-normal leading-relaxed">
+                视频生成，多种视频模型
+              </ViewportTooltip>
+            </div>
+            <div className="relative" {...agentTooltip.handlers}>
+              <button
+                type="button"
+                onClick={() => {
+                  agentTooltip.handlers.onClick()
+                  setAppMode('agent')
+                }}
+                className={`px-2 py-1.5 rounded-lg text-sm transition-colors ${appMode === 'agent' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+              >
+                Agent
+              </button>
+              <ViewportTooltip visible={agentTooltip.visible} className="whitespace-normal leading-relaxed">
+                通过对话生成、编辑图片
+              </ViewportTooltip>
+            </div>
           </div>
         </div>
       </header>

@@ -90,20 +90,27 @@ export default function ViewportTooltip({ visible, children, className = '' }: V
         <div
           ref={tooltipRef}
           role="tooltip"
-          className={`fixed pointer-events-none rounded-lg bg-gray-800 px-3 py-2 text-xs font-normal text-white shadow-lg ${className}`}
+          className={`fixed pointer-events-none rounded-lg border px-3 py-2 text-xs font-normal ${className}`}
           style={{
             left: position?.left ?? 0,
             top: position?.top ?? 0,
             visibility: position ? 'visible' : 'hidden',
             zIndex: 120,
+            width: 'max-content',
+            maxWidth: 'min(20rem, calc(100vw - 2rem))',
+            backgroundColor: 'var(--app-surface-elevated)',
+            color: 'var(--app-text)',
+            borderColor: 'var(--app-border)',
+            boxShadow: 'var(--app-shadow)',
           }}
         >
           {children}
           <div
-            className={`absolute left-0 border-4 border-transparent ${position?.placement === 'bottom' ? 'bottom-full border-b-gray-800' : 'top-full border-t-gray-800'}`}
+            className={`absolute left-0 border-4 border-transparent ${position?.placement === 'bottom' ? 'bottom-full' : 'top-full'}`}
             style={{
               left: position?.arrowLeft ?? 0,
               transform: 'translateX(-50%)',
+              [position?.placement === 'bottom' ? 'borderBottomColor' : 'borderTopColor']: 'var(--app-surface-elevated)',
             }}
           />
         </div>,
