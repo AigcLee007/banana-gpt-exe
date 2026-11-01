@@ -640,10 +640,13 @@ describe('custom providers', () => {
   })
 
   it('defaults and normalizes the Agent text model', () => {
-    expect(DEFAULT_SETTINGS.agentTextModel).toBe('gpt-5.6-sol')
+    expect(DEFAULT_SETTINGS.agentTextModel).toBe('gpt-6-astra')
     expect(normalizeSettings({ agentTextModel: 'gpt-6-astra' }).agentTextModel).toBe('gpt-6-astra')
-    expect(normalizeSettings({ agentTextModel: '' }).agentTextModel).toBe('gpt-5.6-sol')
-    expect(normalizeSettings({ agentTextModel: 'unknown-model' }).agentTextModel).toBe('gpt-5.6-sol')
+    expect(normalizeSettings({ agentTextModel: 'gpt-6.1-sol' }).agentTextModel).toBe('gpt-6.1-sol')
+    expect(normalizeSettings({}).agentTextModel).toBe('gpt-6-astra')
+    expect(normalizeSettings({ agentTextModel: '' }).agentTextModel).toBe('gpt-6-astra')
+    expect(normalizeSettings({ agentTextModel: 'gpt-5.6-sol' }).agentTextModel).toBe('gpt-6-astra')
+    expect(normalizeSettings({ agentTextModel: 'unknown-model' }).agentTextModel).toBe('gpt-6-astra')
   })
 
   it('keeps the new Seedream model when restoring Agent image settings', () => {

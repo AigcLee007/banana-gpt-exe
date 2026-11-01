@@ -1919,8 +1919,8 @@ describe('bananaModels', () => {
     expect(visibleModels).not.toContain('gpt-5.5')
   })
 
-  it('uses gpt-5.6-sol as the fixed Agent text model', () => {
-    expect(AGENT_FIXED_MODEL).toBe('gpt-5.6-sol')
+  it('uses gpt-6-astra as the default Agent text model', () => {
+    expect(AGENT_FIXED_MODEL).toBe('gpt-6-astra')
   })
 
   it('keeps the discount Nano Banana Pro as the default gallery model', () => {

@@ -456,14 +456,15 @@ describe('callAgentResponsesApi', () => {
     const profile = createDefaultOpenAIProfile({ apiKey: 'test-key', apiMode: 'responses' })
 
     await callAgentResponsesApi({
-      settings: { ...DEFAULT_SETTINGS, agentTextModel: 'gpt-6-astra' },
+      settings: { ...DEFAULT_SETTINGS, agentTextModel: 'gpt-6.1-sol' },
       profile,
       params: DEFAULT_PARAMS,
       input: [{ role: 'user', content: [{ type: 'input_text', text: 'prompt' }] }],
     })
 
     const [, init] = fetchMock.mock.calls[0]
-    expect(JSON.parse(String((init as RequestInit).body)).model).toBe('gpt-6-astra')
+    expect(JSON.parse(String((init as RequestInit).body)).model).toBe('gpt-6.1-sol')
+    expect(JSON.parse(String((init as RequestInit).body)).reasoning).toEqual({ effort: 'high' })
   })
 
   it('uses the selected Agent text model for title requests', async () => {
@@ -473,13 +474,14 @@ describe('callAgentResponsesApi', () => {
     const profile = createDefaultOpenAIProfile({ apiKey: 'test-key', apiMode: 'responses' })
 
     await callAgentConversationTitleApi({
-      settings: { ...DEFAULT_SETTINGS, agentTextModel: 'gpt-6-astra' },
+      settings: { ...DEFAULT_SETTINGS, agentTextModel: 'gpt-6.1-sol' },
       profile,
       prompt: 'prompt',
     })
 
     const [, init] = fetchMock.mock.calls[0]
-    expect(JSON.parse(String((init as RequestInit).body)).model).toBe('gpt-6-astra')
+    expect(JSON.parse(String((init as RequestInit).body)).model).toBe('gpt-6.1-sol')
+    expect(JSON.parse(String((init as RequestInit).body)).reasoning).toEqual({ effort: 'high' })
   })
 
   it('uses the selected Agent text model for batch image helper requests', async () => {
@@ -489,7 +491,7 @@ describe('callAgentResponsesApi', () => {
     const profile = createDefaultOpenAIProfile({ apiKey: 'test-key', apiMode: 'responses', streamImages: false })
 
     await callBatchImageSingle({
-      settings: { ...DEFAULT_SETTINGS, agentTextModel: 'gpt-6-astra' },
+      settings: { ...DEFAULT_SETTINGS, agentTextModel: 'gpt-6.1-sol' },
       profile,
       params: DEFAULT_PARAMS,
       batchItemId: 'item_1',
@@ -498,7 +500,8 @@ describe('callAgentResponsesApi', () => {
     })
 
     const [, init] = fetchMock.mock.calls[0]
-    expect(JSON.parse(String((init as RequestInit).body)).model).toBe('gpt-6-astra')
+    expect(JSON.parse(String((init as RequestInit).body)).model).toBe('gpt-6.1-sol')
+    expect(JSON.parse(String((init as RequestInit).body)).reasoning).toEqual({ effort: 'high' })
   })
 
   it('injects configurable math formatting instructions', async () => {

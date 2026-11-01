@@ -703,6 +703,7 @@ export async function callAgentResponsesApi(opts: {
   try {
     const body: Record<string, unknown> = {
       model: getAgentTextModel(settings),
+      reasoning: { effort: 'high' },
       instructions: createAgentInstructions(settings),
       input,
       tools: createAgentTools(params, profile, settings, maskDataUrl),
@@ -773,6 +774,7 @@ export async function callAgentConversationTitleApi(opts: {
       cache: 'no-store',
       body: JSON.stringify({
         model: getAgentTextModel(settings),
+        reasoning: { effort: 'high' },
         instructions: AGENT_TITLE_INSTRUCTIONS,
         input: [{ role: 'user', content }],
         max_output_tokens: 32,
@@ -877,6 +879,7 @@ export async function callBatchImageSingle(opts: {
 
     const body: Record<string, unknown> = {
       model: getAgentTextModel(settings ?? {}),
+      reasoning: { effort: 'high' },
       input,
       tools: [tool],
       tool_choice: 'required',
