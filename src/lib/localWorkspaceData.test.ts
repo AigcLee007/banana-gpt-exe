@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { unzipSync, strFromU8, strToU8, zipSync } from 'fflate'
 import { DEFAULT_PARAMS } from '../types'
+import { createDefaultColorAdjustments } from './colorGrading'
 import type { TaskRecord, AgentConversation } from '../types'
 import type { VideoTaskRecord } from './videoTypes'
 import { buildWorkspaceArchive, parseWorkspaceArchive, planWorkspaceCleanup, emptyWorkspaceSnapshot, clearWorkspaceData, importWorkspaceData, getWorkspaceDataCounts, getWorkspaceResourceCounts } from './localWorkspaceData'
@@ -58,6 +59,19 @@ const conversation = (outputTaskIds: string[]): AgentConversation => ({
   messages: [{ id: 'message', role: 'assistant', content: 'hello', roundId: 'round', outputTaskIds, createdAt: 1 }],
 })
 const image = (id: string) => ({ id, dataUrl: 'data:image/png;base64,YQ==', source: 'generated' as const })
+const assistantHistory = (id: string, sourceImageId: string, activeImageId = sourceImageId) => ({
+  id,
+  sourceImageId,
+  activeImageId,
+  instruction: '降低红色偏色',
+  explanation: '降低色温并减少红色通道。',
+  clarification: null,
+  createdAt: 100,
+  decidedAt: 200,
+  outcome: 'applied' as const,
+  changes: [{ path: 'whiteBalance.temperature', before: 6500, after: 6100 }],
+  curves: [{ channel: 'red' as const, before: [{ x: 0, y: 0 }, { x: 1, y: 1 }], after: [{ x: 0, y: 0 }, { x: 0.5, y: 0.48 }, { x: 1, y: 1 }] }],
+})
 
 describe('scoped local workspace data', () => {
   it('preserves Agent output tasks and video image assets when Gallery is cleared', () => {
@@ -71,6 +85,95 @@ describe('scoped local workspace data', () => {
     expect(result.images.map((item) => item.id)).toEqual(['shared', 'agent-output', 'unrelated'])
     expect(result.agentConversations).toEqual(data.agentConversations)
     expect(result.videoAssets).toEqual(data.videoAssets)
+  })
+
+  it('round trips saved color versions with their source and adjustment recipe', async () => {
+    const data = emptyWorkspaceSnapshot()
+    data.tasks = [task('gallery', 'source')]
+    data.images = [image('source'), { ...image('edited'), source: 'edited' }]
+    data.colorEdits = [{
+      id: 'edited',
+      sourceImageId: 'source',
+      parentImageId: 'source',
+      adjustments: { ...createDefaultColorAdjustments(), basic: { ...createDefaultColorAdjustments().basic, exposure: 0.75 } },
+      createdAt: 123,
+    }]
+
+    const restored = parseWorkspaceArchive(await buildWorkspaceArchive(data, ['gallery']), ['gallery'])
+
+    expect(restored.images.map((item) => item.id).sort()).toEqual(['edited', 'source'])
+    expect(restored.colorEdits[0]).toMatchObject({
+      id: 'edited',
+      sourceImageId: 'source',
+      parentImageId: 'source',
+      adjustments: { basic: { exposure: 0.75 } },
+    })
+  })
+
+  it('round trips assistant history with a Gallery image lineage and accepts older archives without it', async () => {
+    const data = emptyWorkspaceSnapshot()
+    data.tasks = [task('gallery', 'edited')]
+    data.images = [image('source'), { ...image('edited'), source: 'edited' }]
+    data.colorEdits = [{ id: 'edited', sourceImageId: 'source', parentImageId: 'source', adjustments: createDefaultColorAdjustments(), createdAt: 123 }]
+    ;(data as unknown as { colorAssistantHistory: unknown[] }).colorAssistantHistory = [assistantHistory('round-1', 'source', 'edited')]
+
+    const archive = await buildWorkspaceArchive(data, ['gallery'])
+    const restored = parseWorkspaceArchive(archive, ['gallery']) as typeof data & { colorAssistantHistory: unknown[] }
+    expect(restored.colorAssistantHistory).toEqual([assistantHistory('round-1', 'source', 'edited')])
+
+    const oldFiles = unzipSync(archive)
+    const oldManifest = JSON.parse(strFromU8(oldFiles['manifest.json']))
+    delete oldManifest.colorAssistantHistory
+    oldFiles['manifest.json'] = strToU8(JSON.stringify(oldManifest))
+    const olderArchive = zipSync(oldFiles)
+    expect((parseWorkspaceArchive(olderArchive, ['gallery']) as typeof data & { colorAssistantHistory: unknown[] }).colorAssistantHistory).toEqual([])
+  })
+
+  it('keeps assistant history out of Agent-only backups', async () => {
+    const data = emptyWorkspaceSnapshot()
+    data.tasks = [task('agent-output', 'agent-image', 'agent')]
+    data.agentConversations = [conversation(['agent-output'])]
+    data.images = [image('agent-image')]
+    ;(data as unknown as { colorAssistantHistory: unknown[] }).colorAssistantHistory = [assistantHistory('round-agent', 'agent-image')]
+
+    const files = unzipSync(await buildWorkspaceArchive(data, ['agent']))
+    const manifest = JSON.parse(strFromU8(files['manifest.json']))
+    expect(manifest).not.toHaveProperty('colorAssistantHistory')
+  })
+
+  it('removes assistant history only for source lineages removed by Gallery cleanup', () => {
+    const data = emptyWorkspaceSnapshot()
+    data.tasks = [task('gallery', 'removed-source')]
+    data.images = [image('removed-source'), image('kept-source')]
+    ;(data as unknown as { colorAssistantHistory: unknown[] }).colorAssistantHistory = [
+      assistantHistory('round-removed', 'removed-source'),
+      assistantHistory('round-kept', 'kept-source'),
+    ]
+
+    const result = planWorkspaceCleanup(data, ['gallery'], ['kept-source']) as typeof data & { colorAssistantHistory: unknown[] }
+    expect(result.colorAssistantHistory.map((record: any) => record.id)).toEqual(['round-kept'])
+  })
+
+  it('retains saved color versions and their source when the source task is cleared', () => {
+    const data = emptyWorkspaceSnapshot()
+    data.tasks = [task('gallery', 'source')]
+    data.images = [image('source'), { ...image('edited'), source: 'edited' }]
+    data.colorEdits = [{ id: 'edited', sourceImageId: 'source', parentImageId: 'source', adjustments: createDefaultColorAdjustments(), createdAt: 123 }]
+
+    const result = planWorkspaceCleanup(data, ['gallery'])
+
+    expect(result.tasks).toEqual([])
+    expect(result.images.map((item) => item.id).sort()).toEqual([])
+    expect(result.colorEdits).toEqual([])
+  })
+
+  it('rejects backups whose color version points to a missing parent', async () => {
+    const data = emptyWorkspaceSnapshot()
+    data.tasks = [task('gallery', 'edited')]
+    data.images = [image('source'), { ...image('edited'), source: 'edited' }]
+    data.colorEdits = [{ id: 'edited', sourceImageId: 'source', parentImageId: 'missing', adjustments: createDefaultColorAdjustments(), createdAt: 123 }]
+
+    await expect(buildWorkspaceArchive(data, ['gallery'])).rejects.toThrow('缺少关联')
   })
 
   it('clears Agent conversations while retaining Gallery tasks and draft images', () => {

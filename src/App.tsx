@@ -35,6 +35,7 @@ import PwaInstallPrompt from './components/PwaInstallPrompt'
 import { useGlobalClickSuppression } from './lib/clickSuppression'
 import { installStudioAssets } from './lib/portalAssets'
 import PortalAssetStatus from './components/PortalAssetStatus'
+import ColorGradingEditor from './components/ColorGradingEditor'
 
 export default function App() {
   useEffect(() => installStudioAssets(), [])
@@ -229,6 +230,7 @@ export default function App() {
       <PortalAssetStatus />
       <MaskEditorModal />
       <ImageContextMenu />
+      <ColorGradingEditor />
       {updatePrompt && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />

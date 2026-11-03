@@ -1,12 +1,18 @@
-import type { AgentConversation, TaskRecord, StoredImage, StoredImageThumbnail } from '../types'
+import type { AgentConversation, ColorAssistantHistoryOutcome, ColorAssistantHistoryRecord, ColorEditRecord, TaskRecord, StoredImage, StoredImageThumbnail } from '../types'
+import type { ColorAdjustments } from './colorGrading'
+import { normalizeColorEditMetadata } from './colorEditVersions'
+import { decideColorAssistantHistoryRecord } from './colorAssistantHistory'
+import { createLocalId } from './localId'
 import { notifyNewStudioMedia } from './portalAssetEvents'
 import { claimManagedLocalAsset } from './portalAssetOwnership'
 
 const DB_NAME = 'gpt-image-playground'
-const DB_VERSION = 7
+const DB_VERSION = 9
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
+const STORE_COLOR_EDITS = 'colorEdits'
+const STORE_COLOR_ASSISTANT_HISTORY = 'colorAssistantHistory'
 const STORE_AGENT_CONVERSATIONS = 'agentConversations'
 const STORE_VIDEO_TASKS = 'videoTasks'
 const STORE_MEDIA = 'media'
@@ -21,12 +27,13 @@ export const CURRENT_THUMBNAIL_VERSION = THUMBNAIL_VERSION
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
-function ensureObjectStores(db: IDBDatabase) {
+function ensureObjectStores(db: IDBDatabase, upgradeTransaction?: IDBTransaction | null) {
   const stores: Array<[string, IDBObjectStoreParameters]> = [
     [STORE_TASKS, { keyPath: 'id' }],
     [STORE_IMAGES, { keyPath: 'id' }],
     [STORE_THUMBNAILS, { keyPath: 'id' }],
     [STORE_AGENT_CONVERSATIONS, { keyPath: 'id' }],
+    [STORE_COLOR_ASSISTANT_HISTORY, { keyPath: 'id' }],
     [STORE_VIDEO_TASKS, { keyPath: 'id' }],
     [STORE_MEDIA, { keyPath: 'id' }],
     [STORE_MEDIA_POSTERS, { keyPath: 'id' }],
@@ -36,6 +43,18 @@ function ensureObjectStores(db: IDBDatabase) {
   for (const [name, options] of stores) {
     if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, options)
   }
+  const colorEdits = db.objectStoreNames.contains(STORE_COLOR_EDITS)
+    ? upgradeTransaction?.objectStore(STORE_COLOR_EDITS)
+    : db.createObjectStore(STORE_COLOR_EDITS, { keyPath: 'id' })
+  if (colorEdits && !colorEdits.indexNames.contains('sourceImageId')) {
+    colorEdits.createIndex('sourceImageId', 'sourceImageId', { unique: false })
+  }
+  const colorAssistantHistory = db.objectStoreNames.contains(STORE_COLOR_ASSISTANT_HISTORY)
+    ? upgradeTransaction?.objectStore(STORE_COLOR_ASSISTANT_HISTORY)
+    : db.createObjectStore(STORE_COLOR_ASSISTANT_HISTORY, { keyPath: 'id' })
+  if (colorAssistantHistory && !colorAssistantHistory.indexNames.contains('sourceImageId')) {
+    colorAssistantHistory.createIndex('sourceImageId', 'sourceImageId', { unique: false })
+  }
 }
 
 export function openAppDatabase(): Promise<IDBDatabase> {
@@ -43,7 +62,7 @@ export function openAppDatabase(): Promise<IDBDatabase> {
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION)
     let abandoned = false
-    req.onupgradeneeded = () => ensureObjectStores(req.result)
+    req.onupgradeneeded = () => ensureObjectStores(req.result, req.transaction)
     req.onblocked = () => {
       abandoned = true
       dbPromise = null
@@ -250,28 +269,90 @@ export function putImage(image: StoredImage): Promise<IDBValidKey> {
   return dbTransaction(STORE_IMAGES, 'readwrite', (s) => s.put(image))
 }
 
+export function getColorEditRecord(id: string): Promise<ColorEditRecord | undefined> {
+  return dbTransaction(STORE_COLOR_EDITS, 'readonly', (store) => store.get(id))
+}
+
+export function getAllColorEditRecords(): Promise<ColorEditRecord[]> {
+  return dbTransaction(STORE_COLOR_EDITS, 'readonly', (store) => store.getAll())
+}
+
+export function putColorEditRecord(record: ColorEditRecord): Promise<IDBValidKey> {
+  return dbTransaction(STORE_COLOR_EDITS, 'readwrite', (store) => store.put(record))
+}
+
+export function getColorAssistantHistoryRecord(id: string): Promise<ColorAssistantHistoryRecord | undefined> {
+  return dbTransaction(STORE_COLOR_ASSISTANT_HISTORY, 'readonly', (store) => store.get(id))
+}
+
+export function getColorAssistantHistory(sourceImageId: string): Promise<ColorAssistantHistoryRecord[]> {
+  return dbTransaction(STORE_COLOR_ASSISTANT_HISTORY, 'readonly', (store) => store.index('sourceImageId').getAll(sourceImageId))
+    .then((records) => records.sort((a, b) => b.createdAt - a.createdAt))
+}
+
+export function putColorAssistantHistoryRecord(record: ColorAssistantHistoryRecord): Promise<IDBValidKey> {
+  return dbTransaction(STORE_COLOR_ASSISTANT_HISTORY, 'readwrite', (store) => store.put(record))
+}
+
+export async function updateColorAssistantHistoryOutcome(
+  id: string,
+  outcome: Exclude<ColorAssistantHistoryOutcome, 'pending'>,
+  decidedAt = Date.now(),
+): Promise<ColorAssistantHistoryRecord> {
+  const record = await getColorAssistantHistoryRecord(id)
+  if (!record) throw new Error('调色历史记录已不存在')
+  const decided = decideColorAssistantHistoryRecord(record, outcome, decidedAt)
+  await putColorAssistantHistoryRecord(decided)
+  return decided
+}
+
+export async function getColorEditVersions(sourceImageId: string): Promise<ColorEditRecord[]> {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(STORE_COLOR_EDITS, 'readonly').objectStore(STORE_COLOR_EDITS).index('sourceImageId').getAll(sourceImageId)
+    request.onsuccess = () => resolve((request.result as ColorEditRecord[]).sort((a, b) => b.createdAt - a.createdAt))
+    request.onerror = () => reject(request.error)
+  })
+}
+
 export function deleteImage(id: string): Promise<undefined> {
-  return openDB().then(
+  return getAllColorEditRecords().then(async (edits) => {
+    if (edits.some((edit) => edit.id === id || edit.sourceImageId === id || edit.parentImageId === id)) return undefined
+    return openDB().then(
     (db) =>
       new Promise((resolve, reject) => {
-        const tx = db.transaction([STORE_IMAGES, STORE_THUMBNAILS], 'readwrite')
+        const tx = db.transaction([STORE_IMAGES, STORE_THUMBNAILS, STORE_COLOR_EDITS, STORE_COLOR_ASSISTANT_HISTORY], 'readwrite')
         tx.objectStore(STORE_IMAGES).delete(id)
         tx.objectStore(STORE_THUMBNAILS).delete(id)
+        tx.objectStore(STORE_COLOR_EDITS).delete(id)
+        const history = tx.objectStore(STORE_COLOR_ASSISTANT_HISTORY)
+        const request = history.index('sourceImageId').openCursor(id)
+        request.onsuccess = () => {
+          const cursor = request.result
+          if (!cursor) return
+          cursor.delete()
+          cursor.continue()
+        }
         tx.oncomplete = () => resolve(undefined)
         tx.onerror = () => reject(tx.error)
+        tx.onabort = () => reject(tx.error ?? new Error('数据库事务已中止'))
       }),
-  )
+    )
+  })
 }
 
 export function clearImages(): Promise<undefined> {
   return openDB().then(
     (db) =>
       new Promise((resolve, reject) => {
-        const tx = db.transaction([STORE_IMAGES, STORE_THUMBNAILS], 'readwrite')
+        const tx = db.transaction([STORE_IMAGES, STORE_THUMBNAILS, STORE_COLOR_EDITS, STORE_COLOR_ASSISTANT_HISTORY], 'readwrite')
         tx.objectStore(STORE_IMAGES).clear()
         tx.objectStore(STORE_THUMBNAILS).clear()
+        tx.objectStore(STORE_COLOR_EDITS).clear()
+        tx.objectStore(STORE_COLOR_ASSISTANT_HISTORY).clear()
         tx.oncomplete = () => resolve(undefined)
         tx.onerror = () => reject(tx.error)
+        tx.onabort = () => reject(tx.error ?? new Error('数据库事务已中止'))
       }),
   )
 }
@@ -348,6 +429,40 @@ export async function storeImage(dataUrl: string, source: NonNullable<StoredImag
     }
   }
   if (source !== 'mask') notifyNewStudioMedia('image', id, source === 'generated' ? '生成图片' : '上传参考图')
+  return id
+}
+
+export async function storeColorEditedImage(
+  dataUrl: string,
+  sourceImageId: string,
+  parentImageId: string,
+  adjustments: ColorAdjustments,
+): Promise<string> {
+  if (!await getImage(sourceImageId) || !await getImage(parentImageId)) throw new Error('调色版本的来源图片已不存在')
+  const id = `color-edit-${createLocalId()}`
+  const createdAt = Date.now()
+  const colorEdit = normalizeColorEditMetadata({ id, sourceImageId, parentImageId, adjustments, createdAt }, id)
+  const thumbnail = await safeCreateImageThumbnail(dataUrl)
+  claimManagedLocalAsset(`image:${id}`)
+  await dbTransaction([STORE_IMAGES, STORE_THUMBNAILS, STORE_COLOR_EDITS], 'readwrite', (stores) => {
+    stores[0].put({
+      id,
+      dataUrl,
+      createdAt,
+      source: 'edited',
+      width: thumbnail.width,
+      height: thumbnail.height,
+    } satisfies StoredImage)
+    stores[2].put(colorEdit)
+    if (thumbnail.thumbnailDataUrl) stores[1].put({
+      id,
+      thumbnailDataUrl: thumbnail.thumbnailDataUrl,
+      width: thumbnail.width,
+      height: thumbnail.height,
+      thumbnailVersion: THUMBNAIL_VERSION,
+    } satisfies StoredImageThumbnail)
+  })
+  notifyNewStudioMedia('image', id, '调色版本')
   return id
 }
 

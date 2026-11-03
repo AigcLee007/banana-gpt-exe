@@ -3,6 +3,9 @@ import { AGENT_FIXED_MODEL } from './bananaModels'
 import { normalizeSettings } from './apiProfiles'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { appendStreamingFormatHint, getApiErrorMessage, maybeAppendStreamingHint, MIME_MAP, normalizeBase64Image, pickActualParams } from './imageApiShared'
+import type { ColorAdjustments } from './colorGrading'
+import { applyColorAssistantProposal, COLOR_ASSISTANT_ALLOWED_PATHS } from './colorAssistant'
+import type { ColorImageAnalysis } from './colorImageAnalysis'
 
 export interface AgentApiMessage {
   role: 'user' | 'assistant'
@@ -788,6 +791,181 @@ export async function callAgentConversationTitleApi(opts: {
 
     const payload = await response.json() as ResponsesApiResponse
     return parseAgentConversationTitleXml(extractText(payload))
+  } finally {
+    clearTimeout(timeoutId)
+    signal?.removeEventListener('abort', abortFromCaller)
+  }
+}
+
+function createColorAssistantTool(): Record<string, unknown> {
+  const pointSchema = {
+    type: 'object',
+    properties: {
+      x: { type: 'number', description: 'Finite normalized x coordinate in [0, 1]. Points in each curve must have strictly increasing x.' },
+      y: { type: 'number', description: 'Finite normalized y coordinate in [0, 1].' },
+    },
+    required: ['x', 'y'],
+    additionalProperties: false,
+  }
+
+  return {
+    type: 'function',
+    name: 'propose_color_adjustments',
+    description: [
+      'Propose changes against the current recipe. Each change value is a final absolute target, never a delta; unlisted paths remain unchanged.',
+      'Ranges: exposure [-5, 5]; other basic values [-100, 100]; white-balance temperature [2000, 12000] and tint [-100, 100].',
+      'Levels: inputBlack [0, 254], inputWhite [1, 255], gamma [0.01, 9.99], outputBlack and outputWhite [0, 255]; require inputBlack < inputWhite and outputBlack <= outputWhite.',
+      'HSL hue [-180, 180], saturation and luminance [-100, 100].',
+      'Color-grading wheel hue [-180, 180], saturation [0, 100], luminance [-100, 100]; balance [-100, 100], blending [0, 100].',
+      'Channel-mixer coefficients [-200, 200].',
+      'Paths use channelMixer.<outputChannel>.<index>: <outputChannel> is the output channel, and index 0, 1, 2 select red, green, blue input contributions, respectively.',
+      'Curves replace the full selected channel; provide 2 to 64 points with finite normalized x/y in [0, 1] and strictly increasing x.',
+    ].join(' '),
+    parameters: {
+      type: 'object',
+      properties: {
+        explanation: { type: 'string', description: 'Explain the proposed edit in Chinese.' },
+        changes: {
+          type: 'array',
+          description: 'Only include paths that should change; omitted paths stay at their current values.',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Editable recipe path to set.', enum: COLOR_ASSISTANT_ALLOWED_PATHS },
+              value: { type: 'number', description: 'Final absolute target value for this path, not a delta.' },
+            },
+            required: ['path', 'value'],
+            additionalProperties: false,
+          },
+        },
+        curves: {
+          type: 'array',
+          description: 'Each curve replaces the full selected channel curve.',
+          items: {
+            type: 'object',
+            properties: {
+              channel: { type: 'string', description: 'Curve channel whose full curve will be replaced.', enum: ['master', 'red', 'green', 'blue'] },
+              points: { type: 'array', items: pointSchema },
+            },
+            required: ['channel', 'points'],
+            additionalProperties: false,
+          },
+        },
+        clarification: { type: ['string', 'null'], description: 'Ask any needed follow-up question in Chinese, or use null.' },
+      },
+      required: ['explanation', 'changes', 'curves', 'clarification'],
+      additionalProperties: false,
+    },
+    strict: true,
+  }
+}
+
+export async function callAgentColorAssistantApi(opts: {
+  settings: AppSettings
+  profile: ApiProfile
+  instruction: string
+  adjustments: ColorAdjustments
+  previewImageDataUrl?: string
+  colorAnalysis?: ColorImageAnalysis
+  signal?: AbortSignal
+}): Promise<unknown> {
+  const { settings, profile, instruction, adjustments, previewImageDataUrl, colorAnalysis, signal } = opts
+  const proxyConfig = readClientDevProxyConfig()
+  const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
+  const abortFromCaller = () => controller.abort(signal?.reason)
+  signal?.addEventListener('abort', abortFromCaller, { once: true })
+
+  try {
+    throwIfAborted(signal, controller.signal)
+
+    const recipe = {
+      basic: adjustments.basic,
+      whiteBalance: {
+        temperature: adjustments.whiteBalance.temperature,
+        tint: adjustments.whiteBalance.tint,
+      },
+      levels: adjustments.levels,
+      curves: adjustments.curves,
+      hsl: adjustments.hsl,
+      colorGrading: adjustments.colorGrading,
+      channelMixer: adjustments.channelMixer,
+    }
+    const inputText = [
+      `User instruction:\n${instruction}`,
+      `Editable recipe JSON:\n${JSON.stringify(recipe, null, 2)}`,
+      ...(colorAnalysis ? [`Measured preview color statistics JSON:\n${JSON.stringify(colorAnalysis, null, 2)}`] : []),
+    ].join('\n\n')
+    const content: Array<Record<string, string>> = [{
+      type: 'input_text',
+      text: inputText,
+    }]
+    if (previewImageDataUrl !== undefined) content.push({ type: 'input_image', image_url: previewImageDataUrl })
+
+    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+      method: 'POST',
+      headers: createHeaders(profile),
+      cache: 'no-store',
+      body: JSON.stringify({
+        model: getAgentTextModel(settings),
+        reasoning: { effort: 'low' },
+        instructions: [
+          'You are a color-grading assistant. Use the preview image when present and the editable recipe as the current state.',
+          'Call propose_color_adjustments exactly once.',
+          'Each change value is a final absolute target, not a delta.',
+          'Leave all unlisted recipe paths unchanged.',
+          'Follow the path ranges, level-ordering rules, and curve replacement constraints in the function description.',
+          ...(colorAnalysis ? [
+            'Use measured channel, luminance, and Lab statistics as evidence alongside the preview, not as a replacement for visual context.',
+            'The statistics use deterministic grid sampling with at most 50000 samples; counts and percentages are estimates of the full preview.',
+            'Treat low-chroma pixels as candidate neutrals, not confirmed neutral objects. Do not diagnose an overall cast from global channel averages alone; account for lighting, subjects, and scene colors.',
+            'If there are too few low-chroma candidates for a Lab median, treat white-balance conclusions as uncertain and avoid large white-balance changes unless the user explicitly requested them.',
+            'Prefer a small number of targeted changes and explain which visible or measured evidence supports them.',
+          ] : []),
+          '请使用中文填写 explanation 和 clarification 字段。',
+          'Do not return prose or generate an image.',
+        ].join(' '),
+        input: [{ role: 'user', content }],
+        tools: [createColorAssistantTool()],
+        tool_choice: { type: 'function', name: 'propose_color_adjustments' },
+      }),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) throw new Error(await getApiErrorMessage(response))
+
+    const payload: unknown = await response.json()
+    throwIfAborted(controller.signal, signal)
+    if (!isRecordValue(payload) || !Array.isArray(payload.output)) {
+      throw new Error('Color assistant response is missing output items')
+    }
+
+    const functionCalls: Record<string, unknown>[] = []
+    for (const item of payload.output) {
+      if (!isRecordValue(item)) throw new Error('Color assistant response contains an unsupported output item')
+      if (item.type === 'reasoning') continue
+      if (item.type !== 'function_call') throw new Error('Color assistant response contains an unsupported output item')
+      if (item.name !== 'propose_color_adjustments') {
+        throw new Error('Color assistant response did not contain propose_color_adjustments')
+      }
+      functionCalls.push(item)
+    }
+    if (functionCalls.length !== 1) {
+      throw new Error('Color assistant response must contain exactly one proposal function call')
+    }
+    const call = functionCalls[0]
+    if (typeof call.arguments !== 'string') throw new Error('Color assistant function arguments are missing')
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(call.arguments)
+    } catch {
+      throw new Error('Color assistant function arguments are not valid JSON')
+    }
+    if (!isRecordValue(parsed)) throw new Error('Color assistant function arguments must be an object')
+    applyColorAssistantProposal(adjustments, parsed)
+    return parsed
   } finally {
     clearTimeout(timeoutId)
     signal?.removeEventListener('abort', abortFromCaller)

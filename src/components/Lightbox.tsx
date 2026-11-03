@@ -4,6 +4,7 @@ import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { suppressGlobalClicks } from '../lib/clickSuppression'
+import { ColorAdjustIcon } from './icons'
 
 const MIN_SCALE = 1
 const MAX_SCALE = 10
@@ -22,6 +23,7 @@ export default function Lightbox() {
   const lightboxImageId = useStore((s) => s.lightboxImageId)
   const lightboxImageList = useStore((s) => s.lightboxImageList)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
+  const setColorGradingImageId = useStore((s) => s.setColorGradingImageId)
   const maskDraft = useStore((s) => s.maskDraft)
   const tasks = useStore((s) => s.tasks)
 
@@ -149,6 +151,10 @@ export default function Lightbox() {
       imageId={lightboxImageId}
       maskPreviewSrc={maskPreviewSrc}
       onClose={close}
+      onColorEdit={() => {
+        setLightboxImageId(null)
+        setColorGradingImageId(lightboxImageId)
+      }}
       showNav={showNav}
       currentIndex={currentIndex}
       total={total}
@@ -163,6 +169,7 @@ interface LightboxInnerProps {
   imageId: string
   maskPreviewSrc?: string
   onClose: () => void
+  onColorEdit: () => void
   showNav: boolean
   currentIndex: number
   total: number
@@ -171,7 +178,7 @@ interface LightboxInnerProps {
 }
 
 /** 内部组件：保证挂载时 DOM 已经存在，所有 ref / effect 都可靠 */
-function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, currentIndex, total, onPrev, onNext }: LightboxInnerProps) {
+function LightboxInner({ src, imageId, maskPreviewSrc, onClose, onColorEdit, showNav, currentIndex, total, onPrev, onNext }: LightboxInnerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const openedAtRef = useRef(Date.now())
 
@@ -614,6 +621,16 @@ function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, current
       onDoubleClick={onDoubleClick}
     >
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-fade-in" />
+      <button
+        type="button"
+        className="absolute right-3 top-3 z-20 flex h-10 items-center gap-2 rounded-md bg-black/55 px-3 text-sm font-medium text-white backdrop-blur-sm transition hover:bg-black/75"
+        onClick={(event) => { event.stopPropagation(); onColorEdit() }}
+        aria-label="打开调色器"
+        title="调色"
+      >
+        <ColorAdjustIcon className="h-4 w-4" />
+        <span>调色</span>
+      </button>
       <div className="relative animate-zoom-in">
         <div
           className="relative flex items-center justify-center"

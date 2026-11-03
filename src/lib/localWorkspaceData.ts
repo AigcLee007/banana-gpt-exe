@@ -1,14 +1,18 @@
 /** Explicit local-data namespaces. Deliberately independent of legacy config backups. */
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { openAppDatabase } from './db'
-import type { AgentConversation, StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
+import type { AgentConversation, ColorAssistantHistoryRecord, ColorEditRecord, StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import type { MediaPosterRecord, MediaRecord, VideoTaskRecord } from './videoTypes'
 import type { VideoAssetCategoryRecord, VideoAssetRecord } from './videoAssetTypes'
+import { expandColorEditLineage, normalizeColorEditMetadata } from './colorEditVersions'
+import { normalizeColorAssistantHistoryRecord } from './colorAssistantHistory'
 
 export type WorkspaceDataScope = 'gallery' | 'agent' | 'video'
 export interface WorkspaceSnapshot {
   tasks: TaskRecord[]
   images: StoredImage[]
+  colorEdits: ColorEditRecord[]
+  colorAssistantHistory: ColorAssistantHistoryRecord[]
   thumbnails: StoredImageThumbnail[]
   agentConversations: AgentConversation[]
   videoTasks: VideoTaskRecord[]
@@ -17,7 +21,7 @@ export interface WorkspaceSnapshot {
   videoAssets: VideoAssetRecord[]
   videoAssetCategories: VideoAssetCategoryRecord[]
 }
-const STORES = ['tasks', 'images', 'thumbnails', 'agentConversations', 'videoTasks', 'media', 'mediaPosters', 'videoAssets', 'videoAssetCategories'] as const
+const STORES = ['tasks', 'images', 'colorEdits', 'colorAssistantHistory', 'thumbnails', 'agentConversations', 'videoTasks', 'media', 'mediaPosters', 'videoAssets', 'videoAssetCategories'] as const
 const SCOPES: WorkspaceDataScope[] = ['gallery', 'agent', 'video']
 const FORMAT = 'studio-local-workspace'
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
@@ -73,6 +77,18 @@ function sanitizeTask(value: unknown): TaskRecord {
   if (task.actualParamsByImage) task.actualParamsByImage = Object.fromEntries(Object.entries(object(task.actualParamsByImage)).map(([id, params]) => [id, pick(params, 'size quality output_format output_compression moderation n transparent_output')]))
   return task
 }
+function sanitizeStoredImage(value: unknown): StoredImage {
+  const image = pick<StoredImage>(value, 'id dataUrl source createdAt width height')
+  if (image.source !== undefined && !['upload', 'generated', 'mask', 'edited'].includes(image.source)) throw new Error('备份图片来源无效')
+  return image
+}
+function sanitizeColorEdit(value: unknown): ColorEditRecord {
+  const record = object(value)
+  return normalizeColorEditMetadata(record, String(record.id ?? ''))
+}
+function sanitizeColorAssistantHistory(value: unknown): ColorAssistantHistoryRecord {
+  return normalizeColorAssistantHistoryRecord(value)
+}
 function sanitizeConversation(value: unknown): AgentConversation {
   const conversation = pick<AgentConversation>(value, 'id title activeRoundId createdAt updatedAt rounds messages')
   if (typeof conversation.title !== 'string' || !Array.isArray(conversation.rounds) || !Array.isArray(conversation.messages)) throw new Error('Agent 会话格式无效')
@@ -118,6 +134,8 @@ function requireReferences(data: WorkspaceSnapshot) {
     for (const id of refs) if (!available.has(id)) throw new Error('备份缺少关联作品或素材，请重新导出完整备份')
   }
   requireIds(data.tasks.flatMap(taskImageIds), imageIds)
+  for (const edit of data.colorEdits) requireIds([edit.id, edit.sourceImageId, edit.parentImageId], imageIds)
+  for (const record of data.colorAssistantHistory) requireIds([record.sourceImageId, record.activeImageId], imageIds)
   requireIds(conversationImageIds(data.agentConversations), imageIds)
   requireIds(conversationTaskIds(data.agentConversations), taskIds)
   requireIds(data.videoTasks.flatMap(videoMediaIds), mediaIds)
@@ -141,14 +159,35 @@ export function planWorkspaceCleanup(data: WorkspaceSnapshot, scopes: WorkspaceD
   if (selected.has('video')) {
     result.videoTasks = []; result.media = []; result.mediaPosters = []; result.videoAssets = []; result.videoAssetCategories = []
   }
+  const remainingImageReferences = [
+    ...draftImageIds,
+    ...result.tasks.flatMap(taskImageIds),
+    ...conversationImageIds(retainedConversations),
+    ...result.videoAssets.filter((asset) => asset.storage === 'images').map((asset) => asset.storageId),
+  ]
+  const retainedEditIds = expandColorEditLineage(data.colorEdits, remainingImageReferences)
+  result.colorEdits = selected.has('gallery')
+    ? data.colorEdits.filter((edit) => retainedEditIds.has(edit.id))
+    : data.colorEdits
   const candidates = new Set([
     ...clearedDraftImageIds,
     ...(selected.has('gallery') ? data.tasks.flatMap(taskImageIds) : []),
     ...(selected.has('agent') ? conversationImageIds(data.agentConversations) : []),
     ...(selected.has('video') && selected.has('gallery') ? data.videoAssets.filter((asset) => asset.storage === 'images').map((asset) => asset.storageId) : []),
+    ...(selected.has('gallery') ? data.colorEdits.flatMap((edit) => [edit.id, edit.sourceImageId, edit.parentImageId]) : []),
   ])
-  const retained = new Set([...draftImageIds, ...result.tasks.flatMap(taskImageIds), ...conversationImageIds(retainedConversations), ...result.videoAssets.filter((asset) => asset.storage === 'images').map((asset) => asset.storageId)])
-  result.images = data.images.filter((image) => !candidates.has(image.id) || retained.has(image.id))
+  const retained = new Set([
+    ...draftImageIds,
+    ...result.tasks.flatMap(taskImageIds),
+    ...conversationImageIds(retainedConversations),
+    ...result.videoAssets.filter((asset) => asset.storage === 'images').map((asset) => asset.storageId),
+    ...result.colorEdits.flatMap((edit) => [edit.id, edit.sourceImageId, edit.parentImageId]),
+  ])
+  const retainedWithVersions = expandColorEditLineage(result.colorEdits, retained)
+  result.images = data.images.filter((image) => !candidates.has(image.id) || retainedWithVersions.has(image.id))
+  result.colorAssistantHistory = selected.has('gallery')
+    ? data.colorAssistantHistory.filter((record) => retainedWithVersions.has(record.sourceImageId))
+    : data.colorAssistantHistory
   const kept = new Set(result.images.map((image) => image.id))
   result.thumbnails = data.thumbnails.filter((image) => kept.has(image.id))
   return result
@@ -167,8 +206,20 @@ function selectSnapshot(data: WorkspaceSnapshot, scopes: WorkspaceDataScope[]) {
     result.videoAssets = data.videoAssets.map((item) => pick(item, 'id type displayName categoryId createdAt updatedAt mime size duration width height source storage storageId derivedMediaId removedAt'))
     result.videoAssetCategories = data.videoAssetCategories.map((item) => pick(item, 'id name createdAt updatedAt'))
   }
-  const imageIds = new Set([...result.tasks.flatMap(taskImageIds), ...conversationImageIds(result.agentConversations), ...result.videoAssets.filter((asset) => asset.storage === 'images').map((asset) => asset.storageId)])
-  result.images = data.images.filter((image) => imageIds.has(image.id)).map((image) => pick(image, 'id dataUrl source createdAt width height'))
+  const referencedImages = [
+    ...result.tasks.flatMap(taskImageIds),
+    ...conversationImageIds(result.agentConversations),
+    ...result.videoAssets.filter((asset) => asset.storage === 'images').map((asset) => asset.storageId),
+    ...(selected.has('gallery') ? data.colorEdits.map((edit) => edit.id) : []),
+  ]
+  const imageIds = expandColorEditLineage(data.colorEdits, referencedImages)
+  result.colorEdits = data.colorEdits.filter((edit) => imageIds.has(edit.id)).map((edit) => sanitizeColorEdit(edit))
+  result.colorAssistantHistory = selected.has('gallery')
+    ? data.colorAssistantHistory
+      .filter((record) => imageIds.has(record.sourceImageId) && imageIds.has(record.activeImageId))
+      .map(sanitizeColorAssistantHistory)
+    : []
+  result.images = data.images.filter((image) => imageIds.has(image.id)).map(sanitizeStoredImage)
   result.thumbnails = data.thumbnails.filter((image) => imageIds.has(image.id)).map((image) => pick(image, 'id thumbnailDataUrl width height thumbnailVersion'))
   requireReferences(result)
   return result
@@ -195,6 +246,8 @@ export async function buildWorkspaceArchive(data: WorkspaceSnapshot, scopes: Wor
   }))
   const manifest = {
     format: FORMAT, version: 1, exportedAt: new Date().toISOString(), scopes: [...scopesOf(scopes)],
+    colorEdits: selected.colorEdits,
+    ...(scopes.includes('gallery') ? { colorAssistantHistory: selected.colorAssistantHistory } : {}),
     namespaces: {
       ...(scopes.includes('gallery') ? { gallery: { tasks: selected.tasks } } : {}),
       ...(scopes.includes('agent') ? { agent: { conversations: selected.agentConversations, tasks: selected.tasks.filter((task) => conversationTaskIds(selected.agentConversations).has(task.id)) } } : {}),
@@ -211,6 +264,8 @@ function parseLegacyWorkspaceArchive(manifest: JsonObject, payload: (path: unkno
   if (!Array.isArray(manifest.tasks) || !manifest.imageFiles) throw new Error('旧版备份缺少作品数据，请选择包含作品和图片的 ZIP')
   const data = emptyWorkspaceSnapshot()
   data.tasks = manifest.tasks.map(sanitizeTask)
+  if (manifest.colorEdits !== undefined && !Array.isArray(manifest.colorEdits)) throw new Error('调色版本列表格式无效')
+  data.colorEdits = (manifest.colorEdits ?? []).map(sanitizeColorEdit)
   if (manifest.agentConversations !== undefined && !Array.isArray(manifest.agentConversations)) throw new Error('旧版备份 Agent 会话格式无效')
   data.agentConversations = (manifest.agentConversations ?? []).map(sanitizeConversation)
   const imageDataUrl = (path: unknown) => {
@@ -223,7 +278,7 @@ function parseLegacyWorkspaceArchive(manifest: JsonObject, payload: (path: unkno
   }
   data.images = Object.entries(object(manifest.imageFiles)).map(([id, value]) => {
     const info = object(value)
-    return { ...pick<StoredImage>(info, 'createdAt source width height'), id, dataUrl: imageDataUrl(info.path) }
+    return { ...pick<StoredImage>(info, 'createdAt source width height colorEdit'), id, dataUrl: imageDataUrl(info.path) }
   })
   data.thumbnails = Object.entries(object(manifest.thumbnailFiles ?? {})).map(([id, value]) => {
     const info = object(value)
@@ -289,7 +344,9 @@ export function parseWorkspaceArchive(bytes: Uint8Array, scopes: WorkspaceDataSc
     if (image.id !== record.id || typeof image[thumbnail ? 'thumbnailDataUrl' : 'dataUrl'] !== 'string' || !/^data:image\//.test(image[thumbnail ? 'thumbnailDataUrl' : 'dataUrl'])) throw new Error('备份图片格式无效')
     return image
   }
-  data.images = rows(manifest.images).map((record) => pick(decodeImage(record), 'id dataUrl source createdAt width height'))
+  data.images = rows(manifest.images).map((record) => sanitizeStoredImage(decodeImage(record)))
+  data.colorEdits = rows(manifest.colorEdits ?? []).map(sanitizeColorEdit)
+  data.colorAssistantHistory = rows(manifest.colorAssistantHistory ?? []).map(sanitizeColorAssistantHistory)
   data.thumbnails = rows(manifest.thumbnails).map((record) => pick(decodeImage(record, true), 'id thumbnailDataUrl width height thumbnailVersion'))
   requireReferences(data)
   // Select using the original namespace task membership; Agent dependencies are shared Gallery rows.

@@ -43,7 +43,10 @@ import {
   deleteImage,
   clearImages,
   storeImage,
+  getAllColorEditRecords,
+  putColorEditRecord,
 } from './lib/db'
+import { normalizeColorEditMetadata } from './lib/colorEditVersions'
 import { callImageApi } from './lib/api'
 import { checkUpscaleLimit, describeUpscale, normalizeUpscaleParams, upscaleImage, type UpscaleParams } from './lib/upscaleApi'
 import { callAgentConversationTitleApi, callAgentResponsesApi, parseBatchImageCallArguments, type AgentApiResultImage } from './lib/agentApi'
@@ -804,6 +807,8 @@ interface AppState {
   lightboxImageId: string | null
   lightboxImageList: string[]
   setLightboxImageId: (id: string | null, list?: string[]) => void
+  colorGradingImageId: string | null
+  setColorGradingImageId: (id: string | null) => void
   /** 高清放大对话框：null 表示关闭；对象里的 imageId 是预选的待放大图片（可为空，由用户在对话框里选） */
   upscaleDialog: { imageId: string | null } | null
   setUpscaleDialog: (v: { imageId: string | null } | null) => void
@@ -1464,6 +1469,11 @@ export const useStore = create<AppState>()(
       setLightboxImageId: (lightboxImageId, list) => {
         if (lightboxImageId) dismissAllTooltips()
         set({ lightboxImageId, lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []) })
+      },
+      colorGradingImageId: null,
+      setColorGradingImageId: (colorGradingImageId) => {
+        if (colorGradingImageId) dismissAllTooltips()
+        set({ colorGradingImageId })
       },
       upscaleDialog: null,
       setUpscaleDialog: (upscaleDialog) => {
@@ -4887,6 +4897,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
   try {
     const tasks = options.exportTasks ? await getAllTasks() : []
     const images = options.exportTasks ? await getAllImages() : []
+    const colorEdits = options.exportTasks ? await getAllColorEditRecords() : []
     const { settings, agentConversations } = useStore.getState()
     const exportedAt = Date.now()
     const imageCreatedAtFallback = new Map<string, number>()
@@ -4959,6 +4970,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
       manifest.agentConversations = getPersistableAgentConversations(agentConversations)
       manifest.imageFiles = imageFiles
       manifest.thumbnailFiles = thumbnailFiles
+      manifest.colorEdits = colorEdits
     }
 
     zipFiles['manifest.json'] = [strToU8(JSON.stringify(manifest, null, 2)), { mtime: new Date(exportedAt) }]
@@ -5016,6 +5028,11 @@ export async function importData(file: File, options: ImportOptions = { importCo
         })
         cacheImage(id, dataUrl)
         importedImageIds.push(id)
+      }
+
+      for (const value of data.colorEdits ?? []) {
+        const edit = normalizeColorEditMetadata(value, value.id)
+        await putColorEditRecord(edit)
       }
 
       for (const [id, info] of Object.entries(data.thumbnailFiles ?? {})) {

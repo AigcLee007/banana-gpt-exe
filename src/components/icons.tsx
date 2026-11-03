@@ -249,3 +249,13 @@ export function UpscaleIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+export function ColorAdjustIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 7h8m4 0h4M4 17h3m4 0h9M12 4v6M7 14v6" />
+      <circle cx="14" cy="7" r="2" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="17" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}

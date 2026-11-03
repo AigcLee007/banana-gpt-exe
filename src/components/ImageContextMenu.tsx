@@ -5,6 +5,7 @@ import { copyImageSourceToClipboard, getClipboardFailureMessage } from '../lib/c
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import { suppressGlobalClicks } from '../lib/clickSuppression'
 import { CopyIcon, DownloadIcon, EditIcon, TrashIcon, UpscaleIcon } from './icons'
+import { ColorAdjustIcon } from './icons'
 
 export default function ImageContextMenu() {
   const [menuInfo, setMenuInfo] = useState<{ src: string; imageId?: string; outputImageIds: string[]; referenceId?: string; x: number; y: number } | null>(null)
@@ -14,6 +15,7 @@ export default function ImageContextMenu() {
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
   const setUpscaleDialog = useStore((s) => s.setUpscaleDialog)
+  const setColorGradingImageId = useStore((s) => s.setColorGradingImageId)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -22,10 +24,11 @@ export default function ImageContextMenu() {
     const onContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement
       const referenceId = target?.closest<HTMLElement>('[data-video-reference-id]')?.dataset.videoReferenceId
-      if (target && (target.tagName === 'IMG' || referenceId)) {
-        const imgTarget = target.tagName === 'IMG' ? target as HTMLImageElement : null
+      const imageElement = target?.closest<HTMLElement>('[data-image-id]')
+      if (target && (target.tagName === 'IMG' || referenceId || imageElement)) {
+        const imgTarget = target.closest<HTMLImageElement>('img')
         // 忽略没有 src 或空的 img
-        if (!imgTarget?.src && !referenceId) return
+        if (!imgTarget?.src && !referenceId && !imageElement?.dataset.imageSrc) return
 
         // iOS 触控设备上，放行原生长按菜单（以支持原生保存图片）
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
@@ -34,8 +37,8 @@ export default function ImageContextMenu() {
 
         e.preventDefault()
         setMenuInfo({
-          src: imgTarget?.src ?? '',
-          imageId: imgTarget?.dataset.imageId,
+          src: imgTarget?.src ?? imageElement?.dataset.imageSrc ?? '',
+          imageId: imageElement?.dataset.imageId ?? imgTarget?.dataset.imageId,
           outputImageIds: imgTarget?.dataset.outputImageIds?.split(',').filter(Boolean) ?? [],
           referenceId,
           x: e.clientX,
@@ -204,12 +207,27 @@ export default function ImageContextMenu() {
     setUpscaleDialog({ imageId })
   }
 
+  const handleColorGrading = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const imageId = menuInfo.imageId
+    setMenuInfo(null)
+    if (!imageId) {
+      showToast('请从本地生成图片或参考图片打开调色器', 'error')
+      return
+    }
+    setDetailTaskId(null)
+    setLightboxImageId(null)
+    setMaskEditorImageId(null)
+    setColorGradingImageId(imageId)
+  }
+
   // 保证菜单在视口内
   let left = menuInfo.x
   let top = menuInfo.y
   const MENU_WIDTH = menuInfo.referenceId ? 160 : 120
   const showDownloadAll = menuInfo.outputImageIds.length > 1
-  const MENU_HEIGHT = (menuInfo.src ? (showDownloadAll ? 160 : 128) + (menuInfo.imageId ? 40 : 0) : 8) + (menuInfo.referenceId ? 40 : 0)
+  const imageActionCount = 4 + Number(showDownloadAll) + Number(Boolean(menuInfo.imageId))
+  const MENU_HEIGHT = (menuInfo.src ? imageActionCount * 40 : 8) + (menuInfo.referenceId ? 40 : 0)
 
   if (left + MENU_WIDTH > window.innerWidth) {
     left -= MENU_WIDTH
@@ -256,6 +274,15 @@ export default function ImageContextMenu() {
           <EditIcon className="w-4 h-4 flex-shrink-0" />
           编辑
         </button>
+        {menuInfo.imageId && (
+          <button
+            onClick={handleColorGrading}
+            className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+          >
+            <ColorAdjustIcon className="w-4 h-4 flex-shrink-0" />
+            调色
+          </button>
+        )}
         {menuInfo.imageId && (
           <button
             onClick={handleUpscale}
