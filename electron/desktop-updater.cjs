@@ -1,8 +1,7 @@
 const FEED_BASE = 'https://m.aittco.com/downloads/updates'
 
 function getUpdateFeed(platform, arch) {
-  const directory = platform === 'win32' && arch === 'x64' ? 'win-x64'
-    : platform === 'darwin' && ['arm64', 'x64'].includes(arch) ? `mac-${arch}` : null
+  const directory = platform === 'win32' && arch === 'x64' ? 'win-x64' : null
   return directory ? `${FEED_BASE}/${directory}/` : null
 }
 

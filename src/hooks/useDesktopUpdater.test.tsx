@@ -94,6 +94,13 @@ describe('native update lifecycle', () => {
     expect(bridge.setBusy).not.toHaveBeenCalled()
   })
 
+  it('falls back to the manual update flow when the native bridge reports unsupported', async () => {
+    bridge.getState = vi.fn().mockResolvedValue({ status: 'unsupported', currentVersion: '1.0.0' })
+    await mount()
+    expect(result.state?.status).toBe('unsupported')
+    expect(result.native).toBe(false)
+  })
+
   it('ignores an initial snapshot returned after a manual check has begun', async () => {
     let resolveInitial!: (state: DesktopUpdateState) => void
     let resolveCheck!: (state: DesktopUpdateState) => void

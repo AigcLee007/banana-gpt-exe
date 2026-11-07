@@ -1,6 +1,7 @@
 const { app, BrowserWindow, shell, protocol, net, ipcMain } = require('electron')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
+const { EventEmitter } = require('node:events')
 const { handleUguuUpload } = require('./uguu-upload.cjs')
 const { handleMidjourneyProxy, handleImageDownload } = require('./midjourney-proxy.cjs')
 const { createUpdateController, getUpdateFeed, isTrustedUpdateSender } = require('./desktop-updater.cjs')
@@ -60,12 +61,11 @@ function createWindow() {
 app.whenReady().then(() => {
   const feed = getUpdateFeed(process.platform, process.arch)
   const updateEnabled = app.isPackaged && !isDev && Boolean(feed)
-  // Instantiate the supported updater with a fixed per-platform HTTPS origin.
-  // No renderer-provided URL or API credentials ever enter the update client.
-  const { NsisUpdater, MacUpdater } = require('electron-updater')
-  const updater = process.platform === 'darwin'
-    ? new MacUpdater({ provider: 'generic', url: feed || 'https://m.aittco.com/downloads/updates/unsupported/', channel: 'latest' })
-    : new NsisUpdater({ provider: 'generic', url: feed || 'https://m.aittco.com/downloads/updates/unsupported/', channel: 'latest' })
+  // Only packaged Windows x64 clients get a network-capable updater.
+  // Mac clients use the renderer's existing version.json manual-download flow.
+  const updater = updateEnabled
+    ? new (require('electron-updater').NsisUpdater)({ provider: 'generic', url: feed, channel: 'latest' })
+    : new EventEmitter()
   desktopUpdates = createUpdateController({ updater, currentVersion: app.getVersion(), enabled: updateEnabled })
   desktopUpdates.subscribe(state => {
     if (mainWindow && !mainWindow.isDestroyed()) {

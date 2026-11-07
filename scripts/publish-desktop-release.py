@@ -39,7 +39,7 @@ def safe_relative(name):
     return str(path)
 
 
-def publish_archive(archive, root, expected_version, token):
+def publish_archive(archive, root, expected_version, token, expected_mode=None):
     """Verify complete upload before installing files; switch all public metadata atomically."""
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', expected_version) or not re.fullmatch(r'[a-f0-9]{24}', token):
         raise ValueError('Invalid version or upload token')
@@ -69,6 +69,9 @@ def publish_archive(archive, root, expected_version, token):
                     shutil.copyfileobj(source, destination)
                 target.chmod(0o644)
         index = json.loads((stage / 'release-index.json').read_text())
+        mode = index.get('mode', 'complete')
+        if mode not in ('complete', 'windows-only') or expected_mode and mode != expected_mode:
+            raise ValueError('Unexpected publication mode')
         if index['version'] != expected_version:
             raise ValueError('Archive version mismatch')
         indexed = set()
@@ -82,7 +85,8 @@ def publish_archive(archive, root, expected_version, token):
                 raise ValueError('Remote SHA512 or size mismatch: ' + name)
         if names != indexed | {'release-index.json'}:
             raise ValueError('Archive and index do not contain the same files')
-        for platform in PLATFORMS:
+        selected_platforms = ('win-x64',) if mode == 'windows-only' else PLATFORMS
+        for platform in selected_platforms:
             manifest = 'latest.yml' if platform == 'win-x64' else 'latest-mac.yml'
             if f'{platform}/{manifest}' not in indexed:
                 raise ValueError('Missing native feed')
@@ -117,8 +121,42 @@ def publish_archive(archive, root, expected_version, token):
             if current.exists() or current.is_symlink():
                 if not current.is_symlink() or current.resolve().parent != releases:
                     raise ValueError('Current pointer is not a release symlink')
+            if mode == 'windows-only':
+                previous_manifest_path = current / 'version.json'
+                legacy_site_manifest = root.parent / 'version.json'
+                previous_manifest = json.loads(previous_manifest_path.read_text()) if previous_manifest_path.is_file() else (
+                    json.loads(legacy_site_manifest.read_text()) if legacy_site_manifest.is_file() else {}
+                )
+                previous_downloads = previous_manifest.get('downloads', {})
+                if not isinstance(previous_downloads, dict):
+                    raise ValueError('Existing download manifest is invalid')
+                downloads = dict(previous_downloads)
+                downloads.update(legacy.get('downloads', {}))
+                legacy['downloads'] = downloads
+                if not legacy.get('notes') and previous_manifest.get('notes'):
+                    legacy['notes'] = previous_manifest['notes']
+                for platform in ('mac-arm64', 'mac-x64'):
+                    previous_feed = current / platform / 'latest-mac.yml'
+                    if not previous_feed.is_file():
+                        continue
+                    if previous_feed.is_symlink():
+                        raise ValueError('Existing Mac update feed must not be a symlink')
+                    destination = stage / platform / 'latest-mac.yml'
+                    destination.parent.mkdir(exist_ok=True)
+                    shutil.copyfile(previous_feed, destination)
+                    destination.chmod(0o644)
+                    name = platform + '/latest-mac.yml'
+                    indexed.add(name)
+                    index['files'].append({'path': name, 'sha512': digest(destination), 'size': destination.stat().st_size})
+                (stage / 'version.json').write_text(json.dumps(legacy, ensure_ascii=False, indent=2) + '\n')
+                version_entry = next(item for item in index['files'] if item['path'] == 'version.json')
+                version_entry['sha512'] = digest(stage / 'version.json')
+                version_entry['size'] = (stage / 'version.json').stat().st_size
+                (stage / 'release-index.json').write_text(json.dumps(index, ensure_ascii=False, indent=2) + '\n')
+                indexed.add('release-index.json')
             for platform in PLATFORMS:
-                safe_directory(artifacts / platform)
+                if platform in selected_platforms:
+                    safe_directory(artifacts / platform)
             for name in indexed:
                 if '/' not in name or name.endswith(('.yml', 'signing-verification.json')):
                     continue
@@ -149,5 +187,6 @@ def publish_archive(archive, root, expected_version, token):
 
 if __name__ == '__main__':
     upload_token, version = sys.argv[1:3]
-    result = publish_archive(ROOT / '.incoming' / (upload_token + '.tar.gz'), ROOT, version, upload_token)
+    mode = sys.argv[3] if len(sys.argv) > 3 else None
+    result = publish_archive(ROOT / '.incoming' / (upload_token + '.tar.gz'), ROOT, version, upload_token, mode)
     print(json.dumps({'version': version, 'steps': result}))

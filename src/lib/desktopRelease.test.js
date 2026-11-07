@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, readlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, readlinkSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -29,6 +29,18 @@ function fixture() {
     writeFileSync(join(dir, platform === 'win-x64' ? 'latest.yml' : 'latest-mac.yml'), yaml.dump({ version, files, path: files[0].url, sha512: files[0].sha512 }))
     if (platform !== 'win-x64') writeFileSync(join(dir, 'signing-verification.json'), JSON.stringify({ version, platform, signed: true, notarized: true, files: Object.fromEntries(files.map((f) => [f.url, f.sha512])) }))
   }
+  return root
+}
+function windowsFixture() {
+  const root = mkdtempSync(join(tmpdir(), 'desktop-release-windows-'))
+  roots.push(root)
+  const dir = join(root, 'win-x64')
+  mkdirSync(dir)
+  const name = `banana-${version}-win-x64.exe`
+  const data = Buffer.from('fixture windows installer')
+  writeFileSync(join(dir, name), data)
+  writeFileSync(join(dir, `${name}.blockmap`), 'blockmap fixture')
+  writeFileSync(join(dir, 'latest.yml'), yaml.dump({ version, files: [{ url: name, sha512: hash(data), size: data.length }], path: name, sha512: hash(data) }))
   return root
 }
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })))
@@ -84,9 +96,48 @@ describe('native release publication', () => {
     expect(() => releasePreflight({ DESKTOP_RELEASE: 'true' })).toThrow(/MAC_CSC_LINK.*UPDATES_SSH_KNOWN_HOSTS/)
     expect(releasePreflight({ DESKTOP_RELEASE: 'false' })).toEqual({ publish: false })
   })
+  it('allows Windows-only publication without Apple credentials', () => {
+    const env = {
+      DESKTOP_RELEASE: 'true', DESKTOP_RELEASE_MODE: 'windows-only',
+      UPDATES_SSH_HOST: 'updates.example.com', UPDATES_SSH_USER: 'publisher', UPDATES_SSH_PORT: '22',
+      UPDATES_SSH_PRIVATE_KEY: 'private-key', UPDATES_SSH_KNOWN_HOSTS: 'updates.example.com ssh-ed25519 test-key',
+    }
+    expect(releasePreflight(env)).toMatchObject({ publish: true, mode: 'windows-only', version })
+    expect(() => releasePreflight({ ...env, WIN_CSC_LINK: 'certificate' })).toThrow(/both/)
+  })
+  it('stages only validated Windows artifacts for Windows-only publication', () => {
+    const root = windowsFixture()
+    const staged = join(root, 'stage')
+    const result = prepareRelease({ input: root, output: staged, version, mode: 'windows-only' })
+    const index = JSON.parse(readFileSync(join(staged, 'release-index.json'), 'utf8'))
+    const legacy = JSON.parse(readFileSync(join(staged, 'version.json'), 'utf8'))
+    expect(result.mode).toBe('windows-only')
+    expect(index.mode).toBe('windows-only')
+    expect(index.files.every((file) => file.path.startsWith('win-x64/') || file.path === 'version.json')).toBe(true)
+    expect(legacy.downloads.windowsUrl).toMatch(/\.exe$/)
+    expect(legacy.downloads.macosArm64Url).toBeUndefined()
+    expect(legacy.downloads.macosX64Url).toBeUndefined()
+    expect(existsSync(join(staged, 'mac-arm64'))).toBe(false)
+    expect(existsSync(join(staged, 'mac-x64'))).toBe(false)
+  })
+  it('rejects a tampered Windows-only installer before creating staging output', () => {
+    const root = windowsFixture()
+    writeFileSync(join(root, 'win-x64', `banana-${version}-win-x64.exe`), 'tampered')
+    expect(() => prepareRelease({ input: root, output: join(root, 'stage'), version, mode: 'windows-only' })).toThrow(/SHA512/)
+    expect(existsSync(join(root, 'stage'))).toBe(false)
+  })
   it('allows electron-builder v26 to discover the imported Mac signing identity', () => {
     const workflow = yaml.load(readFileSync(join(process.cwd(), '.github', 'workflows', 'desktop-build.yml'), 'utf8'))
     expect(workflow.jobs['build-macos'].env.CSC_IDENTITY_AUTO_DISCOVERY).toBe('true')
+  })
+  it('publishes Windows independently without Apple secrets or Mac artifacts', () => {
+    const workflow = yaml.load(readFileSync(join(process.cwd(), '.github', 'workflows', 'desktop-build.yml'), 'utf8'))
+    const publish = workflow.jobs.publish
+    expect(publish.needs).toEqual(['preflight', 'build-windows'])
+    expect(publish.steps.filter((step) => step.uses === 'actions/download-artifact@v4').map((step) => step.with.name)).toEqual(['desktop-windows'])
+    expect(publish.steps.find((step) => step.run?.includes('desktop-release.mjs')).run).toContain('windows-only')
+    expect(publish.steps.find((step) => step.run?.includes('publish-desktop-release.mjs')).env).not.toHaveProperty('APPLE_ID')
+    expect(workflow.jobs['build-macos'].if).toContain('!inputs.publish')
   })
   it('orders complete artifact transfer and verification before the atomic feed and legacy manifest switch', () => {
     expect(publicationPlan()).toEqual(['validate-local', 'upload-complete-stage', 'verify-remote', 'install-immutable-artifacts', 'install-release-metadata', 'atomic-current-switch'])

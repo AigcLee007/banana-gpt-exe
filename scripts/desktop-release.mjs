@@ -19,10 +19,12 @@ function regularFile(dir, name) {
   if (info.size === 0) throw new Error(`Empty artifact: ${name}`)
   return path
 }
-export function validateRelease({ input, version }) {
+export function validateRelease({ input, version, mode = 'complete' }) {
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error('Invalid release version')
+  if (!['complete', 'windows-only'].includes(mode)) throw new Error('Invalid release mode')
   const result = []
-  for (const platform of platforms) {
+  const selectedPlatforms = mode === 'windows-only' ? ['win-x64'] : platforms
+  for (const platform of selectedPlatforms) {
     const dir = join(resolve(input), platform)
     if (!lstatSync(dir).isDirectory() || lstatSync(dir).isSymbolicLink()) throw new Error(`Missing platform directory: ${platform}`)
     const manifest = platform === 'win-x64' ? 'latest.yml' : 'latest-mac.yml'
@@ -78,11 +80,11 @@ export function validateRelease({ input, version }) {
   }
   return result
 }
-export function prepareRelease({ input, output, version, notes = '' }) {
-  const feeds = validateRelease({ input, version })
+export function prepareRelease({ input, output, version, notes = '', mode = 'complete' }) {
+  const feeds = validateRelease({ input, version, mode })
   if (existsSync(output)) throw new Error('Staging output already exists; choose a new directory')
   mkdirSync(output, { recursive: true })
-  const index = { version, files: [] }
+  const index = { version, mode, files: [] }
   const add = (name) => index.files.push({ path: name, sha512: sha512(join(output, name)), size: lstatSync(join(output, name)).size })
   for (const feed of feeds) {
     mkdirSync(join(output, feed.platform))
@@ -92,7 +94,12 @@ export function prepareRelease({ input, output, version, notes = '' }) {
     }
   }
   const url = (platform) => `/downloads/updates/${platform}/${feeds.find((feed) => feed.platform === platform).installer}`
-  writeFileSync(join(output, 'version.json'), JSON.stringify({ version, notes, desktop: { downloadPage: 'https://m.aittco.com/downloads/' }, downloads: { windowsUrl: url('win-x64'), macosArm64Url: url('mac-arm64'), macosX64Url: url('mac-x64') } }, null, 2) + '\n')
+  const downloads = { windowsUrl: url('win-x64') }
+  if (mode === 'complete') {
+    downloads.macosArm64Url = url('mac-arm64')
+    downloads.macosX64Url = url('mac-x64')
+  }
+  writeFileSync(join(output, 'version.json'), JSON.stringify({ version, notes, desktop: { downloadPage: 'https://m.aittco.com/downloads/' }, downloads }, null, 2) + '\n')
   add('version.json')
   writeFileSync(join(output, 'release-index.json'), JSON.stringify(index, null, 2) + '\n')
   return index
@@ -100,10 +107,10 @@ export function prepareRelease({ input, output, version, notes = '' }) {
 export function publicationPlan() { return ['validate-local', 'upload-complete-stage', 'verify-remote', 'install-immutable-artifacts', 'install-release-metadata', 'atomic-current-switch'] }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const [input, output] = process.argv.slice(2)
+  const [input, output, mode = 'complete'] = process.argv.slice(2)
   if (!input || !output) throw new Error('Usage: node scripts/desktop-release.mjs <platform-artifact-root> <new-stage-directory>')
   const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   const notes = process.env.RELEASE_NOTES || ''
-  const index = prepareRelease({ input, output, version, notes })
+  const index = prepareRelease({ input, output, version, notes, mode })
   console.log(`Validated and staged ${version}: ${index.files.length} files. No live feeds changed.`)
 }

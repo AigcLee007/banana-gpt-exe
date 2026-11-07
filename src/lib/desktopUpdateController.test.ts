@@ -17,8 +17,12 @@ function setup(enabled = true) {
 afterEach(() => vi.useRealTimers())
 
 describe('native desktop updater', () => {
-  it.each([['win32', 'x64', 'win-x64'], ['darwin', 'arm64', 'mac-arm64'], ['darwin', 'x64', 'mac-x64']])('isolates %s %s update feed', (platform, arch, feed) => {
+  it.each([['win32', 'x64', 'win-x64']])('isolates %s %s update feed', (platform, arch, feed) => {
     expect(getUpdateFeed(platform, arch)).toBe(`https://m.aittco.com/downloads/updates/${feed}/`)
+  })
+  it('does not provide a native update feed for macOS', () => {
+    expect(getUpdateFeed('darwin', 'arm64')).toBeNull()
+    expect(getUpdateFeed('darwin', 'x64')).toBeNull()
   })
   it('rejects unsupported platforms and untrusted IPC senders', () => {
     expect(getUpdateFeed('linux', 'x64')).toBeNull()

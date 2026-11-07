@@ -84,7 +84,7 @@ export function useDesktopUpdater() {
   }, [bridge, perform, receive])
 
   return {
-    native: Boolean(bridge), state, visible, busy, pending,
+    native: Boolean(bridge && state?.status !== 'unsupported'), state, visible, busy, pending,
     dismiss: () => { if (stateRef.current?.status !== 'installing') setVisible(false) },
     check: () => perform('check'), download: () => perform('download'), install: () => perform('install'),
   }

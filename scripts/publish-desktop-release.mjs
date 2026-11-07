@@ -12,7 +12,7 @@ const [stageArgument] = process.argv.slice(2)
 if (!stageArgument) throw new Error('Usage: node scripts/publish-desktop-release.mjs <validated-stage-directory>')
 const stage = resolve(stageArgument)
 const index = JSON.parse(readFileSync(join(stage, 'release-index.json'), 'utf8'))
-if (index.version !== result.version) throw new Error('Staged version does not match package version')
+if (index.version !== result.version || (index.mode || 'complete') !== result.mode) throw new Error('Staged version or mode does not match publication configuration')
 for (const item of index.files) {
   const parts = item.path.split('/')
   if (parts.length > 2) throw new Error('Unsafe staging filename')
@@ -38,8 +38,8 @@ try {
   run('ssh', [...ssh, `test -d ${root} && test ! -L ${root} && mkdir -p ${root}/.incoming && test ! -L ${root}/.incoming`])
   run('scp', ['-P', process.env.UPDATES_SSH_PORT, ...common, bundle, `${target}:${root}/.incoming/${token}.tar.gz`])
   const remote = readFileSync(new URL('./publish-desktop-release.py', import.meta.url))
-  run('ssh', [...ssh, `python3 - ${token} ${result.version}`], { input: remote })
-  console.log(`Published ${result.version}; native feed metadata and legacy version.json switched together.`)
+  run('ssh', [...ssh, `python3 - ${token} ${result.version} ${result.mode}`], { input: remote })
+  console.log(`Published ${result.version} (${result.mode}); verified feeds and version.json switched together.`)
 } finally {
   rmSync(temporary, { recursive: true, force: true })
 }

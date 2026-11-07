@@ -24,7 +24,7 @@ Enable automatic update checks and downloads for the installed Windows x64 NSIS 
 - Add a Windows-only release path to GitHub Actions. Ordinary pushes continue to run verification/build jobs without publishing. Explicit publish dispatch or a matching version tag builds and publishes only Windows artifacts.
 - Publication preflight requires the restricted SSH publishing credentials. Windows code-signing credentials remain optional and paired; Apple signing credentials are not required by this path.
 - Validate the NSIS installer, `latest.yml`, blockmap files, version, SHA512, and sizes locally before upload. Keep the existing immutable artifact paths and atomic `current` pointer switch.
-- On the server, validate the staged Windows release and preserve the active `version.json` macOS URLs when creating the new active manifest. Leave macOS update feed files and pointers untouched. Publish the Windows feed and version manifest together only after all files verify.
+- On the server, validate the staged Windows release and preserve any existing `version.json` macOS URLs when creating the new active manifest. Since Nginx reads all feed manifests through the shared `current` snapshot, carry forward any existing macOS feed manifests byte-for-byte into each Windows release snapshot. If this is the first native release and there are no existing Mac feeds, do not invent feeds; Mac remains on the manual download path. Publish the Windows feed and version manifest together only after all files verify.
 - Reject version reuse and unsafe or incomplete artifacts. Failed publication leaves the previous active manifest in place.
 
 ### Download page and operator setup

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish signed, notarized complete native release to m.aittco.com
+        description: Publish a Windows-only desktop update to m.aittco.com
         type: boolean
         default: false
       notes:
@@ -22,6 +22,7 @@ env:
   ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: 'true'
   DESKTOP_RELEASE: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish) || startsWith(github.ref, 'refs/tags/v') }}
   RELEASE_NOTES: ${{ inputs.notes || '' }}
+  DESKTOP_RELEASE_MODE: windows-only
 
 jobs:
   preflight:
@@ -33,14 +34,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Reject missing credentials and mismatched version tags before builds
+      - name: Reject missing Windows publication credentials and mismatched version tags before builds
         run: node scripts/desktop-release-preflight.mjs
         env:
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DESKTOP_RELEASE_MODE: windows-only
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           UPDATES_SSH_HOST: ${{ secrets.UPDATES_SSH_HOST }}
@@ -88,6 +85,7 @@ jobs:
   build-macos:
     name: Build desktop macOS ${{ matrix.arch }}
     needs: preflight
+    if: (github.event_name == 'workflow_dispatch' && !inputs.publish) || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/v'))
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -128,9 +126,9 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Publish complete native release
+    name: Publish Windows desktop update
     if: (github.event_name == 'workflow_dispatch' && inputs.publish) || startsWith(github.ref, 'refs/tags/v')
-    needs: [build-windows, build-macos]
+    needs: [preflight, build-windows]
     runs-on: ubuntu-latest
     concurrency:
       group: desktop-update-publication
@@ -146,24 +144,12 @@ jobs:
         with:
           name: desktop-windows
           path: artifacts/win-x64
-      - uses: actions/download-artifact@v4
-        with:
-          name: desktop-macos-arm64
-          path: artifacts/mac-arm64
-      - uses: actions/download-artifact@v4
-        with:
-          name: desktop-macos-x64
-          path: artifacts/mac-x64
       - name: Validate all versions, SHA512, update payloads and Mac signing receipts locally
-        run: node scripts/desktop-release.mjs artifacts staged-release
+        run: node scripts/desktop-release.mjs artifacts staged-release windows-only
       - name: Transfer and verify all files, then atomically switch all public manifests
         run: node scripts/publish-desktop-release.mjs staged-release
         env:
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DESKTOP_RELEASE_MODE: windows-only
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           UPDATES_SSH_HOST: ${{ secrets.UPDATES_SSH_HOST }}
