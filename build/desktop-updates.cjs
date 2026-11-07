@@ -1,5 +1,18 @@
 const { build } = require('../package.json')
 
+// Empty GitHub secrets are exported as empty strings; electron-builder treats
+// CSC_LINK="" as a certificate path and resolves it to the project directory.
+for (const name of [
+  'CSC_LINK',
+  'CSC_KEY_PASSWORD',
+  'CSC_INSTALLER_LINK',
+  'CSC_INSTALLER_KEY_PASSWORD',
+  'WIN_CSC_LINK',
+  'WIN_CSC_KEY_PASSWORD',
+]) {
+  if (process.env[name]?.trim() === '') delete process.env[name]
+}
+
 const release = process.env.DESKTOP_RELEASE === 'true'
 const appleCredentials = Boolean(process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID)
 

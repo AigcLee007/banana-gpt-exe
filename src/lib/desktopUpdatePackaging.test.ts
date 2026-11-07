@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 const require = createRequire(import.meta.url)
@@ -20,5 +21,22 @@ describe('desktop update packaging', () => {
     expect(config.mac.target).toEqual(['dmg', 'zip'])
     expect(config.mac.hardenedRuntime).toBe(true)
     expect(config.files).toContain('electron/**/*')
+  })
+  it('removes blank signing variables before electron-builder reads certificate paths', () => {
+    const names = ['CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_INSTALLER_LINK', 'CSC_INSTALLER_KEY_PASSWORD', 'WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD']
+    const output = execFileSync(process.execPath, ['-e', `require('./build/desktop-updates.cjs'); process.stdout.write(JSON.stringify(Object.fromEntries(${JSON.stringify(names)}.map(name => [name, process.env[name]]))))`], {
+      cwd: process.cwd(),
+      env: { ...process.env, ...Object.fromEntries(names.map(name => [name, ''])) },
+      encoding: 'utf8',
+    })
+    expect(JSON.parse(output)).toEqual({})
+  })
+  it('preserves configured signing credentials', () => {
+    const output = execFileSync(process.execPath, ['-e', `require('./build/desktop-updates.cjs'); process.stdout.write(String(process.env.CSC_LINK === 'configured.p12' && process.env.CSC_KEY_PASSWORD === 'test-password'))`], {
+      cwd: process.cwd(),
+      env: { ...process.env, CSC_LINK: 'configured.p12', CSC_KEY_PASSWORD: 'test-password' },
+      encoding: 'utf8',
+    })
+    expect(output).toBe('true')
   })
 })
