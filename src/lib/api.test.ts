@@ -618,7 +618,7 @@ describe('callImageApi', () => {
       prompt: 'prompt',
       size: '2048x2048',
       quality: 'high',
-      output_format: 'webp',
+      output_format: 'png',
       moderation: 'auto',
     })
   })
@@ -814,7 +814,7 @@ describe('callImageApi', () => {
     expect(formData?.get('prompt')).toBe('prompt')
     expect(formData?.get('size')).toBe('2048x2048')
     expect(formData?.get('quality')).toBe('high')
-    expect(formData?.get('output_format')).toBe('webp')
+    expect(formData?.get('output_format')).toBe('png')
   })
 
   it('splits GPT-Image-2 multi-image edits into parallel single-image requests', async () => {
@@ -1810,7 +1810,7 @@ describe('bananaModels', () => {
     expect(normalizeBananaModelId('GPT Image 2.5 Sunburst')).toBe('gpt-image-2.5-sunburst')
   })
 
-  it('registers the official Sunburst max-quality line in the third position', () => {
+  it('keeps the official Sunburst max-quality line after its standard line', () => {
     const modelId = 'gpt-image-2.5-sunburst-官渠（支持max）'
     const model = getBananaModelByDisplayName('GPT-Image-2.5 Sunburst(官渠，支持max）')
     const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
@@ -1822,7 +1822,7 @@ describe('bananaModels', () => {
       supportsReferenceImages: true,
       supportedSizeTiers: ['1K', '2K', '4K'],
     })
-    expect(visibleModels[2]).toBe(modelId)
+    expect(visibleModels[visibleModels.indexOf('gpt-image-2.5-sunburst') + 1]).toBe(modelId)
     expect(getBananaModelRoute(modelId)).toBe('openai-images')
     expect(normalizeBananaModelId('GPT-Image-2.5 Sunburst(官渠，支持max）')).toBe(modelId)
     expect(getBananaQualityOptions(modelId)).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
@@ -1900,6 +1900,10 @@ describe('bananaModels', () => {
   it('shows the configured gallery models and hides the legacy GPT Agent line', () => {
     const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
     expect(visibleModels).toEqual([
+      'gpt-image-2.6-sunburst',
+      'gpt-image-2.6-sunburst-1k',
+      'gpt-image-2.6-flare',
+      'gpt-image-2.6-flare-1k',
       'gemini-3-pro-image-preview',
       'gpt-image-2.5-sunburst',
       'gpt-image-2.5-sunburst-官渠（支持max）',

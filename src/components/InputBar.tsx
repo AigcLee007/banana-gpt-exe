@@ -22,6 +22,8 @@ import ImageModelPicker from './ImageModelPicker'
 import AgentInputOptions from './AgentInputOptions'
 import { pickStudioAssets } from '../lib/portalAssets'
 import { getAgentEnterSubmit } from '../lib/workspacePreferences'
+import { getImageGenerationModel, isVectorOrAnimatedFormat } from '../lib/imageModels'
+import ImageOutputOptions from './ImageOutputOptions'
 import SizePickerModal from './SizePickerModal'
 import ViewportTooltip from './ViewportTooltip'
 import { ChevronDownIcon, CloseIcon } from './icons'
@@ -702,7 +704,7 @@ export default function InputBar() {
   const isFalTextToImage = isFalProvider && inputImages.length === 0
   const nDraftValue = Number(nInput)
   const effectiveNValue = Number.isNaN(nDraftValue) ? params.n : nDraftValue
-  const streamConcurrentByN = activeProfile.provider === 'openai' && activeProfile.streamImages === true && !agentAutoImageCount && effectiveNValue > 1
+  const streamConcurrentByN = activeProfile.provider === 'openai' && activeProfile.streamImages === true && !isVectorOrAnimatedFormat(params.output_format) && !agentAutoImageCount && effectiveNValue > 1
   const nLimitHintText = agentAutoImageCount
     ? 'Agent 模式下数量由模型根据提示词自动决定'
     : isFalProvider
@@ -711,10 +713,8 @@ export default function InputBar() {
   const displaySize = isFalTextToImage && params.size === 'auto'
     ? DEFAULT_FAL_IMAGE_SIZE
     : normalizeImageSize(params.size) || DEFAULT_PARAMS.size
-  const resolvedGalleryModel = normalizeBananaModelId(activeProfile.model)
-  const galleryModel = BANANA_GALLERY_MODELS.some((item) => item.model === resolvedGalleryModel)
-    ? resolvedGalleryModel
-    : DEFAULT_GALLERY_MODEL
+  const resolvedGalleryModel = normalizeBananaModelId((getImageGenerationModel(activeProfile) || activeProfile.model).replace(/^openai\//, ''))
+  const galleryModel = resolvedGalleryModel || DEFAULT_GALLERY_MODEL
   const activeImageModel = getActiveBananaModelForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
   const hideOutputCompression = portalManaged && activeImageModel.startsWith('gpt-')
   const supportedSizeTiers = getBananaSupportedSizeTiers(activeImageModel)
@@ -722,7 +722,7 @@ export default function InputBar() {
   const usesGeminiParamControls = activeImageModelRoute === 'gemini-native' || activeImageModelRoute === 'banana-t3-images'
   const usesGeminiGalleryParams = appMode === 'gallery' && usesGeminiImageParams(galleryModel)
   const transparentOutputAvailable = appMode === 'gallery' && !usesGeminiGalleryParams
-  const showTransparentOutputControl = transparentOutputAvailable && params.output_format === 'png'
+  const showTransparentOutputControl = transparentOutputAvailable && (params.output_format === 'png' || isVectorOrAnimatedFormat(params.output_format))
   const desktopParamGridColumns = hideOutputCompression
     ? showTransparentOutputControl ? 'grid-cols-7' : 'grid-cols-6'
     : getBananaDesktopParamGridColumnsForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
@@ -892,13 +892,13 @@ export default function InputBar() {
   }, [agentAutoImageCount, params.n])
 
   useEffect(() => {
-    const normalizedParams = normalizeParamsForSettings(params, paramsNormalizationSettings, { hasInputImages: inputImages.length > 0 })
+    const normalizedParams = normalizeParamsForSettings(params, paramsNormalizationSettings, { hasInputImages: inputImages.length > 0, agent: appMode === 'agent' })
     if (hideOutputCompression) normalizedParams.output_compression = null
     const patch = getChangedParams(params, normalizedParams)
     if (Object.keys(patch).length) {
       setParams(patch)
     }
-  }, [hideOutputCompression, inputImages.length, params, paramsNormalizationSettings, setParams])
+  }, [appMode, hideOutputCompression, inputImages.length, params, paramsNormalizationSettings, setParams])
 
   useEffect(() => () => {
     if (imageHintTimerRef.current != null) {
@@ -1840,6 +1840,15 @@ export default function InputBar() {
             memoryScope="gallery"
             onChange={(model) => {
               const nextModel = String(model)
+              if (activeProfile.provider === 'openai' && activeProfile.apiMode === 'responses' && /^gpt-image-/i.test(nextModel)) {
+                const nextProfiles = effectiveSettings.profiles.map((profile) => profile.id === activeProfile.id ? { ...profile, imageGenerationModel: nextModel } : profile)
+                const nextSettings = normalizeSettings({ ...effectiveSettings, profiles: nextProfiles })
+                const nextParams = normalizeParamsForSettings(params, nextSettings, { hasInputImages: inputImages.length > 0 })
+                setSettings({ profiles: nextProfiles })
+                const patch = getChangedParams(params, nextParams)
+                if (Object.keys(patch).length) setParams(patch)
+                return
+              }
               const nextRoute = getBananaModelRoute(nextModel)
               const nextApiMode = nextRoute === 'openai-responses' ? 'responses' : 'images'
               const nextSettings = normalizeSettings({ ...settings, model: nextModel, apiMode: nextApiMode })
@@ -2021,6 +2030,15 @@ export default function InputBar() {
         <ButtonTooltip visible={nLimitHint.visible} text={nLimitHintText} />
         <ButtonTooltip visible={streamConcurrentByN && !nLimitHint.visible} text="When count is greater than 1, generation is split into parallel single-image requests." />
       </label>
+      {!usesGeminiParamControls && (
+        <ImageOutputOptions
+          profile={getActiveApiProfile(paramsNormalizationSettings)}
+          params={params}
+          onChange={setParams}
+          agent={appMode === 'agent'}
+          hasInputImages={inputImages.length > 0}
+        />
+      )}
     </div>
   )
 
@@ -2066,7 +2084,7 @@ export default function InputBar() {
           supportedTiers={supportedSizeTiers}
           onSelect={(size) => setParams({ size })}
           onClose={() => setShowSizePicker(false)}
-          allowAuto={!isFalTextToImage}
+          allowAuto={!isFalTextToImage && !(supportedSizeTiers.length === 1 && supportedSizeTiers[0] === '1K')}
         />
       )}
 

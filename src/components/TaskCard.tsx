@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react'
 import type { TaskRecord } from '../types'
-import { useStore, ensureImageThumbnailCached, subscribeImageThumbnail, updateTaskInStore, retryTask } from '../store'
+import { useStore, ensureImageCached, ensureImageThumbnailCached, subscribeImageThumbnail, updateTaskInStore, retryTask } from '../store'
 import { formatImageRatio } from '../lib/size'
 import { getParamDisplay, ActualValueBadge } from '../lib/paramDisplay'
 import { DEFAULT_IMAGES_MODEL, DEFAULT_FAL_MODEL } from '../lib/apiProfiles'
@@ -252,12 +252,13 @@ export default function TaskCard({
     setThumbSrc('')
 
     let cancelled = false
+    let gifOriginal = ''
     const imageId = task.outputImages?.[0]
     let unsubscribe: (() => void) | undefined
 
     const applyThumbnail = (thumbnail: { dataUrl: string; width?: number; height?: number }) => {
       if (cancelled) return
-      setThumbSrc(thumbnail.dataUrl)
+      setThumbSrc(gifOriginal || thumbnail.dataUrl)
       if (thumbnail.width && thumbnail.height) {
         setCoverRatio(formatImageRatio(thumbnail.width, thumbnail.height))
         setCoverSize(`${thumbnail.width}×${thumbnail.height}`)
@@ -270,15 +271,22 @@ export default function TaskCard({
         if (cancelled || !thumbnail) return
         applyThumbnail(thumbnail)
       }).catch(() => {
-        if (!cancelled) setThumbSrc('')
+        if (!cancelled && !gifOriginal) setThumbSrc('')
       })
+      if (task.params.output_format === 'gif') {
+        ensureImageCached(imageId).then((source) => {
+          if (cancelled || !source) return
+          gifOriginal = source
+          setThumbSrc(source)
+        }).catch(() => {})
+      }
     }
 
     return () => {
       cancelled = true
       unsubscribe?.()
     }
-  }, [task.outputImages])
+  }, [task.outputImages, task.params.output_format])
 
   const duration = (() => {
     let seconds: number
@@ -608,6 +616,12 @@ export default function TaskCard({
                 </span>
               )}
               {/* Params: only show if not default or mismatch */}
+              {task.params.complexity && task.params.complexity !== 'auto' && (
+                <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0 text-gray-600 dark:text-gray-300">{`复杂度 ${task.params.complexity}`}</span>
+              )}
+              {task.params.output_format === 'gif' && (
+                <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0 text-gray-600 dark:text-gray-300">{`${task.params.frame_count ?? 9} 帧 · ${task.params.frame_duration_ms ?? 200}ms`}</span>
+              )}
               {showQuality && (
                 <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
                   <span className="text-gray-400 dark:text-gray-500">质量</span>

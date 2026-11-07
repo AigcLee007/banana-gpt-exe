@@ -5,3 +5,8 @@ dist
 *.md
 Dockerfile
 .dockerignore
+.worktrees
+tmp
+output
+release
+deploy/static/studio

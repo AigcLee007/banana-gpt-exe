@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { configDefaults, defineConfig } from 'vitest/config'
 import { uguuUploadMiddleware } from './server/uguuProxy'
 import react from '@vitejs/plugin-react'
 import { readFileSync } from 'fs'
@@ -220,6 +220,11 @@ export default defineConfig(({ command }) => {
       },
     ],
     base: './',
+    test: {
+      include: ['src/**/*.{test,spec}.?(c|m)[jt]s?(x)'],
+      exclude: [...configDefaults.exclude, '**/.worktrees/**'],
+      maxWorkers: 4,
+    },
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
       __BUILD_TIME__: JSON.stringify(buildTime),

@@ -3,7 +3,9 @@ import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './ca
 import { getBananaModelRoute, getBananaT3RequestModelForSize, isBananaT3ImagesModel, isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
 import { buildApiUrl, isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
+import { isVectorOrAnimatedFormat } from './imageModels'
 import {
+  applyGptImage26Params,
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
   type CallApiOptions,
@@ -48,9 +50,9 @@ function createOpenAICompatiblePaths(customProvider?: CustomProviderDefinition |
   }
 }
 
-function normalizeOutputFormat(format: string): 'png' | 'jpeg' | 'webp' {
+function normalizeOutputFormat(format: string): TaskParams['output_format'] {
   const normalized = format.toLowerCase()
-  if (normalized === 'jpeg' || normalized === 'webp') return normalized
+  if (normalized === 'jpeg' || normalized === 'webp' || normalized === 'gif' || normalized === 'svg') return normalized
   return 'png'
 }
 
@@ -558,6 +560,8 @@ function createResponsesImageTool(
     output_format: params.output_format,
     moderation: params.moderation,
   }
+  if (profile.imageGenerationModel?.trim()) tool.model = profile.imageGenerationModel.trim()
+  applyGptImage26Params(tool, params, profile)
 
   if (includePartialImages) {
     tool.partial_images = getStreamPartialImages(profile)
@@ -567,7 +571,7 @@ function createResponsesImageTool(
     tool.quality = params.quality
   }
 
-  if (params.output_format !== 'png' && params.output_compression != null) {
+  if ((params.output_format === 'jpeg' || params.output_format === 'webp') && params.output_compression != null) {
     tool.output_compression = params.output_compression
   }
 
@@ -906,9 +910,16 @@ async function parseResponsesApiStreamResponse(
 
 export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   const resolvedModel = normalizeBananaModelId(profile.model)
-  const resolvedProfile = resolvedModel === profile.model ? profile : { ...profile, model: resolvedModel }
+  const resolvedProfile = { ...profile, model: resolvedModel, ...(isVectorOrAnimatedFormat(opts.params.output_format) ? { streamImages: false } : {}) }
 
   if (customProvider) {
+    const submit = opts.inputImageDataUrls.length && customProvider.editSubmit ? customProvider.editSubmit : customProvider.submit
+    if (opts.params.output_format === 'svg' && opts.params.n > 1 && !submit.taskIdPath) {
+      const results = await Promise.allSettled(Array.from({ length: opts.params.n }, () => callCustomHttpImageApi({ ...opts, params: { ...opts.params, n: 1 } }, resolvedProfile, customProvider)))
+      const successful = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
+      if (!successful.length) throw (results.find(result => result.status === 'rejected') as PromiseRejectedResult).reason
+      return { images: successful.flatMap(result => result.images), actualParamsList: successful.flatMap(result => result.actualParamsList ?? result.images.map(() => result.actualParams)), revisedPrompts: successful.flatMap(result => result.revisedPrompts ?? result.images.map(() => undefined)), rawImageUrls: successful.flatMap(result => result.rawImageUrls ?? []) }
+    }
     return callCustomHttpImageApi(opts, resolvedProfile, customProvider)
   }
 
@@ -1013,12 +1024,16 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       formData.append('size', params.size)
       formData.append('output_format', outputFormat)
       formData.append('moderation', params.moderation)
+      const extraParams: Record<string, unknown> = {}
+      applyGptImage26Params(extraParams, params, profile)
+      for (const [key, value] of Object.entries(extraParams)) formData.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value))
+      if (opts.nativeTransparentBackground) formData.append('background', 'transparent')
 
       if (!profile.codexCli) {
         formData.append('quality', params.quality)
       }
 
-      if (outputFormat !== 'png' && params.output_compression != null) {
+      if ((outputFormat === 'jpeg' || outputFormat === 'webp') && params.output_compression != null) {
         formData.append('output_compression', String(params.output_compression))
       }
       if (params.n > 1) {
@@ -1119,12 +1134,14 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         output_format: outputFormat,
         moderation: params.moderation,
       }
+      applyGptImage26Params(body, params, profile)
+      if (opts.nativeTransparentBackground) body.background = 'transparent'
 
       if (!profile.codexCli) {
         body.quality = params.quality
       }
 
-      if (outputFormat !== 'png' && params.output_compression != null) {
+      if ((outputFormat === 'jpeg' || outputFormat === 'webp') && params.output_compression != null) {
         body.output_compression = params.output_compression
       }
       if (params.n > 1) {
@@ -1270,10 +1287,13 @@ function resolveTemplateValue(value: unknown, context: Record<string, unknown>):
 }
 
 function createCustomProviderContext(opts: CallApiOptions, profile: ApiProfile) {
+  const extra: Record<string, unknown> = {}
+  applyGptImage26Params(extra, opts.params, profile)
+  const { complexity: _complexity, frame_count: _frameCount, frame_duration_ms: _duration, ...baseParams } = opts.params
   return {
     profile,
     prompt: opts.prompt,
-    params: opts.params,
+    params: { ...baseParams, ...extra, ...(opts.nativeTransparentBackground ? { background: 'transparent' } : {}) },
     inputImages: {
       dataUrls: opts.inputImageDataUrls.length ? opts.inputImageDataUrls : undefined,
       count: opts.inputImageDataUrls.length,
@@ -1300,9 +1320,9 @@ async function createCustomMultipartBody(mapping: CustomProviderSubmitMapping, o
     for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
       if (value === undefined || value === null) continue
       if (Array.isArray(value)) {
-        for (const item of value) formData.append(key, String(item))
+        for (const item of value) formData.append(key, typeof item === 'object' && item !== null ? JSON.stringify(item) : String(item))
       } else {
-        formData.append(key, String(value))
+        formData.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value))
       }
     }
   }
@@ -1580,6 +1600,7 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       tools: [createResponsesImageTool(params, inputImageDataUrls.length > 0, profile, shouldStreamResponses, opts.maskDataUrl)],
       tool_choice: 'required',
     }
+    if (opts.nativeTransparentBackground) (body.tools as Record<string, unknown>[])[0].background = 'transparent'
     if (shouldStreamResponses) {
       body.stream = true
     }

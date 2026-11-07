@@ -1,8 +1,9 @@
 import { fal } from '@fal-ai/client'
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
-import { createDefaultFalProfile, DEFAULT_FAL_BASE_URL, DEFAULT_SETTINGS } from './apiProfiles'
+import { createDefaultFalProfile, DEFAULT_FAL_BASE_URL, DEFAULT_SETTINGS, normalizeSettings } from './apiProfiles'
 import { callFalAiImageApi } from './falAiImageApi'
+import { callImageApi } from './api'
 
 vi.mock('@fal-ai/client', () => ({
   fal: {
@@ -21,6 +22,23 @@ const falMock = fal as unknown as {
 }
 
 describe('callFalAiImageApi', () => {
+  it.each([false, true])('clears hidden format and complexity on other fal lines for edit=%s', async isEdit => {
+    falMock.subscribe.mockResolvedValue({ requestId: 'req-26', data: { images: [{ b64_json: 'aW1hZ2U=' }] } })
+    const profile = createDefaultFalProfile({ apiKey: 'fal-key', model: 'openai/gpt-image-2.6/sunburst' })
+    const result = await callImageApi({
+      settings: normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [profile], activeProfileId: profile.id }), prompt: 'animation',
+      params: { ...DEFAULT_PARAMS, output_format: 'gif', complexity: 'high', frame_count: 6, frame_duration_ms: 150 },
+      inputImageDataUrls: isEdit ? ['data:image/png;base64,aW1hZ2U='] : [], nativeTransparentBackground: true,
+    })
+    expect(falMock.subscribe).toHaveBeenCalledWith(`openai/gpt-image-2.6/sunburst/${isEdit ? 'edit' : 'text-to-image'}`, expect.objectContaining({ input: expect.objectContaining({
+      output_format: 'png', background: 'transparent',
+    }) }))
+    const input = falMock.subscribe.mock.calls[0][1].input
+    expect(input).not.toHaveProperty('reasoning_effort')
+    expect(input).not.toHaveProperty('frame_count')
+    expect(input).not.toHaveProperty('frame_duration_ms')
+    expect(result.images[0]).toMatch(/^data:image\/png;/)
+  })
   afterEach(() => {
     vi.clearAllMocks()
   })

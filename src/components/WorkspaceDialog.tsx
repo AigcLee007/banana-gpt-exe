@@ -22,7 +22,7 @@ export default function WorkspaceDialog({ title, onClose, children, busy = false
       <div ref={panel} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className={`flex max-h-[calc(100dvh-var(--aap-bar-h,0px)-2rem)] w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} flex-col overflow-y-auto rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-surface)] text-[color:var(--app-text)] shadow-2xl outline-none`} onKeyDown={event => {
         if (event.key !== 'Tab') return
         const items = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),summary,a[href],[tabindex="0"]')].filter(el => !el.matches(':disabled') && el.getClientRects().length > 0)
-        const first = items[0], last = items.at(-1)
+        const first = items[0], last = items[items.length - 1]
         if (!first) { event.preventDefault(); return }
         if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last?.focus() }
         else if (!event.shiftKey && (document.activeElement === last || document.activeElement === panel.current)) { event.preventDefault(); first.focus() }

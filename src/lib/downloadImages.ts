@@ -5,6 +5,7 @@ const MIME_EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
   'image/gif': 'gif',
+  'image/svg+xml': 'svg',
 }
 const OBJECT_URL_REVOKE_DELAY_MS = 60_000
 
@@ -116,7 +117,8 @@ function triggerDirectDownload(url: string, fileName: string) {
 }
 
 function getBlobExtension(blob: Blob): string {
-  return MIME_EXTENSIONS[blob.type.toLowerCase()] ?? blob.type.split('/')[1] ?? 'png'
+  const mime = blob.type.toLowerCase().split(';')[0].trim()
+  return MIME_EXTENSIONS[mime] ?? mime.split('/')[1] ?? 'png'
 }
 
 function isDataUrl(value: string): boolean {

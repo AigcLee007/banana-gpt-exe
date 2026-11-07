@@ -5,7 +5,35 @@ import {
   appendStreamingFormatHint,
   appendStreamingUnsupportedHint,
   maybeAppendStreamingHint,
+  normalizeBase64Image,
+  detectImageOutputFormat,
+  fetchImageUrlAsDataUrl,
 } from './imageApiShared'
+
+describe('actual image output format', () => {
+  it('uses PNG bytes rather than the requested SVG MIME for base64 output', () => {
+    expect(normalizeBase64Image('iVBORw0KGgo=', 'image/svg+xml')).toBe('data:image/png;base64,iVBORw0KGgo=')
+    expect(normalizeBase64Image('data:image/svg+xml;base64,iVBORw0KGgo=', 'image/svg+xml')).toBe('data:image/png;base64,iVBORw0KGgo=')
+  })
+
+  it('preserves genuine SVG source including XML declarations and comments', () => {
+    const source = btoa('<?xml version="1.0"?><!-- drawing --><svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>')
+    expect(normalizeBase64Image(source, 'image/png')).toBe(`data:image/svg+xml;base64,${source}`)
+  })
+
+  it.each([
+    '<!--' + 'x'.repeat(4000) + '--><svg xmlns="http://www.w3.org/2000/svg"/>',
+    '<!DOCTYPE svg [<!ENTITY x "label">]><svg xmlns="http://www.w3.org/2000/svg"/>',
+    '<s:svg xmlns:s="http://www.w3.org/2000/svg"/>',
+  ])('recognizes SVG roots after XML prologs and with namespace prefixes', (source) => {
+    expect(detectImageOutputFormat(`data:image/svg+xml;base64,${btoa(source)}`)).toBe('svg')
+  })
+
+  it('normalizes data URL responses without fetching or changing their bytes', async () => {
+    expect(await fetchImageUrlAsDataUrl('data:image/svg+xml;base64,iVBORw0KGgo=', 'image/svg+xml'))
+      .toBe('data:image/png;base64,iVBORw0KGgo=')
+  })
+})
 
 describe('imageApiShared streaming hint helpers', () => {
   it('appends unsupported hint', () => {

@@ -19,6 +19,21 @@ import {
 } from './apiProfiles'
 
 describe('mergeImportedSettings', () => {
+  it('keeps profiles with different image tools or SVG authoring models distinct', () => {
+    const first = createDefaultOpenAIProfile({ id: 'one', apiMode: 'responses', model: 'gpt-6.1-sol', imageGenerationModel: 'gpt-image-2.6-sunburst', svgModel: 'gpt-6.1-sol' })
+    const current = normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [first], activeProfileId: first.id })
+    const merged = mergeImportedSettings(current, { profiles: [
+      { ...first, id: 'two', imageGenerationModel: 'gpt-image-2.6-flare' },
+      { ...first, id: 'three', svgModel: 'gpt-6-luna' },
+    ] })
+    expect(merged.profiles).toHaveLength(3)
+  })
+  it('restores separate authoring and image tool models after switching providers', () => {
+    const original = createDefaultOpenAIProfile({ imageGenerationModel: 'gpt-image-2.6-sunburst', svgModel: 'gpt-6.1-sol' })
+    const fal = switchApiProfileProvider(original, 'fal')
+    const changed = normalizeSettings({ profiles: [{ ...fal, imageGenerationModel: 'other', svgModel: 'gpt-6-luna' }] }).profiles[0]
+    expect(switchApiProfileProvider(changed, 'openai')).toMatchObject({ imageGenerationModel: 'gpt-image-2.6-sunburst', svgModel: 'gpt-6.1-sol' })
+  })
   it('replaces the default OpenAI profile with legacy imported settings when current settings are untouched', () => {
     const merged = mergeImportedSettings(DEFAULT_SETTINGS, {
       baseUrl: 'https://api.example.com/v1',

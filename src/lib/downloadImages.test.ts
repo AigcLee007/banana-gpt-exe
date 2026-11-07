@@ -50,6 +50,19 @@ describe('downloadImageIds', () => {
     vi.unstubAllGlobals()
   })
 
+  it.each([
+    ['image/svg+xml;charset=utf-8', 'svg'],
+    ['image/gif', 'gif'],
+  ])('downloads %s using the original format and %s extension', async (mime, extension) => {
+    const dom = installDownloadDomMock()
+    const blob = new Blob(['original-image'], { type: mime })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(blob)))
+
+    expect(await downloadImageIds([`data:${mime};base64,YQ==`], 'original')).toEqual({ successCount: 1, failCount: 0 })
+    expect(dom.anchor.download).toBe(`original.${extension}`)
+    expect(URL.createObjectURL).toHaveBeenCalledWith(blob)
+  })
+
   it('opens visionary image URLs in a new tab without waiting for proxy blob download', async () => {
     const dom = installDownloadDomMock()
     const imageUrl = 'https://visionary.beer/api/generations/result.png'

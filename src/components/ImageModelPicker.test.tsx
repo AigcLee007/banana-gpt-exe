@@ -22,7 +22,7 @@ describe('image model picker', () => {
 
   it('renders each model once and only the browsed family routes with right-aligned prices', () => {
     const html = renderPanel()
-    expect(html.match(/data-family-id=/g)).toHaveLength(7)
+    expect(html.match(/data-family-id=/g)).toHaveLength(9)
     expect(html.match(/data-line-model=/g)).toHaveLength(3)
     expect(html).toContain('优惠线路')
     expect(html).toContain('官方 T3')

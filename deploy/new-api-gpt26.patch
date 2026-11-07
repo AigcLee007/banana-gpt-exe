@@ -1,0 +1,70 @@
+diff --git a/relaykit/dto/openai_image.go b/relaykit/dto/openai_image.go
+index c8106b9..919ddf1 100644
+--- a/relaykit/dto/openai_image.go
++++ b/relaykit/dto/openai_image.go
+@@ -35,6 +35,10 @@ type ImageRequest struct {
+ 	Moderation        json.RawMessage `json:"moderation,omitempty"`
+ 	OutputFormat      json.RawMessage `json:"output_format,omitempty"`
+ 	OutputCompression json.RawMessage `json:"output_compression,omitempty"`
++	Complexity        *string         `json:"complexity,omitempty"`
++	FrameCount        *uint           `json:"frame_count,omitempty"`
++	FrameDurationMS   *uint           `json:"frame_duration_ms,omitempty"`
++	SVG               json.RawMessage `json:"svg,omitempty"`
+ 	PartialImages     json.RawMessage `json:"partial_images,omitempty"`
+ 	Stream            *bool           `json:"stream,omitempty"`
+ 	Images            json.RawMessage `json:"images,omitempty"`
+diff --git a/relaykit/dto/openai_image_26_test.go b/relaykit/dto/openai_image_26_test.go
+new file mode 100644
+--- /dev/null
++++ b/relaykit/dto/openai_image_26_test.go
+@@ -0,0 +1,50 @@
++package dto
++
++import (
++	"encoding/json"
++	"testing"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func TestImageRequestPreservesGPTImage26Parameters(t *testing.T) {
++	input := []byte(`{"model":"gpt-image-2.6-sunburst-1k","prompt":"animation","output_format":"gif","complexity":"high","frame_count":9,"frame_duration_ms":200,"svg":{"model":"gpt-6.1-sol"},"unrecognized_private_field":"omit"}`)
++	var request ImageRequest
++	require.NoError(t, json.Unmarshal(input, &request))
++	// ImageHelper deep-copies the request before applying the channel's model mapping.
++	copyJSON, err := json.Marshal(request)
++	require.NoError(t, err)
++	var copied ImageRequest
++	require.NoError(t, json.Unmarshal(copyJSON, &copied))
++	copied.SetModelName("gpt-image-2.6-sunburst")
++	out, err := json.Marshal(copied)
++	require.NoError(t, err)
++	var actual map[string]json.RawMessage
++	require.NoError(t, json.Unmarshal(out, &actual))
++	for key, expected := range map[string]string{
++		"model": `"gpt-image-2.6-sunburst"`, "complexity": `"high"`,
++		"frame_count": "9", "frame_duration_ms": "200", "svg": `{"model":"gpt-6.1-sol"}`,
++	} {
++		assert.JSONEq(t, expected, string(actual[key]), key)
++	}
++	assert.NotContains(t, actual, "unrecognized_private_field", "unrecognized fields must remain filtered")
++}
++
++func TestImageRequestGPTImage26OptionalScalars(t *testing.T) {
++	for _, input := range []string{
++		`{"model":"image","prompt":"test"}`,
++		`{"model":"image","prompt":"test","frame_count":0,"frame_duration_ms":0}`,
++	} {
++		var request ImageRequest
++		require.NoError(t, json.Unmarshal([]byte(input), &request))
++		out, err := json.Marshal(request)
++		require.NoError(t, err)
++		var before, after map[string]json.RawMessage
++		require.NoError(t, json.Unmarshal([]byte(input), &before))
++		require.NoError(t, json.Unmarshal(out, &after))
++		for _, key := range []string{"frame_count", "frame_duration_ms"} {
++			assert.Equal(t, string(before[key]), string(after[key]), "optional %s must preserve absence and zero", key)
++		}
++	}
++}

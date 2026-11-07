@@ -48,15 +48,17 @@ import {
 } from './lib/db'
 import { normalizeColorEditMetadata } from './lib/colorEditVersions'
 import { callImageApi } from './lib/api'
+import { readGifMetadata } from './lib/gif'
 import { checkUpscaleLimit, describeUpscale, normalizeUpscaleParams, upscaleImage, type UpscaleParams } from './lib/upscaleApi'
 import { callAgentConversationTitleApi, callAgentResponsesApi, parseBatchImageCallArguments, type AgentApiResultImage } from './lib/agentApi'
 import { collectAgentRoundOutputImageSlots, extractAgentReferenceIds, getAgentCurrentReferenceId, getAgentGeneratedImageReferenceId, replaceAgentPromptImageReferencesForApi } from './lib/agentImageReferences'
-import { IMAGE_FETCH_CORS_HINT } from './lib/imageApiShared'
+import { detectImageOutputFormat, IMAGE_FETCH_CORS_HINT } from './lib/imageApiShared'
 import { getFalErrorMessage, getFalQueuedImageResult } from './lib/falAiImageApi'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
-import { getImageDimensions, validateMaskMatchesImage } from './lib/canvasImage'
+import { getImageDimensions, toApiInputImageDataUrl, validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
+import { isVectorOrAnimatedFormat } from './lib/imageModels'
 import { AGENT_FIXED_MODEL, getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId, usesGeminiImageParams } from './lib/bananaModels'
 import { createTransparentOutputMeta, getTransparentRequestParams, removeKeyedBackgroundFromDataUrl } from './lib/transparentImage'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
@@ -2290,8 +2292,8 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     !usesGeminiImageParams(activeProfile.model)
   const taskParams = shouldUseTransparentOutput
     ? getTransparentRequestParams(normalizedParams)
-    : { ...normalizedParams, transparent_output: false }
-  const transparentMeta = taskParams.transparent_output
+    : { ...normalizedParams, transparent_output: isVectorOrAnimatedFormat(normalizedParams.output_format) && normalizedParams.transparent_output }
+  const transparentMeta = shouldUseTransparentOutput
     ? createTransparentOutputMeta(prompt.trim())
     : null
   const normalizedParamPatch = getChangedParams(params, taskParams)
@@ -2673,7 +2675,7 @@ async function storeTaskOutputImages(task: TaskRecord, images: string[]) {
     for (let index = 0; index < images.length; index += 1) {
       const dataUrl = images[index]
       let outputDataUrl = dataUrl
-      if (task.transparentOutput) {
+      if (task.transparentOutput && !isVectorOrAnimatedFormat(task.params.output_format) && !/^data:image\/(svg\+xml|gif)[;,]/i.test(dataUrl)) {
         const originalImageId = await storeImage(dataUrl, 'generated')
         storedImageIds.push(originalImageId)
         cacheImage(originalImageId, dataUrl)
@@ -2750,7 +2752,7 @@ async function readAgentImageDataUrls(ids: string[]) {
   const dataUrls: string[] = []
   for (const id of ids) {
     const dataUrl = await ensureImageCached(id)
-    if (dataUrl) dataUrls.push(dataUrl)
+    if (dataUrl) dataUrls.push(await toApiInputImageDataUrl(dataUrl))
   }
   return dataUrls
 }
@@ -2784,7 +2786,7 @@ async function createAgentGeneratedImagesInputItem(round: AgentRound, tasks: Tas
     for (const imageId of task.outputImages) {
       const dataUrl = await ensureImageCached(imageId)
       if (dataUrl) {
-        contentParts.push({ type: 'input_image', image_url: dataUrl })
+        contentParts.push({ type: 'input_image', image_url: await toApiInputImageDataUrl(dataUrl) })
       }
       const refId = getAgentGeneratedImageReferenceId(round, imageIndex)
       const prompt = truncateAgentReferencePrompt(task.prompt || '')
@@ -2813,7 +2815,7 @@ async function createAgentBatchImagesInputItem(round: AgentRound, tasks: TaskRec
     for (const imgId of task.outputImages) {
       const dataUrl = await ensureImageCached(imgId)
       if (dataUrl) {
-        contentParts.push({ type: 'input_image', image_url: dataUrl })
+        contentParts.push({ type: 'input_image', image_url: await toApiInputImageDataUrl(dataUrl) })
       }
       const refId = getAgentGeneratedImageReferenceId(round, imageIndex)
       const prompt = truncateAgentReferencePrompt(task.prompt || '')
@@ -3171,7 +3173,7 @@ export async function submitAgentMessage() {
   const parentPath = parentRoundId ? getAgentRoundPath(conversation, parentRoundId) : []
   const imageParamSettings = createAgentImageSettings(requestSettings)
   const normalizedParams = {
-    ...normalizeParamsForSettings(params, imageParamSettings, { hasInputImages: inputImageIds.length > 0 }),
+    ...normalizeParamsForSettings(params, imageParamSettings, { hasInputImages: inputImageIds.length > 0, agent: true }),
     n: DEFAULT_PARAMS.n,
   }
   const round: AgentRound = {
@@ -3277,7 +3279,7 @@ export async function regenerateAgentAssistantMessage(conversationId: string, ro
   const requestSettings = createSettingsForApiProfile(normalizedSettings, activeProfile)
   const imageParamSettings = createAgentImageSettings(requestSettings)
   const normalizedParams = {
-    ...normalizeParamsForSettings(params, imageParamSettings, { hasInputImages: inputImageIds.length > 0 }),
+    ...normalizeParamsForSettings(params, imageParamSettings, { hasInputImages: inputImageIds.length > 0, agent: true }),
     n: DEFAULT_PARAMS.n,
   }
   const now = Date.now()
@@ -4234,6 +4236,7 @@ async function executeTask(taskId: string) {
       sourceMode: task.sourceMode ?? 'gallery',
       prompt: replaceImageMentionsForApi(requestPrompt, inputDataUrls.length),
       params: task.params,
+      nativeTransparentBackground: task.params.transparent_output && isVectorOrAnimatedFormat(task.params.output_format),
       inputImageDataUrls: inputDataUrls,
       maskDataUrl,
       onFalRequestEnqueued: (request) => {
@@ -4266,16 +4269,50 @@ async function executeTask(taskId: string) {
     // 存储输出图片
     const { outputIds, transparentOriginalImageIds } = await storeTaskOutputImages(task, result.images)
     const isAsyncCustomTask = taskProvider !== 'fal' && taskProvider !== 'openai' && Boolean(customTaskInfo)
-    const actualParamsList = taskProvider === 'fal'
+    let actualParamsList = taskProvider === 'fal'
       ? await resolveImageSizeParamsList(result.images, result.actualParamsList)
       : isAsyncCustomTask
       ? await readImageSizeParamsList(result.images)
       : result.actualParamsList
-    const actualParams = (() => {
+    let actualParams = (() => {
       if (taskProvider === 'fal') return firstActualParams(actualParamsList)
       if (isAsyncCustomTask) return firstActualParams(actualParamsList)
       return { ...result.actualParams, n: outputIds.length }
     })()
+    let outputError: string | undefined
+    if (task.params.output_format === 'svg') {
+      actualParamsList = result.images.map((image, index) => {
+        if (/^https?:\/\//i.test(image)) return actualParamsList?.[index] ?? {}
+        const format = detectImageOutputFormat(image)
+        if (format !== 'svg') {
+          outputError ??= `SVG 生成失败：上游实际返回${format ? ` ${format.toUpperCase()} 图片` : '的文件不是可识别的 SVG'}。请确认上游线路支持 SVG，并保留 output_format 和 svg.model 参数。原文件已保留，可查看和下载。`
+        }
+        return { ...actualParamsList?.[index], ...(format ? { output_format: format } : {}) }
+      })
+      actualParams = { ...actualParams, ...actualParamsList[0] }
+    }
+    if (task.params.output_format === 'gif') {
+      actualParamsList = result.images.map((image, index) => {
+        // A CORS fallback can still render in <img>, but its bytes cannot be
+        // inspected here. Do not confuse an unknown frame count with corruption.
+        if (/^https?:\/\//i.test(image)) return actualParamsList?.[index] ?? {}
+        const metadata = readGifMetadata(image)
+        if (!metadata) {
+          outputError ??= '动图生成失败：上游返回的文件不是完整有效的 GIF。原文件已保留，可下载检查。'
+          return actualParamsList?.[index] ?? {}
+        }
+        if (metadata.frameCount < 2) {
+          outputError ??= `动图生成失败：上游仅返回 ${metadata.frameCount} 帧静态 GIF（请求 ${task.params.frame_count} 帧）。请检查中转是否保留 frame_count、frame_duration_ms 参数。原文件已保留。`
+        }
+        const uniformDuration = metadata.frameDurationsMs.every((duration) => duration === metadata.frameDurationsMs[0])
+        return {
+          ...actualParamsList?.[index],
+          frame_count: metadata.frameCount,
+          ...(uniformDuration ? { frame_duration_ms: metadata.frameDurationsMs[0] } : {}),
+        }
+      })
+      actualParams = { ...actualParams, ...actualParamsList[0] }
+    }
     const shouldStoreRevisedPrompts = taskProvider !== 'fal' && !isAsyncCustomTask
     const actualParamsByImage = mapActualParamsByImage(outputIds, actualParamsList)
     const revisedPromptByImage = shouldStoreRevisedPrompts ? result.revisedPrompts?.reduce<Record<string, string>>((acc, revisedPrompt, index) => {
@@ -4312,13 +4349,19 @@ async function executeTask(taskId: string) {
       actualParams,
       actualParamsByImage,
       revisedPromptByImage: revisedPromptByImage && Object.keys(revisedPromptByImage).length > 0 ? revisedPromptByImage : undefined,
-      status: 'done',
+      status: outputError ? 'error' : 'done',
+      error: outputError ?? null,
       finishedAt: Date.now(),
       elapsed: Date.now() - task.createdAt,
       falRecoverable: false,
       customRecoverable: false,
     })
     void deleteUnreferencedImageIds(partialImageIdsToClean)
+
+    if (outputError) {
+      useStore.getState().showToast(`${task.params.output_format === 'svg' ? 'SVG' : '动图'}生成失败，请查看详情`, 'error')
+      return
+    }
 
     useStore.getState().showToast(`生成完成，共 ${outputIds.length} 张图片`, 'success')
     const currentMask = useStore.getState().maskDraft
@@ -4543,20 +4586,21 @@ export async function retryTask(task: TaskRecord) {
   }
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
-  const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0 })
+  const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0, agent: task.sourceMode === 'agent' })
   const shouldUseTransparentOutput =
     normalizedParams.output_format === 'png' &&
     normalizedParams.transparent_output &&
     !usesGeminiImageParams(activeProfile.model)
   const taskParams = shouldUseTransparentOutput
     ? getTransparentRequestParams(normalizedParams)
-    : { ...normalizedParams, transparent_output: false }
-  const transparentMeta = taskParams.transparent_output
+    : { ...normalizedParams, transparent_output: isVectorOrAnimatedFormat(normalizedParams.output_format) && normalizedParams.transparent_output }
+  const transparentMeta = shouldUseTransparentOutput
     ? createTransparentOutputMeta(task.prompt.trim())
     : null
   const taskId = genId()
   const newTask: TaskRecord = {
     id: taskId,
+    sourceMode: task.sourceMode ?? 'gallery',
     prompt: task.prompt,
     params: taskParams,
     apiProvider: activeProfile.provider,
@@ -4596,7 +4640,7 @@ export async function reuseConfig(task: TaskRecord) {
   const taskProfileName = matchedProfile?.name ?? getTaskApiProfileName(task)
   const paramsSettings = shouldTemporarilyReuseProfile && matchedProfile ? createSettingsForApiProfile(normalizedSettings, matchedProfile) : normalizedSettings
 
-  setParams(normalizeParamsForSettings(task.params, paramsSettings, { hasInputImages: task.inputImageIds.length > 0 }))
+  setParams(normalizeParamsForSettings({ ...DEFAULT_PARAMS, ...task.params }, paramsSettings, { hasInputImages: task.inputImageIds.length > 0, agent: task.sourceMode === 'agent' }))
   setReusedTaskApiProfile(
     shouldTemporarilyReuseProfile && matchedProfile ? matchedProfile.id : null,
     missingReusedProfile,
@@ -4807,10 +4851,11 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
 
 /** 从 dataUrl 解析出 MIME 扩展名和二进制数据 */
 function dataUrlToBytes(dataUrl: string): { ext: string; bytes: Uint8Array } {
-  const match = dataUrl.match(/^data:image\/(\w+);base64,/)
-  const ext = match?.[1] ?? 'png'
-  const b64 = dataUrl.replace(/^data:[^;]+;base64,/, '')
-  const binary = atob(b64)
+  const match = dataUrl.match(/^data:(image\/[^;,]+)((?:;[^,]*)?),(.*)$/s)
+  if (!match) throw new Error('图片数据格式无效')
+  const ext = match[1] === 'image/svg+xml' ? 'svg' : match[1].split('/')[1]
+  if (!/;base64(?:;|$)/i.test(match[2])) return { ext, bytes: strToU8(decodeURIComponent(match[3])) }
+  const binary = atob(match[3])
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
   return { ext, bytes }
@@ -4819,7 +4864,7 @@ function dataUrlToBytes(dataUrl: string): { ext: string; bytes: Uint8Array } {
 /** 将二进制数据还原为 dataUrl */
 function bytesToDataUrl(bytes: Uint8Array, filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png'
-  const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
+  const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml' }
   const mime = mimeMap[ext] ?? 'image/png'
   let binary = ''
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])

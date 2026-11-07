@@ -9,6 +9,13 @@ import {
 import { buildSettingsFromUrlParams, clearUrlSettingParams, hasUrlSettingParams } from './urlSettings'
 
 describe('URL settings params', () => {
+  it('imports and clears image tool and SVG model query parameters', () => {
+    const query = new URLSearchParams({ apiMode: 'responses', model: 'gpt-6.1-sol', imageGenerationModel: 'gpt-image-2.6-flare', svgModel: 'gpt-6-luna' })
+    const result = normalizeSettings(buildSettingsFromUrlParams(DEFAULT_SETTINGS, query))
+    expect(result.profiles.find(item => item.id === result.activeProfileId)).toMatchObject({ imageGenerationModel: 'gpt-image-2.6-flare', svgModel: 'gpt-6-luna' })
+    clearUrlSettingParams(query)
+    expect(query.toString()).toBe('')
+  })
   it('creates and activates a new OpenAI profile for legacy URL params', () => {
     const current = normalizeSettings(DEFAULT_SETTINGS)
     const next = normalizeSettings({

@@ -67,6 +67,8 @@ export interface ApiProfile {
   model: string
   timeout: number
   apiMode: ApiMode
+  imageGenerationModel?: string
+  svgModel?: string
   codexCli: boolean
   apiProxy: boolean
   responseFormatB64Json?: boolean
@@ -74,7 +76,7 @@ export interface ApiProfile {
   streamPartialImages?: number
   /** Portal-managed profiles are runtime-owned and cannot be edited by the user. */
   locked?: boolean
-  providerDrafts?: Partial<Record<ApiProvider, Partial<Pick<ApiProfile, 'baseUrl' | 'model' | 'apiMode' | 'codexCli' | 'apiProxy' | 'responseFormatB64Json' | 'streamImages' | 'streamPartialImages'>>>>
+  providerDrafts?: Partial<Record<ApiProvider, Partial<Pick<ApiProfile, 'baseUrl' | 'model' | 'apiMode' | 'codexCli' | 'apiProxy' | 'responseFormatB64Json' | 'streamImages' | 'streamPartialImages' | 'imageGenerationModel' | 'svgModel'>>>>
 }
 
 export interface AppSettings {
@@ -111,13 +113,21 @@ export interface AppSettings {
 
 // ===== 任务参数 =====
 
+export const OUTPUT_FORMATS = ['png', 'jpeg', 'webp', 'svg', 'gif'] as const
+export const IMAGE_COMPLEXITIES = ['auto', 'low', 'medium', 'high'] as const
+export const GIF_FRAME_COUNT_RANGE = { min: 2, max: 16 }
+export const GIF_FRAME_DURATION_RANGE = { min: 20, max: 2000 }
+
 export interface TaskParams {
   size: string
   geminiAspectRatio?: GeminiAspectRatio
   geminiImageSize?: GeminiImageSize
   geminiOutputPixels?: string
   quality: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-  output_format: 'png' | 'jpeg' | 'webp'
+  output_format: 'png' | 'jpeg' | 'webp' | 'svg' | 'gif'
+  complexity: 'auto' | 'low' | 'medium' | 'high'
+  frame_count: number
+  frame_duration_ms: number
   output_compression: number | null
   moderation: 'auto' | 'low'
   n: number
@@ -127,6 +137,9 @@ export interface TaskParams {
 export const DEFAULT_PARAMS: TaskParams = {
   size: 'auto',
   quality: 'auto',
+  complexity: 'auto',
+  frame_count: 9,
+  frame_duration_ms: 200,
   output_format: 'png',
   output_compression: null,
   moderation: 'auto',

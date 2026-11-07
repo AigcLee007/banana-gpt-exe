@@ -24,6 +24,7 @@ export interface BananaGalleryModel {
   providerRoute: BananaModelRoute
   supportsReferenceImages: boolean
   supportedSizeTiers?: readonly SizeTier[]
+  supportsOutputOptions?: boolean
   qualityOptions?: readonly BananaQuality[]
   pricePerImageYuan?: number
 }
@@ -37,6 +38,60 @@ export type AgentTextModel = typeof AGENT_TEXT_MODELS[number]['model']
 export const AGENT_FIXED_MODEL: AgentTextModel = AGENT_TEXT_MODELS[0].model
 
 export const BANANA_MODEL_REGISTRY = [
+  {
+    displayName: 'GPT-Image-2.6 Sunburst',
+    model: 'gpt-image-2.6-sunburst',
+    familyId: 'gpt-image-2.6-sunburst',
+    familyLabel: 'GPT-Image-2.6 Sunburst',
+    lineLabel: '优质特价线路',
+    lineShortLabel: '优质特价',
+    capabilities: ['支持 Max'],
+    providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+    supportedSizeTiers: SIZE_TIERS,
+    qualityOptions: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  {
+    displayName: 'GPT-Image-2.6 Sunburst（1K动图线路）',
+    model: 'gpt-image-2.6-sunburst-1k',
+    familyId: 'gpt-image-2.6-sunburst',
+    familyLabel: 'GPT-Image-2.6 Sunburst',
+    lineLabel: '1K动图线路',
+    lineShortLabel: '1K动图',
+    capabilities: ['仅 1K', 'GIF / SVG', '复杂度'],
+    providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+    supportedSizeTiers: ['1K'],
+    supportsOutputOptions: true,
+    qualityOptions: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  {
+    displayName: 'GPT-Image-2.6 Flare',
+    model: 'gpt-image-2.6-flare',
+    familyId: 'gpt-image-2.6-flare',
+    familyLabel: 'GPT-Image-2.6 Flare',
+    lineLabel: '优质特价线路',
+    lineShortLabel: '优质特价',
+    capabilities: ['支持 Max'],
+    providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+    supportedSizeTiers: SIZE_TIERS,
+    qualityOptions: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  {
+    displayName: 'GPT-Image-2.6 Flare（1K动图线路）',
+    model: 'gpt-image-2.6-flare-1k',
+    familyId: 'gpt-image-2.6-flare',
+    familyLabel: 'GPT-Image-2.6 Flare',
+    lineLabel: '1K动图线路',
+    lineShortLabel: '1K动图',
+    capabilities: ['仅 1K', 'GIF / SVG', '复杂度'],
+    providerRoute: 'openai-images',
+    supportsReferenceImages: true,
+    supportedSizeTiers: ['1K'],
+    supportsOutputOptions: true,
+    qualityOptions: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
+  },
   {
     displayName: 'Nano Banana Pro（优惠线路）',
     model: 'gemini-3-pro-image-preview',

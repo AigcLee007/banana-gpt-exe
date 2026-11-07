@@ -9,4 +9,7 @@ release/
 .playwright-cli/
 .tmp-upstream/
 output/playwright/
+/output/
+/tmp/
+/deploy/static/studio/
 *.log

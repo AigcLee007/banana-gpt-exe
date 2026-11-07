@@ -9,9 +9,9 @@ import {
   normalizeStreamPartialImages,
 } from './apiProfiles'
 
-const URL_SETTING_KEYS = ['settings', 'apiKey', 'codexCli', 'apiMode', 'model', 'streamImages', 'streamPartialImages']
+const URL_SETTING_KEYS = ['settings', 'apiKey', 'codexCli', 'apiMode', 'model', 'streamImages', 'streamPartialImages', 'imageGenerationModel', 'svgModel']
 
-function getProfileDedupKey(profile: Pick<AppSettings['profiles'][number], 'provider' | 'baseUrl' | 'apiKey' | 'model' | 'apiMode' | 'streamImages' | 'streamPartialImages'>) {
+function getProfileDedupKey(profile: Pick<AppSettings['profiles'][number], 'provider' | 'baseUrl' | 'apiKey' | 'model' | 'apiMode' | 'streamImages' | 'streamPartialImages' | 'imageGenerationModel' | 'svgModel'>) {
   return JSON.stringify([
     profile.provider,
     profile.baseUrl.trim().replace(/\/+$/, '').toLowerCase(),
@@ -20,6 +20,8 @@ function getProfileDedupKey(profile: Pick<AppSettings['profiles'][number], 'prov
     profile.apiMode,
     profile.streamImages === true,
     profile.streamPartialImages ?? 0,
+    profile.imageGenerationModel?.trim() ?? '',
+    profile.svgModel?.trim() || 'gpt-6.1-sol',
   ])
 }
 
@@ -89,9 +91,11 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
   const modelParam = searchParams.get('model')
   const streamImagesParam = searchParams.get('streamImages')
   const streamPartialImagesParam = searchParams.get('streamPartialImages')
+  const imageGenerationModelParam = searchParams.get('imageGenerationModel')
+  const svgModelParam = searchParams.get('svgModel')
   const apiMode: ApiMode | undefined = apiModeParam === 'images' || apiModeParam === 'responses' ? apiModeParam : undefined
 
-  const hasLegacyOpenAIParams = apiKeyParam !== null || codexCliParam !== null || apiMode !== undefined || modelParam !== null || streamImagesParam !== null || streamPartialImagesParam !== null
+  const hasLegacyOpenAIParams = apiKeyParam !== null || codexCliParam !== null || apiMode !== undefined || modelParam !== null || streamImagesParam !== null || streamPartialImagesParam !== null || imageGenerationModelParam !== null || svgModelParam !== null
   const settings = importedSettings == null
     ? normalizeSettings(currentSettings)
     : activateFirstImportedProfile(mergeImportedSettings(currentSettings, importedSettings), importedSettings)
@@ -106,6 +110,8 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
     })
     if (apiKeyParam !== null) profile.apiKey = apiKeyParam.trim()
     if (modelParam !== null && modelParam.trim()) profile.model = modelParam.trim()
+    if (imageGenerationModelParam !== null) profile.imageGenerationModel = imageGenerationModelParam.trim()
+    if (svgModelParam !== null) profile.svgModel = svgModelParam.trim()
     if (codexCliParam !== null) profile.codexCli = codexCliParam.trim().toLowerCase() === 'true'
     if (streamImagesParam !== null) profile.streamImages = streamImagesParam.trim().toLowerCase() === 'true'
     if (streamPartialImagesParam !== null) profile.streamPartialImages = normalizeStreamPartialImages(streamPartialImagesParam)

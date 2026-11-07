@@ -6,6 +6,8 @@ import { useTooltip } from '../hooks/useTooltip'
 import { getBananaModelById, usesGeminiImageParams } from '../lib/bananaModels'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from '../lib/geminiImageSizing'
 import { formatImageRatio } from '../lib/size'
+import { readGifMetadata } from '../lib/gif'
+import { detectImageOutputFormat } from '../lib/imageApiShared'
 import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
 import { copyImageSourceToClipboard, copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
@@ -152,6 +154,10 @@ export default function DetailModal() {
   const currentOutputImageId = task?.outputImages?.[imageIndex] || ''
   const currentOriginalOutputImageId = task?.transparentOriginalImages?.[imageIndex] || ''
   const currentOutputPreviewSrc = currentOutputImageId ? outputPreviewSrcs[currentOutputImageId] || '' : ''
+  const gifMetadata = useMemo(() => task?.params.output_format === 'gif' && currentOutputPreviewSrc
+    ? readGifMetadata(currentOutputPreviewSrc) : null, [task?.params.output_format, currentOutputPreviewSrc])
+  const detectedOutputFormat = useMemo(() => detectImageOutputFormat(currentOutputPreviewSrc), [currentOutputPreviewSrc])
+  const svgFormatMismatch = task?.params.output_format === 'svg' && detectedOutputFormat && detectedOutputFormat !== 'svg'
   const maskTargetId = task?.maskTargetImageId || null
   const maskTargetSrc = maskTargetId ? imageSrcs[maskTargetId] || '' : ''
   const maskSrc = task?.maskImageId ? imageSrcs[task.maskImageId] || '' : ''
@@ -215,7 +221,10 @@ export default function DetailModal() {
   const outputLen = task.outputImages?.length || 0
   const currentImageRatio = currentOutputImageId ? imageRatios[currentOutputImageId] : ''
   const currentImageSize = currentOutputImageId ? imageSizes[currentOutputImageId] : ''
-  const currentActualParams = currentOutputImageId ? task.actualParamsByImage?.[currentOutputImageId] : undefined
+  const currentActualParams = {
+    ...(currentOutputImageId ? task.actualParamsByImage?.[currentOutputImageId] : undefined) ?? task.actualParams,
+    ...(detectedOutputFormat ? { output_format: detectedOutputFormat } : {}),
+  }
   const currentRevisedPrompt = currentOutputImageId ? task.revisedPromptByImage?.[currentOutputImageId]?.trim() : ''
   const showRevisedPrompt = Boolean(currentRevisedPrompt && currentRevisedPrompt !== task.prompt.trim())
   const codexCliPromptKey = getCodexCliPromptKey(settings)
@@ -262,7 +271,7 @@ export default function DetailModal() {
   const currentStreamPreviewSrc = activeStreamPreviewSrc
   const streamPartialImageIds = task.streamPartialImageIds ?? []
   const requestPrompt = task.transparentOutput && task.transparentPrompt ? task.transparentPrompt : task.prompt
-  const isPngOutput = task.params.output_format === 'png'
+  const showOutputTransparency = ['png', 'svg', 'gif'].includes(task.params.output_format)
   const transparentOutputText = task.transparentOutput || task.params.transparent_output ? 'true' : 'false'
   const currentTransparentOutputFailed = Boolean(currentOutputImageId && task.transparentOutput && task.transparentOriginalImages?.[imageIndex] === '')
   const outputCompressionText = task.params.output_compression == null ? '未设置' : String(task.params.output_compression)
@@ -456,7 +465,7 @@ export default function DetailModal() {
 
         {/* 左侧：图片 */}
         <div className="md:w-1/2 w-full h-64 md:h-auto bg-gray-100 dark:bg-black/20 relative flex items-center justify-center flex-shrink-0 min-h-[16rem]">
-          {task.status === 'done' && outputLen > 0 && (
+          {outputLen > 0 && task.status !== 'running' && (
             <div className="absolute right-3 top-[15px] z-20 flex items-center gap-1.5">
               <div className="relative group flex">
                 <button
@@ -537,7 +546,7 @@ export default function DetailModal() {
               )}
             </div>
           )}
-          {task.status === 'done' && outputLen > 0 && currentOutputPreviewSrc && (
+          {task.status !== 'running' && outputLen > 0 && currentOutputPreviewSrc && (
             <>
               <img
                 src={currentOutputPreviewSrc}
@@ -684,7 +693,7 @@ export default function DetailModal() {
               <p className="text-sm font-medium text-yellow-500">重连中</p>
             </div>
           )}
-          {task.status === 'error' && !isFalReconnecting && (
+          {task.status === 'error' && !isFalReconnecting && outputLen === 0 && (
             <div className="w-full max-w-md px-4 text-center">
               <svg className="w-10 h-10 text-red-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -819,6 +828,13 @@ export default function DetailModal() {
           </button>
 
           <div data-selectable-text className="flex-1">
+            {((task.status === 'error' && outputLen > 0) || svgFormatMismatch || (gifMetadata && gifMetadata.frameCount < 2)) && (
+              <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-600 dark:bg-red-500/10 dark:text-red-400">
+                {task.error || (svgFormatMismatch
+                  ? `请求的是 SVG，上游实际返回 ${detectedOutputFormat.toUpperCase()} 图片。原文件已保留，请检查上游的 SVG 支持和参数转发。`
+                  : `上游返回的 GIF 只有 ${gifMetadata?.frameCount} 帧，是静态图片，无法播放动画。请检查中转的动图参数转发。`)}
+              </p>
+            )}
             <div className="flex items-center gap-1.5 mb-2">
               <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                 输入内容
@@ -964,7 +980,21 @@ export default function DetailModal() {
                 <br />
                 <DetailParamValue task={task} paramKey="output_format" className="font-medium" actualParams={currentActualParams} />
               </div>}
-              {!isGeminiTask && (isPngOutput ? (
+              {!isGeminiTask && task.params.complexity && <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
+                <span className="text-gray-400 dark:text-gray-500">复杂度</span><br />
+                <DetailParamValue task={task} paramKey="complexity" className="font-medium" actualParams={currentActualParams} />
+              </div>}
+              {task.params.output_format === 'gif' && <>
+                <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
+                  <span className="text-gray-400 dark:text-gray-500">GIF 帧数</span><br />
+                  <span className="font-medium">{task.params.frame_count ?? 9}</span>
+                </div>
+                <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
+                  <span className="text-gray-400 dark:text-gray-500">每帧时长</span><br />
+                  <span className="font-medium">{task.params.frame_duration_ms ?? 200} ms</span>
+                </div>
+              </>}
+              {!isGeminiTask && (showOutputTransparency ? (
                 <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
                   <span className="text-gray-400 dark:text-gray-500">透明背景</span>
                   <br />

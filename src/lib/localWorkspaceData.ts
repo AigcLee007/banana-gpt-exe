@@ -68,13 +68,13 @@ function videoMediaIds(task: VideoTaskRecord) {
 }
 function sanitizeTask(value: unknown): TaskRecord {
   const task = pick<TaskRecord>(value, 'id prompt params actualParams actualParamsByImage revisedPromptByImage transparentOutput transparentPrompt transparentOriginalImages inputImageIds maskTargetImageId maskImageId outputImages streamPartialImageIds status createdAt finishedAt elapsed isFavorite sourceMode agentConversationId agentRoundId agentMessageId agentToolCallId agentBatchCallId agentToolAction apiModel')
-  task.params = pick(task.params, 'size geminiAspectRatio geminiImageSize geminiOutputPixels quality output_format output_compression moderation n transparent_output')
+  task.params = pick(task.params, 'size geminiAspectRatio geminiImageSize geminiOutputPixels quality output_format output_compression moderation n transparent_output complexity frame_count frame_duration_ms svgModel')
   if (typeof task.prompt !== 'string' || !['done', 'error'].includes(task.status) || typeof task.createdAt !== 'number') throw new Error('备份包含无效或正在运行的图片任务')
   task.error = null // Upstream error strings and raw payloads may contain credentials.
   taskImageIds(task)
   // Arbitrary provider response maps are excluded; only known parameter fields survive.
-  if (task.actualParams) task.actualParams = pick(task.actualParams, 'size quality output_format output_compression moderation n transparent_output')
-  if (task.actualParamsByImage) task.actualParamsByImage = Object.fromEntries(Object.entries(object(task.actualParamsByImage)).map(([id, params]) => [id, pick(params, 'size quality output_format output_compression moderation n transparent_output')]))
+  if (task.actualParams) task.actualParams = pick(task.actualParams, 'size quality output_format output_compression moderation n transparent_output complexity frame_count frame_duration_ms svgModel')
+  if (task.actualParamsByImage) task.actualParamsByImage = Object.fromEntries(Object.entries(object(task.actualParamsByImage)).map(([id, params]) => [id, pick(params, 'size quality output_format output_compression moderation n transparent_output complexity frame_count frame_duration_ms svgModel')]))
   return task
 }
 function sanitizeStoredImage(value: unknown): StoredImage {
@@ -271,7 +271,7 @@ function parseLegacyWorkspaceArchive(manifest: JsonObject, payload: (path: unkno
   const imageDataUrl = (path: unknown) => {
     const bytes = payload(path)
     const extension = String(path).split('.').pop()?.toLowerCase() ?? 'png'
-    const mime = ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' } as Record<string, string>)[extension] ?? 'image/png'
+    const mime = ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', avif: 'image/avif' } as Record<string, string>)[extension] ?? 'image/png'
     let binary = ''
     for (let index = 0; index < bytes.length; index += 32768) binary += String.fromCharCode(...bytes.subarray(index, index + 32768))
     return `data:${mime};base64,${btoa(binary)}`

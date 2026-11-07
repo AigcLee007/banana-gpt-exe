@@ -52,7 +52,7 @@ describe('parameter compatibility', () => {
     expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: 'auto' }, settings, { hasInputImages: true }).size).toBe('auto')
   })
 
-  it('restores PNG before checking transparent output for a non-Nano model', () => {
+  it('resets a hidden JPEG format to the default PNG', () => {
     const openAIProfile = createDefaultOpenAIProfile({ apiKey: 'test-key', model: 'gpt-image-2' })
     const settings = normalizeSettings({
       ...DEFAULT_SETTINGS,
@@ -69,12 +69,12 @@ describe('parameter compatibility', () => {
   })
 
   it.each(BANANA_GALLERY_MODELS.filter(item => !usesGeminiImageParams(item.model)).map(item => [item.model]))(
-    'resets hidden output settings for %s, including reused or persisted values', (model) => {
+    'normalizes hidden output options by line for %s, including reused or persisted values', (model) => {
       const profile = createDefaultOpenAIProfile({ apiKey: 'test-key', model })
       const settings = normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [profile], activeProfileId: profile.id })
       const params = { ...DEFAULT_PARAMS, output_format: 'webp' as const, output_compression: 75, moderation: 'low' as const, n: 2, quality: 'high' as const }
       expect(normalizeParamsForSettings(params, settings)).toMatchObject({
-        output_format: 'png', output_compression: null, moderation: 'auto', n: 2, quality: 'high',
+        output_format: model.endsWith('-1k') ? 'webp' : 'png', output_compression: model.endsWith('-1k') ? 75 : null, moderation: model.endsWith('-1k') ? 'low' : 'auto', n: 2, quality: 'high',
       })
       expect(params).toMatchObject({ output_format: 'webp', output_compression: 75, moderation: 'low' })
     },

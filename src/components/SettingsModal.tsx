@@ -32,6 +32,7 @@ import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
 import { AGENT_TEXT_MODELS, type AgentTextModel } from '../lib/bananaModels'
 import Select from './Select'
+import ImageModelSettings from './ImageModelSettings'
 import { Checkbox } from './Checkbox'
 import ViewportTooltip from './ViewportTooltip'
 import { ChevronDownIcon, CloseIcon, CopyIcon, PlusIcon, TrashIcon, GithubIcon, ExportIcon, ImportIcon, DragHandleIcon, LinkIcon } from './icons'
@@ -107,6 +108,11 @@ const DEFAULT_CUSTOM_PROVIDER_MANIFEST = {
       size: '$params.size',
       quality: '$params.quality',
       output_format: '$params.output_format',
+      complexity: '$params.complexity',
+      frame_count: '$params.frame_count',
+      frame_duration_ms: '$params.frame_duration_ms',
+      svg: '$params.svg',
+      background: '$params.background',
       moderation: '$params.moderation',
       output_compression: '$params.output_compression',
       n: '$params.n',
@@ -126,6 +132,10 @@ const DEFAULT_CUSTOM_PROVIDER_MANIFEST = {
       size: '$params.size',
       quality: '$params.quality',
       output_format: '$params.output_format',
+      complexity: '$params.complexity',
+      frame_count: '$params.frame_count',
+      frame_duration_ms: '$params.frame_duration_ms',
+      background: '$params.background',
       moderation: '$params.moderation',
       output_compression: '$params.output_compression',
       n: '$params.n',
@@ -242,6 +252,10 @@ body 模板变量：
 - $profile.model：用户在设置里填写的模型 ID。
 - $prompt：当前提示词。
 - $params.size、$params.quality、$params.output_format、$params.output_compression、$params.moderation、$params.n：应用内参数。
+- $params.complexity：GPT Image 2.6 及以上模型的复杂度（auto/low/medium/high），不兼容时自动省略。
+- $params.frame_count、$params.frame_duration_ms：GIF 帧数（2–16）和每帧时长（20–2000 毫秒），仅 GIF 格式时传递。
+- $params.svg：SVG 格式的模型配置对象，例如 {"model":"gpt-6.1-sol"}，仅 SVG 文生图时传递。
+- $params.background：原生透明背景（transparent），仅启用透明输出且支持时传递。
 - $inputImages.dataUrls：参考图 data URL 数组；没有参考图时会自动省略该字段。
 - $mask.dataUrl：遮罩图 data URL；没有遮罩时会自动省略该字段。
 
@@ -256,6 +270,7 @@ multipart files 示例：
 - baseUrl：API Base URL。如果文档明确给出，填入完整基础地址；否则留空字符串 ""。
 - model：模型 ID。如果 API 文档明确了默认模型，填入该值；否则使用 "gpt-image-2"。
 - apiMode：固定为 "images"。
+- svgModel：可选，生成 SVG 的文本模型，默认 "gpt-6.1-sol"。
 
 profiles 中不要包含 apiKey（用户导入后自行填写）。
 
@@ -551,6 +566,8 @@ export default function SettingsModal() {
       url.searchParams.set('apiMode', profile.apiMode)
       const model = profile.model.trim() || getDefaultModelForMode(profile.apiMode)
       url.searchParams.set('model', !options.includeApiKey && options.useNewApiModel ? '{model}' : model)
+      if (profile.imageGenerationModel?.trim()) url.searchParams.set('imageGenerationModel', profile.imageGenerationModel.trim())
+      if (profile.svgModel?.trim()) url.searchParams.set('svgModel', profile.svgModel.trim())
       if (profile.codexCli) url.searchParams.set('codexCli', 'true')
       if (profile.streamImages !== DEFAULT_SETTINGS.streamImages) url.searchParams.set('streamImages', String(Boolean(profile.streamImages)))
       if (profile.streamPartialImages !== DEFAULT_STREAM_PARTIAL_IMAGES) url.searchParams.set('streamPartialImages', String(normalizeStreamPartialImages(profile.streamPartialImages)))
@@ -1895,6 +1912,8 @@ export default function SettingsModal() {
                   )}
                 </div>
               </label>
+
+              <ImageModelSettings profile={activeProfile} onChange={updateActiveProfile} onCommit={commitActiveProfilePatch} />
 
               </>}
               </div>

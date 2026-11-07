@@ -6,12 +6,26 @@ export interface ImageDimensions {
 }
 
 export async function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  const src = await withSvgIntrinsicSize(dataUrl)
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
     image.onerror = () => reject(new Error('图片加载失败'))
-    image.src = dataUrl
+    image.src = src
   })
+}
+
+/** Give responsive SVGs their viewBox dimensions before drawing them to a canvas. */
+async function withSvgIntrinsicSize(dataUrl: string): Promise<string> {
+  if (!/^data:image\/svg\+xml[;,]/i.test(dataUrl)) return dataUrl
+  const svg = new DOMParser().parseFromString(await (await fetch(dataUrl)).text(), 'image/svg+xml').documentElement
+  const hasSize = (name: string) => !/^(|auto|.*%)$/i.test(svg.getAttribute(name)?.trim() ?? '')
+  if (hasSize('width') && hasSize('height')) return dataUrl
+  const box = svg.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number)
+  if (!box || box.length !== 4 || !(box[2] > 0) || !(box[3] > 0)) return dataUrl
+  svg.setAttribute('width', String(box[2]))
+  svg.setAttribute('height', String(box[3]))
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}`
 }
 
 export async function getImageDimensions(dataUrl: string): Promise<ImageDimensions> {
@@ -34,6 +48,18 @@ export async function imageDataUrlToPngBlob(dataUrl: string): Promise<Blob> {
   if (!ctx) throw new Error('当前浏览器不支持 Canvas')
   ctx.drawImage(image, 0, 0)
   return canvasToBlob(canvas, 'image/png')
+}
+
+/** API references accept raster images; GIF inputs use the frame available at load. */
+export async function toApiInputImageDataUrl(dataUrl: string): Promise<string> {
+  if (!/^data:image\/(svg\+xml|gif)[;,]/i.test(dataUrl)) return dataUrl
+  const blob = await imageDataUrlToPngBlob(dataUrl)
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error('图片读取失败'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 export async function maskDataUrlToPngBlob(maskDataUrl: string): Promise<Blob> {

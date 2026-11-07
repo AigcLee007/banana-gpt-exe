@@ -5,12 +5,23 @@ import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devP
 import { readRuntimeEnv } from './runtimeEnv'
 import type { AppSettings } from '../types'
 import type { CallApiOptions, CallApiResult } from './imageApiShared'
+import { toApiInputImageDataUrl } from './canvasImage'
+import { normalizeParamsForSettings } from './paramCompatibility'
+import { isVectorOrAnimatedFormat, supportsGptImage26Params } from './imageModels'
+import { usesGeminiImageParams } from './bananaModels'
 
 export type { CallApiOptions, CallApiResult } from './imageApiShared'
 export { normalizeBaseUrl } from './devProxy'
 
 export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult> {
   const profile = getActiveApiProfile(opts.settings)
+  let params = supportsGptImage26Params(profile) || isVectorOrAnimatedFormat(opts.params.output_format)
+    ? normalizeParamsForSettings(opts.params, opts.settings, { hasInputImages: opts.inputImageDataUrls.length > 0, agent: opts.sourceMode === 'agent' })
+    : opts.params
+  if (!supportsGptImage26Params(profile) && !usesGeminiImageParams(profile.model)) {
+    params = { ...params, output_format: 'png', output_compression: null, complexity: 'auto' }
+  }
+  opts = { ...opts, params, inputImageDataUrls: await Promise.all(opts.inputImageDataUrls.map(toApiInputImageDataUrl)) }
   if (profile.provider === 'fal') return callFalAiImageApi(opts, profile)
 
   return callOpenAICompatibleImageApi(opts, profile, getCustomProviderDefinition(opts.settings, profile.provider))

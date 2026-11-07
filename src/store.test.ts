@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { strToU8, zipSync } from 'fflate'
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { DEFAULT_PARAMS } from './types'
 import { createDefaultFalProfile, createDefaultOpenAIProfile, DEFAULT_RESPONSES_MODEL, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
 import type { AgentConversation, ExportData, StoredImage, StoredImageThumbnail, TaskRecord } from './types'
@@ -44,6 +44,7 @@ vi.mock('./lib/db', () => {
     getStoredFreshImageThumbnail: async (id: string) => thumbnails.get(id),
     getAllImageIds: async () => [...images.keys()],
     getAllImages: async () => [...images.values()],
+    getAllColorEditRecords: async () => [],
     putImage: async (image: StoredImage) => {
       images.set(image.id, image)
       return image.id
@@ -75,6 +76,7 @@ vi.mock('./lib/api', () => ({
     revisedPrompts: [],
   })),
 }))
+vi.mock('./lib/videoAssetBridge', () => ({ ensureGalleryImageAssets: vi.fn(async () => []) }))
 vi.mock('./lib/upscaleApi', async (original) => ({
   ...await original<typeof import('./lib/upscaleApi')>(),
   upscaleImage: vi.fn(() => new Promise(() => {})),
@@ -82,6 +84,7 @@ vi.mock('./lib/upscaleApi', async (original) => ({
 vi.mock('./lib/canvasImage', async (original) => ({
   ...await original<typeof import('./lib/canvasImage')>(),
   getImageDimensions: vi.fn(async () => ({ width: 3840, height: 2160 })),
+  toApiInputImageDataUrl: vi.fn(async (dataUrl: string) => dataUrl),
 }))
 vi.mock('./lib/agentApi', () => ({
   callAgentConversationTitleApi: vi.fn(async () => '标题'),
@@ -103,17 +106,126 @@ vi.mock('./lib/agentApi', () => ({
     }
   }),
 }))
-import { clearAgentConversations, clearImages, getAllAgentConversations, getAllTasks, putAgentConversation, putImage, putTask as putDbTask } from './lib/db'
+import { clearAgentConversations, clearImages, getAllAgentConversations, getAllTasks, getImage, putAgentConversation, putImage, putImageThumbnail, putTask as putDbTask } from './lib/db'
 import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
 import { callImageApi } from './lib/api'
 import { upscaleImage } from './lib/upscaleApi'
-import { getImageDimensions } from './lib/canvasImage'
+import { getImageDimensions, toApiInputImageDataUrl } from './lib/canvasImage'
 import { getGeminiOutputPixels } from './lib/geminiImageSizing'
 import { AGENT_FIXED_MODEL } from './lib/bananaModels'
-import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConversation, editOutputs, ensureImageThumbnailCached, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, markInterruptedUpscaleTasks, migratePersistedState, submitUpscaleTask, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
+import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConversation, editOutputs, ensureImageThumbnailCached, exportData, getActiveAgentRounds, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, markInterruptedUpscaleTasks, migratePersistedState, retryTask, submitUpscaleTask, regenerateAgentAssistantMessage, remapAgentRoundMentionsForPathChange, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
+
+describe('image 2.6 formats in stored tasks', () => {
+  beforeEach(async () => {
+    const profile = createDefaultOpenAIProfile({ id: 'formats', apiKey: 'key', model: 'gpt-image-2.6-sunburst-1k' })
+    useStore.setState({
+      settings: normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [profile], activeProfileId: profile.id }),
+      appMode: 'gallery', tasks: [], agentConversations: [], prompt: 'original prompt', inputImages: [], maskDraft: null,
+      params: { ...DEFAULT_PARAMS }, reusedTaskApiProfileId: null, reusedTaskApiProfileMissing: false,
+      showToast: vi.fn(), setConfirmDialog: vi.fn(),
+    })
+    vi.mocked(callImageApi).mockClear()
+    await clearImages()
+  })
+
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('retains a PNG returned for SVG but reports the format mismatch', async () => {
+    const dataUrl = 'data:image/png;base64,iVBORw0KGgo='
+    vi.mocked(callImageApi).mockResolvedValueOnce({ images: [dataUrl], actualParams: { output_format: 'svg' }, actualParamsList: [{ output_format: 'svg' }], revisedPrompts: [] })
+    useStore.setState({ params: { ...DEFAULT_PARAMS, output_format: 'svg' } })
+    await submitTask()
+    await vi.waitFor(() => expect(useStore.getState().tasks[0]?.status).not.toBe('running'))
+    const created = useStore.getState().tasks[0]
+    expect(created.status).toBe('error')
+    expect(created.error).toContain('PNG')
+    expect(created.actualParams?.output_format).toBe('png')
+    expect(created.actualParamsByImage?.[created.outputImages[0]]?.output_format).toBe('png')
+    expect(await getImage(created.outputImages[0])).toMatchObject({ dataUrl })
+  })
+
+  it('retains a single-frame GIF but reports that the requested animation failed', async () => {
+    const dataUrl = 'data:image/gif;base64,R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAFAAAACwAAAAAAgACAAAIBgABCAQQEAA7'
+    vi.mocked(callImageApi).mockResolvedValueOnce({ images: [dataUrl], actualParams: {}, actualParamsList: [], revisedPrompts: [] })
+    useStore.setState({ params: { ...DEFAULT_PARAMS, output_format: 'gif', frame_count: 9 } })
+    await submitTask()
+    await vi.waitFor(() => expect(useStore.getState().tasks[0]?.status).not.toBe('running'))
+    const created = useStore.getState().tasks[0]
+    expect(created.status).toBe('error')
+    expect(created.error).toContain('1 帧')
+    expect(created.actualParams?.frame_count).toBe(1)
+    expect(await getImage(created.outputImages[0])).toMatchObject({ dataUrl })
+    expect(useStore.getState().showToast).not.toHaveBeenCalledWith(expect.stringContaining('生成完成'), 'success')
+  })
+
+  it('does not label an uninspectable remote GIF as a malformed file', async () => {
+    const url = 'https://example.com/animated.gif'
+    vi.mocked(callImageApi).mockResolvedValueOnce({ images: [url], rawImageUrls: [url], actualParams: {}, actualParamsList: [], revisedPrompts: [] })
+    useStore.setState({ params: { ...DEFAULT_PARAMS, output_format: 'gif' } })
+    await submitTask()
+    await vi.waitFor(() => expect(useStore.getState().tasks[0]?.status).not.toBe('running'))
+    expect(useStore.getState().tasks[0].status).toBe('done')
+    expect(useStore.getState().tasks[0].actualParams?.frame_count).toBeUndefined()
+  })
+
+  it.each(['svg', 'gif'] as const)('preserves transparent %s output and requests native transparency', async (format) => {
+    const dataUrl = format === 'svg' ? 'data:image/svg+xml;base64,PHN2Zy8+' : 'data:image/gif;base64,R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAFAAAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBFAABACwAAAAAAgACAIEAAP8AAAAAAAAAAAAIBgABCAQQEAA7'
+    vi.mocked(callImageApi).mockResolvedValueOnce({ images: [dataUrl], actualParams: {}, actualParamsList: [], revisedPrompts: [] })
+    useStore.setState({ params: { ...DEFAULT_PARAMS, output_format: format, transparent_output: true } })
+    await submitTask()
+    await vi.waitFor(() => expect(useStore.getState().tasks[0]?.status).toBe('done'))
+
+    const created = useStore.getState().tasks[0]
+    expect(created.params).toMatchObject({ output_format: format, transparent_output: true })
+    expect(created.transparentOutput).toBeUndefined()
+    expect(created.transparentOriginalImages).toBeUndefined()
+    expect(await getImage(created.outputImages[0])).toMatchObject({ dataUrl })
+    if (format === 'gif') expect(created.actualParams).toMatchObject({ frame_count: 2, frame_duration_ms: 200 })
+    expect(vi.mocked(callImageApi).mock.calls[0][0]).toMatchObject({ nativeTransparentBackground: true, prompt: 'original prompt' })
+  })
+
+  it('retains native transparent GIF settings when retrying a historical task', async () => {
+    await retryTask(task({ params: { ...DEFAULT_PARAMS, output_format: 'gif', transparent_output: true, frame_count: 12, frame_duration_ms: 400 } }))
+    await vi.waitFor(() => expect(callImageApi).toHaveBeenCalled())
+    expect(useStore.getState().tasks[0].params).toMatchObject({ output_format: 'gif', transparent_output: true, frame_count: 12, frame_duration_ms: 400 })
+    expect(vi.mocked(callImageApi).mock.calls[0][0]).toMatchObject({ nativeTransparentBackground: true })
+  })
+
+  it('fills missing historical fields with defaults rather than the current draft values', async () => {
+    const { complexity: _complexity, frame_count: _frameCount, frame_duration_ms: _duration, ...oldParams } = DEFAULT_PARAMS
+    useStore.setState({ params: { ...DEFAULT_PARAMS, complexity: 'high', frame_count: 16, frame_duration_ms: 1000 } })
+    await reuseConfig(task({ params: oldParams as typeof DEFAULT_PARAMS }))
+    expect(useStore.getState().params).toMatchObject({ complexity: 'auto', frame_count: 9, frame_duration_ms: 200 })
+  })
+
+  it.each(['gif', 'svg'] as const)('normalizes %s historical Agent output to a bitmap when reusing', async (format) => {
+    await reuseConfig(task({ sourceMode: 'agent', params: { ...DEFAULT_PARAMS, output_format: format } }))
+    expect(useStore.getState().params.output_format).toBe('png')
+  })
+
+  it.each([
+    ['svg-base64', 'data:image/svg+xml;base64,PHN2Zy8+', 'svg', '<svg/>'],
+    ['svg-text', 'data:image/svg+xml;charset=utf-8,%3Csvg%2F%3E', 'svg', '<svg/>'],
+    ['gif', 'data:image/gif;base64,R0lGODlh', 'gif', 'GIF89a'],
+  ])('exports and imports legacy %s archives with original format', async (id, dataUrl, extension, contents) => {
+    await putImage({ id, dataUrl })
+    await putImageThumbnail({ id, thumbnailDataUrl: 'data:image/png;base64,YQ==', width: 1, height: 1, thumbnailVersion: 2 })
+    let archiveBlob: Blob | undefined
+    vi.stubGlobal('URL', { createObjectURL: (blob: Blob) => { archiveBlob = blob; return 'blob:backup' }, revokeObjectURL: vi.fn() })
+    vi.stubGlobal('document', { createElement: () => ({ click: vi.fn() }) })
+    await exportData({ exportConfig: false, exportTasks: true })
+    expect(archiveBlob).toBeDefined()
+    const bytes = new Uint8Array(await archiveBlob!.arrayBuffer())
+    const files = unzipSync(bytes)
+    expect(strFromU8(files[`images/${id}.${extension}`])).toBe(contents)
+    const imported = await importData({ arrayBuffer: () => archiveBlob!.arrayBuffer() } as File, { importConfig: false, importTasks: true })
+    expect(imported).toBe(true)
+    expect((await getImage(id))?.dataUrl).toBe(`data:image/${extension === 'svg' ? 'svg+xml' : 'gif'};base64,${btoa(contents)}`)
+  })
+})
 
 describe('error toast messages', () => {
   it('drops long error detail after the failure title', () => {
@@ -1302,6 +1414,27 @@ describe('agent draft lifecycle', () => {
 })
 
 describe('agent context for removed outputs', () => {
+  it('converts SVG references and historical GIFs before sending the Agent context', async () => {
+    const svg = 'data:image/svg+xml;base64,svg-reference'
+    const gif = 'data:image/gif;base64,gif-history'
+    await putImage({ id: 'svg-reference', dataUrl: svg })
+    await putImage({ id: 'gpt26-gif-history', dataUrl: gif })
+    useStore.setState(state => ({
+      inputImages: [{ id: 'svg-reference', dataUrl: svg }],
+      tasks: state.tasks.map(item => item.id === 'task-live' ? { ...item, outputImages: ['gpt26-gif-history'] } : item),
+    }))
+    vi.mocked(toApiInputImageDataUrl).mockImplementation(async value => value === svg || value === gif ? 'data:image/png;base64,converted-reference' : value)
+    try {
+      await submitAgentMessage()
+      await vi.waitFor(() => expect(vi.mocked(callAgentResponsesApi)).toHaveBeenCalled())
+      const input = JSON.stringify(vi.mocked(callAgentResponsesApi).mock.calls[0][0].input)
+      expect(input).not.toContain('data:image/svg+xml')
+      expect(input).not.toContain('data:image/gif')
+      expect(input).toContain('converted-reference')
+    } finally {
+      vi.mocked(toApiInputImageDataUrl).mockImplementation(async value => value)
+    }
+  })
   beforeEach(() => {
     const profile = createDefaultOpenAIProfile({
       id: 'responses-profile',

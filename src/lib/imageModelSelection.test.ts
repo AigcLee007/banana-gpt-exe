@@ -12,7 +12,7 @@ describe('image model families and lines', () => {
     expect(ids.sort()).toEqual(BANANA_GALLERY_MODELS.map(line => line.model).sort())
     expect(new Set(ids).size).toBe(ids.length)
     expect(ids).not.toContain('gpt-5.5')
-    expect(IMAGE_MODEL_FAMILIES).toHaveLength(7)
+    expect(IMAGE_MODEL_FAMILIES).toHaveLength(9)
   })
 
   it('groups Nano Banana Pro routes and preserves distinct Nano Banana 2 and Lite models', () => {

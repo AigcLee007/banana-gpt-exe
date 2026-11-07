@@ -74,6 +74,29 @@ const assistantHistory = (id: string, sourceImageId: string, activeImageId = sou
 })
 
 describe('scoped local workspace data', () => {
+  it.each(['svg', 'gif'])('round trips original %s data and image 2.6 parameters', async (format) => {
+    const data = emptyWorkspaceSnapshot()
+    const params = { ...DEFAULT_PARAMS, output_format: format, complexity: 'high', frame_count: 12, frame_duration_ms: 400, svgModel: 'gpt-6.1-sol' }
+    data.tasks = [{ ...task('format-task', 'output'), params, actualParams: params, actualParamsByImage: { output: params } } as TaskRecord]
+    const dataUrl = format === 'svg' ? 'data:image/svg+xml;base64,PHN2Zy8+' : 'data:image/gif;base64,R0lGODlh'
+    data.images = [{ ...image('output'), dataUrl }]
+
+    const restored = parseWorkspaceArchive(await buildWorkspaceArchive(data, ['gallery']), ['gallery'])
+
+    expect(restored.tasks[0].params).toEqual(params)
+    expect(restored.tasks[0].actualParams).toMatchObject(params)
+    expect(restored.tasks[0].actualParamsByImage?.output).toMatchObject(params)
+    expect(restored.images[0].dataUrl).toBe(dataUrl)
+  })
+
+  it('imports SVG legacy archive files with the vector MIME type', () => {
+    const archive = zipSync({
+      'manifest.json': strToU8(JSON.stringify({ version: 3, tasks: [task('svg-task', 'svg-image')], imageFiles: { 'svg-image': { path: 'images/original.svg' } } })),
+      'images/original.svg': strToU8('<svg viewBox="0 0 800 600"/>'),
+    })
+
+    expect(parseWorkspaceArchive(archive, ['gallery']).images[0].dataUrl).toBe(`data:image/svg+xml;base64,${btoa('<svg viewBox="0 0 800 600"/>')}`)
+  })
   it('preserves Agent output tasks and video image assets when Gallery is cleared', () => {
     const data = emptyWorkspaceSnapshot()
     data.tasks = [task('gallery', 'shared'), task('output', 'agent-output')]

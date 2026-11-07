@@ -1,0 +1,2 @@
+# Patch context lines contain a required space before Go indentation tabs.
+/deploy/*.patch text eol=lf whitespace=-space-before-tab
