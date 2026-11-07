@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { withDesktopWork } from './lib/desktopWorkActivity'
 import { createLocalId } from './lib/localId'
 import type { VideoAssetCategoryRecord, VideoAssetRecord } from './lib/videoAssetTypes'
 import { getAllMedia, uploadMediaFile } from './lib/videoDb'
@@ -48,7 +49,7 @@ export const useVideoAssetStore = create<VideoAssetStore>((set, get) => ({
       set({ loading: false, error: error instanceof Error ? error.message : '资产库加载失败' })
     }
   },
-  upload: async (file, categoryId = null) => {
+  upload: (file, categoryId = null) => withDesktopWork(async () => {
     const id = await uploadMediaFile(file, 'upload')
     const media = (await getAllMedia()).find((item) => item.id === id)
     if (!media) throw new Error('素材保存后无法读取')
@@ -67,7 +68,7 @@ export const useVideoAssetStore = create<VideoAssetStore>((set, get) => ({
     await putVideoAsset(asset)
     set((state) => ({ assets: [asset, ...state.assets.filter((item) => item.id !== id)] }))
     return id
-  },
+  }),
   rename: async (id, displayName) => {
     const asset = get().assets.find((item) => item.id === id)
     const name = displayName.trim()

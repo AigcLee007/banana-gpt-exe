@@ -1,10 +1,13 @@
-const { app, BrowserWindow, shell, protocol, net } = require('electron')
+const { app, BrowserWindow, shell, protocol, net, ipcMain } = require('electron')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { handleUguuUpload } = require('./uguu-upload.cjs')
 const { handleMidjourneyProxy, handleImageDownload } = require('./midjourney-proxy.cjs')
+const { createUpdateController, getUpdateFeed, isTrustedUpdateSender } = require('./desktop-updater.cjs')
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL)
+let mainWindow = null
+let desktopUpdates = null
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -27,12 +30,18 @@ function createWindow() {
     minHeight: 700,
     title: '艾特智绘',
     webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
     },
   })
+  mainWindow = win
+  win.webContents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => {
+    if (mainFrame) desktopUpdates?.setBusy(true)
+  })
+  win.on('closed', () => { mainWindow = null; desktopUpdates?.setBusy(true) })
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -49,6 +58,34 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  const feed = getUpdateFeed(process.platform, process.arch)
+  const updateEnabled = app.isPackaged && !isDev && Boolean(feed)
+  // Instantiate the supported updater with a fixed per-platform HTTPS origin.
+  // No renderer-provided URL or API credentials ever enter the update client.
+  const { NsisUpdater, MacUpdater } = require('electron-updater')
+  const updater = process.platform === 'darwin'
+    ? new MacUpdater({ provider: 'generic', url: feed || 'https://m.aittco.com/downloads/updates/unsupported/', channel: 'latest' })
+    : new NsisUpdater({ provider: 'generic', url: feed || 'https://m.aittco.com/downloads/updates/unsupported/', channel: 'latest' })
+  desktopUpdates = createUpdateController({ updater, currentVersion: app.getVersion(), enabled: updateEnabled })
+  desktopUpdates.subscribe(state => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // Squirrel on macOS may validate/extract asynchronously after the user accepts.
+      // Block new interactive work until installation quits or reports an error.
+      mainWindow.setEnabled(state.status !== 'installing')
+      mainWindow.webContents.send('desktop-update:changed', state)
+    }
+  })
+  for (const [channel, action] of Object.entries({
+    state: () => desktopUpdates.getState(), check: () => desktopUpdates.check(),
+    download: () => desktopUpdates.download(), install: () => desktopUpdates.install(),
+    busy: value => { desktopUpdates.setBusy(value); return undefined },
+  })) {
+    ipcMain.handle(`desktop-update:${channel}`, (event, value) => {
+      if (!isTrustedUpdateSender(event, mainWindow?.webContents)) throw new Error('Untrusted update request')
+      return action(value)
+    })
+  }
+  desktopUpdates.start()
   if (!isDev) {
     const distDir = path.join(__dirname, '..', 'dist')
 
@@ -88,3 +125,5 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
+
+app.on('will-quit', () => desktopUpdates?.dispose())

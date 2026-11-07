@@ -36,8 +36,11 @@ import { useGlobalClickSuppression } from './lib/clickSuppression'
 import { installStudioAssets } from './lib/portalAssets'
 import PortalAssetStatus from './components/PortalAssetStatus'
 import ColorGradingEditor from './components/ColorGradingEditor'
+import DesktopUpdateDialog from './components/DesktopUpdateDialog'
+import { useDesktopUpdater } from './hooks/useDesktopUpdater'
 
 export default function App() {
+  const desktopUpdate = useDesktopUpdater()
   useEffect(() => installStudioAssets(), [])
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
@@ -104,6 +107,7 @@ export default function App() {
   }, [theme])
 
   const runVersionCheck = useCallback(async (manual = false) => {
+    if (desktopUpdate.native) return
     if (isCheckingUpdate) return
     const now = Date.now()
     const lastAutoRaw = window.localStorage.getItem('update:lastAutoCheckAt')
@@ -156,18 +160,20 @@ export default function App() {
     } finally {
       setIsCheckingUpdate(false)
     }
-  }, [dismissedDesktopVersion, isCheckingUpdate, isDesktop, showToast])
+  }, [desktopUpdate.native, dismissedDesktopVersion, isCheckingUpdate, isDesktop, showToast])
 
   useEffect(() => {
+    if (desktopUpdate.native) return
     const onCheckUpdate = (event: Event) => {
       const customEvent = event as CustomEvent<{ manual?: boolean }>
       void runVersionCheck(Boolean(customEvent.detail?.manual))
     }
     window.addEventListener('app:check-update', onCheckUpdate as EventListener)
     return () => window.removeEventListener('app:check-update', onCheckUpdate as EventListener)
-  }, [runVersionCheck])
+  }, [desktopUpdate.native, runVersionCheck])
 
   useEffect(() => {
+    if (desktopUpdate.native) return
     if (isDesktop) {
       const timer = window.setTimeout(() => {
         void runVersionCheck(false)
@@ -187,7 +193,7 @@ export default function App() {
       window.clearInterval(interval)
       window.removeEventListener('focus', onFocus)
     }
-  }, [isDesktop, runVersionCheck])
+  }, [desktopUpdate.native, isDesktop, runVersionCheck])
 
   const handleReloadToLatest = useCallback(() => {
     const nextUrl = `${window.location.pathname}?v=${Date.now()}${window.location.hash || ''}`
@@ -231,6 +237,17 @@ export default function App() {
       <MaskEditorModal />
       <ImageContextMenu />
       <ColorGradingEditor />
+      {desktopUpdate.native && desktopUpdate.visible && desktopUpdate.state && (
+        <DesktopUpdateDialog
+          state={desktopUpdate.state}
+          busy={desktopUpdate.busy}
+          pending={desktopUpdate.pending}
+          onDismiss={desktopUpdate.dismiss}
+          onCheck={desktopUpdate.check}
+          onDownload={desktopUpdate.download}
+          onInstall={desktopUpdate.install}
+        />
+      )}
       {updatePrompt && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />

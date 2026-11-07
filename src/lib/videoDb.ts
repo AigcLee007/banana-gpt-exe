@@ -3,6 +3,7 @@
 import type { VideoTaskRecord, MediaRecord, MediaPosterRecord } from './videoTypes'
 import { dbTransaction } from './db'
 import { createLocalId } from './localId'
+import { withDesktopWork } from './desktopWorkActivity'
 import { notifyNewStudioMedia } from './portalAssetEvents'
 import { claimManagedLocalAsset } from './portalAssetOwnership'
 
@@ -214,6 +215,10 @@ export async function uploadMediaFile(
   file: File,
   source: 'upload' | 'generated' | 'extracted',
 ): Promise<string> {
+  return withDesktopWork(() => uploadMediaFileInternal(file, source))
+}
+
+async function uploadMediaFileInternal(file: File, source: 'upload' | 'generated' | 'extracted'): Promise<string> {
   const id = createLocalId()
   claimManagedLocalAsset(`media:${id}`)
   const blob = new Blob([file], { type: file.type })

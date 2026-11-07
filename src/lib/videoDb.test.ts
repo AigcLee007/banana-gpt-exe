@@ -8,6 +8,7 @@ vi.mock('./db', () => ({
 }))
 
 import { uploadMediaFile } from './videoDb'
+import { hasDesktopWork } from './desktopWorkActivity'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -21,10 +22,11 @@ describe('video media uploads on LAN HTTP', () => {
       naturalWidth = 64
       naturalHeight = 32
       onload?: () => void
-      set src(value: string) { if (value) queueMicrotask(() => this.onload?.()) }
+      set src(value: string) { if (value) { expect(hasDesktopWork()).toBe(true); queueMicrotask(() => this.onload?.()) } }
     })
     const file = new File(['mock PNG content'], 'frame.png', { type: 'image/png' })
     const id = await uploadMediaFile(file, 'upload')
+    expect(hasDesktopWork()).toBe(false)
     expect(saved.get(id)).toMatchObject({ id, filename: 'frame.png', mime: 'image/png', width: 64, height: 32 })
     expect(await saved.get(id)!.blob.text()).toBe('mock PNG content')
     expect(await uploadMediaFile(file, 'upload')).not.toBe(id)

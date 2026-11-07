@@ -2,6 +2,7 @@ import { dbTransaction, getImage, hashDataUrl } from './db'
 import { claimManagedLocalAsset } from './portalAssetOwnership'
 import { notifyNewStudioMedia } from './portalAssetEvents'
 import type { InputImage, StoredImage } from '../types'
+import { withDesktopWork } from './desktopWorkActivity'
 
 function readImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -34,6 +35,10 @@ async function imageDimensions(file: File, dataUrl: string, assertContext: () =>
 
 /** Reads and decodes before persistence, and binds every side effect to the captured context. */
 export async function uploadEcommerceReference(file: File, owner: number, assertContext: () => void): Promise<InputImage> {
+  return withDesktopWork(() => uploadEcommerceReferenceInternal(file, owner, assertContext))
+}
+
+async function uploadEcommerceReferenceInternal(file: File, owner: number, assertContext: () => void): Promise<InputImage> {
   const guard = () => {
     assertContext()
     if (!Number.isSafeInteger(owner) || owner <= 0 || (window.__AAP__ as { userId?: number } | undefined)?.userId !== owner) {

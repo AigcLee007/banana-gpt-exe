@@ -35,6 +35,7 @@ vi.mock('./portalAssetEvents', () => ({
 }))
 
 import { uploadEcommerceReference } from './agentEcommerceUpload'
+import { hasDesktopWork } from './desktopWorkActivity'
 
 const file = () => new File(['product photo'], 'product.png', { type: 'image/png' })
 const guard = () => { if (!state.valid) throw Error('context changed') }
@@ -65,6 +66,15 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('ecommerce reference upload context isolation', () => {
+  it('blocks desktop installation until reference persistence finishes, including failed imports', async () => {
+    state.read = async () => { expect(hasDesktopWork()).toBe(true); return 'data:image/png;base64,cHJvZHVjdA==' }
+    state.beforeComplete = async () => { expect(hasDesktopWork()).toBe(true) }
+    await uploadEcommerceReference(file(), 8, guard)
+    expect(hasDesktopWork()).toBe(false)
+    state.read = async () => { throw new Error('read failure') }
+    await expect(uploadEcommerceReference(file(), 8, guard)).rejects.toThrow()
+    expect(hasDesktopWork()).toBe(false)
+  })
   it('stores a real decoded upload under the captured owner and notifies only after persistence', async () => {
     const result = await uploadEcommerceReference(file(), 8, guard)
     expect(result).toEqual({ id: 'product-image', dataUrl: 'data:image/png;base64,cHJvZHVjdA==' })

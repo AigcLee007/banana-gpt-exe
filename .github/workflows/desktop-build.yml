@@ -2,120 +2,172 @@ name: Desktop Build
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish signed, notarized complete native release to m.aittco.com
+        type: boolean
+        default: false
+      notes:
+        description: Release notes for native updater and legacy download page
+        type: string
+        default: ''
   push:
-    branches:
-      - main
-      - fix/macos-arm64-build
+    branches: [main, fix/macos-arm64-build]
+    tags: ['v*']
 
 permissions:
   contents: read
 
 env:
-  CSC_IDENTITY_AUTO_DISCOVERY: "false"
-  ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
+  ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: 'true'
+  DESKTOP_RELEASE: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish) || startsWith(github.ref, 'refs/tags/v') }}
+  RELEASE_NOTES: ${{ inputs.notes || '' }}
 
 jobs:
-  build-windows:
-    name: Build desktop Windows
-    runs-on: windows-latest
-
+  preflight:
+    name: Validate release configuration
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - name: Reject missing credentials and mismatched version tags before builds
+        run: node scripts/desktop-release-preflight.mjs
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          UPDATES_SSH_HOST: ${{ secrets.UPDATES_SSH_HOST }}
+          UPDATES_SSH_USER: ${{ secrets.UPDATES_SSH_USER }}
+          UPDATES_SSH_PORT: ${{ secrets.UPDATES_SSH_PORT }}
+          UPDATES_SSH_PRIVATE_KEY: ${{ secrets.UPDATES_SSH_PRIVATE_KEY }}
+          UPDATES_SSH_KNOWN_HOSTS: ${{ secrets.UPDATES_SSH_KNOWN_HOSTS }}
+      - run: npm ci
+      - name: Test release validation and real Linux atomic publication with temporary fixtures
+        run: npx vitest run src/lib/desktopRelease.test.js
+      - name: Test standalone remote publisher with Python standard library
+        run: python3 -B scripts/test-desktop-publication.py
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm run test
-
-      - name: Build web app
-        run: npm run build
-
-      - name: Build Windows desktop
-        run: npx electron-builder --win nsis --publish never
-
-      - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
+  build-windows:
+    name: Build desktop Windows
+    needs: preflight
+    runs-on: windows-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Build NSIS installer and latest native feed (no portable)
+        run: npx electron-builder --config build/desktop-updates.cjs --win nsis --x64 --publish never
+      - uses: actions/upload-artifact@v4
         with:
           name: desktop-windows
           path: |
-            release/**
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
           if-no-files-found: error
           retention-days: 14
 
-  build-macos-arm64:
-    name: Build desktop macOS arm64
+  build-macos:
+    name: Build desktop macOS ${{ matrix.arch }}
+    needs: preflight
     runs-on: macos-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    env:
+      # v26 must discover the Developer ID identity imported from CSC_LINK.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'true'
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Build DMG installer and ZIP updater payload
+        run: npx electron-builder --config build/desktop-updates.cjs --mac dmg zip --${{ matrix.arch }} --publish never
+      - name: Verify Developer ID, hardened runtime, notarization ticket and architecture in both payloads
+        if: env.DESKTOP_RELEASE == 'true'
+        run: node scripts/verify-mac-release.mjs ${{ matrix.arch }} release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
+            release/signing-verification.json
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm run test
-
-      - name: Build web app
-        run: npm run build
-
-      - name: Build macOS arm64 desktop
-        run: npx electron-builder --mac dmg zip --arm64 --publish never
-
-      - name: Upload macOS arm64 artifacts
-        uses: actions/upload-artifact@v4
+  publish:
+    name: Publish complete native release
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish) || startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: desktop-update-publication
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-windows
+          path: artifacts/win-x64
+      - uses: actions/download-artifact@v4
         with:
           name: desktop-macos-arm64
-          path: |
-            release/**
-          if-no-files-found: error
-          retention-days: 14
-
-  build-macos-x64:
-    name: Build desktop macOS x64
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm run test
-
-      - name: Build web app
-        run: npm run build
-
-      - name: Build macOS x64 desktop
-        run: npx electron-builder --mac dmg zip --x64 --publish never
-
-      - name: Upload macOS x64 artifacts
-        uses: actions/upload-artifact@v4
+          path: artifacts/mac-arm64
+      - uses: actions/download-artifact@v4
         with:
           name: desktop-macos-x64
-          path: |
-            release/**
-          if-no-files-found: error
-          retention-days: 14
+          path: artifacts/mac-x64
+      - name: Validate all versions, SHA512, update payloads and Mac signing receipts locally
+        run: node scripts/desktop-release.mjs artifacts staged-release
+      - name: Transfer and verify all files, then atomically switch all public manifests
+        run: node scripts/publish-desktop-release.mjs staged-release
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          UPDATES_SSH_HOST: ${{ secrets.UPDATES_SSH_HOST }}
+          UPDATES_SSH_USER: ${{ secrets.UPDATES_SSH_USER }}
+          UPDATES_SSH_PORT: ${{ secrets.UPDATES_SSH_PORT }}
+          UPDATES_SSH_PRIVATE_KEY: ${{ secrets.UPDATES_SSH_PRIVATE_KEY }}
+          UPDATES_SSH_KNOWN_HOSTS: ${{ secrets.UPDATES_SSH_KNOWN_HOSTS }}
