@@ -11,7 +11,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { collectAgentRoundOutputImageSlots } from '../lib/agentImageReferences'
-import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelRoute, getBananaQualityOptions, getBananaSupportedSizeTiers, normalizeBananaModelId, usesGeminiImageParams } from '../lib/bananaModels'
+import { BANANA_GALLERY_MODELS, DEFAULT_GALLERY_MODEL, getActiveBananaModelForMode, getActiveBananaModelRouteForMode, getBananaDesktopParamGridColumnsForMode, getBananaModelCreditLabel, getBananaModelRoute, getBananaQualityOptions, getBananaSupportedSizeTiers, normalizeBananaModelId, usesGeminiImageParams } from '../lib/bananaModels'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import { getInputBarClearance, INPUT_BAR_LAYOUT_EVENT } from '../lib/inputBarLayout'
@@ -27,6 +27,7 @@ import ImageOutputOptions from './ImageOutputOptions'
 import SizePickerModal from './SizePickerModal'
 import ViewportTooltip from './ViewportTooltip'
 import { ChevronDownIcon, CloseIcon } from './icons'
+import { getImageReferenceLimit, getMidjourneyRatios, isMidjourneyModel, MIDJOURNEY_QUALITIES } from '../lib/midjourneyModels'
 
 
 function getMentionTagTextLength(el: Element) {
@@ -346,7 +347,6 @@ function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode })
 }
 
 /** API 支持的最大参考图数量 */
-const API_MAX_IMAGES = 16
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
@@ -716,12 +716,14 @@ export default function InputBar() {
   const resolvedGalleryModel = normalizeBananaModelId((getImageGenerationModel(activeProfile) || activeProfile.model).replace(/^openai\//, ''))
   const galleryModel = resolvedGalleryModel || DEFAULT_GALLERY_MODEL
   const activeImageModel = getActiveBananaModelForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
+  const usesMidjourneyControls = isMidjourneyModel(activeImageModel)
+  const referenceImageLimit = getImageReferenceLimit(activeImageModel)
   const hideOutputCompression = portalManaged && activeImageModel.startsWith('gpt-')
   const supportedSizeTiers = getBananaSupportedSizeTiers(activeImageModel)
   const activeImageModelRoute = getActiveBananaModelRouteForMode(appMode === 'video' ? 'gallery' : appMode, galleryModel, agentImageModel)
   const usesGeminiParamControls = activeImageModelRoute === 'gemini-native' || activeImageModelRoute === 'banana-t3-images'
   const usesGeminiGalleryParams = appMode === 'gallery' && usesGeminiImageParams(galleryModel)
-  const transparentOutputAvailable = appMode === 'gallery' && !usesGeminiGalleryParams
+  const transparentOutputAvailable = appMode === 'gallery' && !usesGeminiGalleryParams && !usesMidjourneyControls
   const showTransparentOutputControl = transparentOutputAvailable && (params.output_format === 'png' || isVectorOrAnimatedFormat(params.output_format))
   const desktopParamGridColumns = hideOutputCompression
     ? showTransparentOutputControl ? 'grid-cols-7' : 'grid-cols-6'
@@ -763,8 +765,8 @@ export default function InputBar() {
         { label: 'high', value: 'high' },
       ]
     : getBananaQualityOptions(activeImageModel).map((quality) => ({ label: quality, value: quality }))
-  const atImageLimit = inputImages.length >= API_MAX_IMAGES
-  const uploadImageTooltipText = atImageLimit ? `参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加` : '上传图片'
+  const atImageLimit = inputImages.length >= referenceImageLimit
+  const uploadImageTooltipText = atImageLimit ? `参考图数量已达上限（${referenceImageLimit} 张），无法继续添加` : `上传图片（最多 ${referenceImageLimit} 张参考图）`
   const sizeHint = useHintTooltip({ enabled: () => isFalTextToImage })
   const qualityHint = useHintTooltip({ enabled: () => settings.codexCli || isFalProvider })
   const nLimitHint = useHintTooltip({ autoHideMs: 2000 })
@@ -1038,15 +1040,15 @@ export default function InputBar() {
   const handleFiles = async (files: FileList | File[]) => {
     try {
       const currentCount = useStore.getState().inputImages.length
-      if (currentCount >= API_MAX_IMAGES) {
+      if (currentCount >= referenceImageLimit) {
         useStore.getState().showToast(
-          `参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`,
+          `参考图数量已达上限（${referenceImageLimit} 张），无法继续添加`,
           'error',
         )
         return
       }
 
-      const remaining = API_MAX_IMAGES - currentCount
+      const remaining = referenceImageLimit - currentCount
       const accepted = Array.from(files).filter((f) => f.type.startsWith('image/'))
       const toAdd = accepted.slice(0, remaining)
       const discarded = accepted.length - toAdd.length
@@ -1057,7 +1059,7 @@ export default function InputBar() {
 
       if (discarded > 0) {
         useStore.getState().showToast(
-          `已达上限 ${API_MAX_IMAGES} 张，${discarded} 张图片被丢弃`,
+          `已达上限 ${referenceImageLimit} 张，${discarded} 张图片被丢弃`,
           'error',
         )
       }
@@ -1876,7 +1878,25 @@ export default function InputBar() {
           />
         </label>
       )}
-      {usesGeminiParamControls ? (
+      {usesMidjourneyControls ? (
+        <>
+          <label className="flex flex-col gap-0.5">
+            <span className="text-gray-400 dark:text-gray-500 ml-1">比例</span>
+            <Select value={params.size} onChange={(value) => setParams({ size: String(value) })}
+              options={getMidjourneyRatios(activeImageModel).map(value => ({ label: value, value }))} className={selectClass} />
+          </label>
+          <label className="flex flex-col gap-0.5">
+            <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
+            <Select value={params.midjourneyQuality ?? '1'} onChange={(value) => setParams({ midjourneyQuality: value as typeof params.midjourneyQuality })}
+              options={MIDJOURNEY_QUALITIES.map(value => ({ label: value, value }))} className={selectClass} />
+          </label>
+          <label className="flex flex-col gap-0.5">
+            <span className="text-gray-400 dark:text-gray-500 ml-1">高清</span>
+            <Select value={params.midjourneyHd ? 'on' : 'off'} onChange={(value) => setParams({ midjourneyHd: value === 'on' })}
+              options={[{ label: '关闭', value: 'off' }, { label: '开启', value: 'on' }]} className={selectClass} />
+          </label>
+        </>
+      ) : usesGeminiParamControls ? (
         <>
           <label className="flex flex-col gap-0.5">
             <span className="text-gray-400 dark:text-gray-500 ml-1">比例</span>
@@ -1998,9 +2018,10 @@ export default function InputBar() {
         }}
         onClick={showAgentNHint}
       >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">数量</span>
+        <span className="text-gray-400 dark:text-gray-500 ml-1">{usesMidjourneyControls ? '生成组数/次数' : '数量'}</span>
         <input
           value={agentAutoImageCount ? 'auto' : nInput}
+          title={usesMidjourneyControls ? `${getBananaModelCreditLabel(activeImageModel)}；一组为一次生成，通常返回 4 张单图，完整保留全部结果` : undefined}
           onChange={(e) => handleNInputChange(e.target.value)}
           onFocus={() => setNInputFocused(true)}
           onBlur={() => {
@@ -2030,7 +2051,7 @@ export default function InputBar() {
         <ButtonTooltip visible={nLimitHint.visible} text={nLimitHintText} />
         <ButtonTooltip visible={streamConcurrentByN && !nLimitHint.visible} text="When count is greater than 1, generation is split into parallel single-image requests." />
       </label>
-      {!usesGeminiParamControls && (
+      {!usesGeminiParamControls && !usesMidjourneyControls && (
         <ImageOutputOptions
           profile={getActiveApiProfile(paramsNormalizationSettings)}
           params={params}
@@ -2064,7 +2085,7 @@ export default function InputBar() {
             <div className="text-center">
               {atImageLimit ? (
                 <>
-                  <p className="text-lg font-semibold text-red-500">已达上限 {API_MAX_IMAGES} 张</p>
+                  <p className="text-lg font-semibold text-red-500">已达上限 {referenceImageLimit} 张</p>
                   <p className="text-sm text-gray-400 mt-1">请先移除部分参考图后再添加</p>
                 </>
               ) : (

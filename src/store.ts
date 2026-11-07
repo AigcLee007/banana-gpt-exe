@@ -60,6 +60,8 @@ import { orderInputImagesForMask } from './lib/mask'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
 import { isVectorOrAnimatedFormat } from './lib/imageModels'
 import { AGENT_FIXED_MODEL, getBananaModelRoute, isGeminiNativeModel, normalizeBananaModelId, usesGeminiImageParams } from './lib/bananaModels'
+import { isMidjourneyModel, getImageReferenceLimit } from './lib/midjourneyModels'
+import { MidjourneyTaskError } from './lib/midjourneyImageApi'
 import { createTransparentOutputMeta, getTransparentRequestParams, removeKeyedBackgroundFromDataUrl } from './lib/transparentImage'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
@@ -82,6 +84,8 @@ const AGENT_INPUT_DRAFT_RETENTION_MS = 3 * 24 * 60 * 60 * 1000
 const AGENT_ROUND_IMAGE_MENTION_RE = /@(?:第)?(\d+)轮图(\d+)/g
 const falRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const customRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const midjourneyRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const midjourneyInFlight = new Set<string>()
 const openAIWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const agentRoundControllers = new Map<string, AbortController>()
 let agentConversationPersistenceReady = false
@@ -1596,6 +1600,7 @@ export function getCodexCliPromptKey(settings: AppSettings): string {
 function isOpenAITask(task: TaskRecord) {
   // 放大任务有自己的断点续查流程，不能被当成普通生图任务中断、超时或重发（重发会再次扣费）
   if (task.upscale) return false
+  if (task.apiModel && isMidjourneyModel(task.apiModel)) return false
   return (task.apiProvider ?? 'openai') !== 'fal'
 }
 
@@ -1631,6 +1636,12 @@ function isAsyncCustomProviderTask(settings: AppSettings, provider: string, hasI
 export function markInterruptedOpenAIRunningTasks(tasks: TaskRecord[], now = Date.now()) {
   const interruptedTasks: TaskRecord[] = []
   const updatedTasks = tasks.map((task) => {
+    if (task.status === 'running' && task.apiModel && isMidjourneyModel(task.apiModel)) {
+      if (task.midjourney?.taskId) return task
+      const updated: TaskRecord = { ...task, status: 'error', error: '请求中断，尚未取得任务编号。请先检查本站任务记录，避免重复提交。', midjourney: { phase: 'unknown' }, finishedAt: now, elapsed: Math.max(0, now - task.createdAt) }
+      interruptedTasks.push(updated)
+      return updated
+    }
     if (!isRunningOpenAITask(task) || task.customTaskId) return task
 
     const updated: TaskRecord = {
@@ -1876,6 +1887,26 @@ function scheduleCustomRecovery(taskId: string, delayMs = CUSTOM_RECOVERY_POLL_M
   customRecoveryTimers.set(taskId, timer)
 }
 
+function scheduleMidjourneyRecovery(taskId: string, delayMs = 5000) {
+  if (midjourneyRecoveryTimers.has(taskId)) return
+  const timer = setTimeout(() => {
+    midjourneyRecoveryTimers.delete(taskId)
+    const task = useStore.getState().tasks.find(item => item.id === taskId)
+    if (!task || task.status === 'done' || !task.midjourney?.taskId) return
+    if (task.status !== 'running') updateTaskInStore(taskId, { status: 'running', error: null, finishedAt: null })
+    void executeTask(taskId)
+  }, delayMs)
+  midjourneyRecoveryTimers.set(taskId, timer)
+}
+
+async function persistMidjourneyState(taskId: string, state: NonNullable<TaskRecord['midjourney']>) {
+  const task = useStore.getState().tasks.find(item => item.id === taskId)
+  if (!task) throw new Error('任务记录不存在，无法保存任务编号')
+  const updated = { ...task, midjourney: state }
+  await putTask(updated)
+  useStore.getState().setTasks(useStore.getState().tasks.map(item => item.id === taskId ? updated : item))
+}
+
 function hasActualParams(params: Partial<TaskParams> | undefined): params is Partial<TaskParams> {
   return Boolean(params && Object.keys(params).length > 0)
 }
@@ -2044,6 +2075,9 @@ export async function initStore() {
   useStore.getState().setTasks(tasks)
   showSupportPromptForExistingLocalData(tasks)
   for (const task of tasks) {
+    if (task.midjourney?.taskId && task.midjourney.phase === 'polling' && (task.status === 'running' || task.midjourney.recoverable)) {
+      scheduleMidjourneyRecovery(task.id, 0)
+    }
     if (
       task.apiProvider === 'fal' &&
       task.falRequestId &&
@@ -2245,6 +2279,12 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   if (!prompt.trim()) {
     showToast('请输入提示词', 'error')
     return
+  }
+
+  if (isMidjourneyModel(activeProfile.model)) {
+    const max = getImageReferenceLimit(activeProfile.model)
+    if (inputImages.length > max) { showToast(`参考图最多 ${max} 张，请移除多余图片`, 'error'); return }
+    if (maskDraft) { showToast('Midjourney 基础生图不支持遮罩，请移除遮罩', 'error'); return }
   }
 
   let orderedInputImages = inputImages
@@ -3454,21 +3494,28 @@ async function executeAgentRound(
       return task.id
     }
 
-    const completeAgentImageTask = async (image: AgentApiResultImage, rawResponsePayload?: string) => {
+    const completeAgentImageTask = async (image: AgentApiResultImage & { allImages?: string[]; rawImageUrls?: string[] }, rawResponsePayload?: string) => {
       const toolCallId = image.toolCallId ?? genId()
       const taskId = await ensureStreamingAgentTask(toolCallId)
       const latestTask = useStore.getState().tasks.find((task) => task.id === taskId)
       if (latestTask?.status === 'done' && latestTask.outputImages.length > 0) return taskId
 
-      const imgId = await storeImage(image.dataUrl, 'generated')
-      cacheImage(imgId, image.dataUrl)
+      const outputIds: string[] = []
+      for (const dataUrl of image.allImages ?? [image.dataUrl]) {
+        const imgId = await storeImage(dataUrl, 'generated')
+        cacheImage(imgId, dataUrl)
+        outputIds.push(imgId)
+      }
+      const imgId = outputIds[0]
       const actualParams: Partial<TaskParams> = {
         ...(Object.keys(image.actualParams ?? {}).length ? image.actualParams : {}),
         n: 1,
       }
       updateTaskInStore(taskId, {
         prompt: image.revisedPrompt ?? latestTask?.prompt ?? '',
-        outputImages: [imgId],
+        outputImages: outputIds,
+        rawImageUrls: image.rawImageUrls,
+        ...(latestTask?.midjourney ? { midjourney: { ...latestTask.midjourney, phase: 'success' as const, recoverable: false } } : {}),
         actualParams,
         actualParamsByImage: { [imgId]: actualParams },
         revisedPromptByImage: image.revisedPrompt ? { [imgId]: image.revisedPrompt } : undefined,
@@ -3569,6 +3616,7 @@ async function executeAgentRound(
     }
 
     const callAgentImageApiSingle = async (opts: {
+      toolCallId: string
       prompt: string
       referenceImageDataUrls: string[]
       taskParams: TaskParams
@@ -3584,6 +3632,10 @@ async function executeAgentRound(
           params: opts.taskParams,
           inputImageDataUrls: opts.referenceImageDataUrls,
           maskDataUrl: opts.maskDataUrl,
+          ...(isMidjourneyModel(imageProfile.model) ? {
+            onMidjourneySubmitting: () => persistMidjourneyState(taskIdByToolCallId.get(opts.toolCallId)!, { phase: 'submitting' }),
+            onMidjourneyTaskEnqueued: ({ taskId }: { taskId: string }) => persistMidjourneyState(taskIdByToolCallId.get(opts.toolCallId)!, { taskId, phase: 'polling', recoverable: true }),
+          } : {}),
           onPartialImage: opts.onPartialImage
             ? (partial) => {
                 void opts.onPartialImage?.({ image: partial.image, partialImageIndex: partial.partialImageIndex ?? partial.requestIndex })
@@ -3591,6 +3643,15 @@ async function executeAgentRound(
             : undefined,
         })
       } catch (err) {
+        if (err instanceof MidjourneyTaskError) {
+          const localId = taskIdByToolCallId.get(opts.toolCallId)
+          if (localId) {
+            const task = useStore.getState().tasks.find(item => item.id === localId)
+            const phase = !err.taskId && task?.midjourney?.phase === 'submitting' ? 'unknown' : err.phase
+            await persistMidjourneyState(localId, { taskId: err.taskId, phase, recoverable: err.recoverable })
+            if (err.taskId && err.recoverable) scheduleMidjourneyRecovery(localId)
+          }
+        }
         const rawPayload = getRawErrorPayload(err).rawResponsePayload
         if (import.meta.env.DEV) {
           console.debug('[agent image request failed]', {
@@ -3615,6 +3676,7 @@ async function executeAgentRound(
       return {
         image: dataUrl ? {
           dataUrl,
+          ...(isMidjourneyModel(imageProfile.model) ? { allImages: result.images, rawImageUrls: result.rawImageUrls } : {}),
           actualParams: result.actualParamsList?.[0] ?? result.actualParams,
           revisedPrompt: result.revisedPrompts?.[0] ?? opts.prompt,
         } satisfies AgentApiResultImage : null,
@@ -3667,6 +3729,7 @@ async function executeAgentRound(
         const batchResult = {
           batchItemId: item.id,
           ...(await callAgentImageApiSingle({
+            toolCallId: batchToolCallId,
             prompt: item.prompt,
             referenceImageDataUrls: references.dataUrls,
             taskParams,
@@ -3933,6 +3996,7 @@ async function executeAgentRound(
           await ensureStreamingAgentTask(toolCallId, imagePrompt, uniqueIds([...(round.inputImageIds ?? []), ...promptRefs.imageIds]))
 
           const singleResult = await callAgentImageApiSingle({
+            toolCallId,
             prompt: imagePrompt,
             referenceImageDataUrls: promptRefs.dataUrls,
             taskParams: { ...params, n: 1 },
@@ -3955,8 +4019,12 @@ async function executeAgentRound(
           if (singleResult.image) {
             const completedTaskId = await completeAgentImageTask({ ...singleResult.image, toolCallId }, singleResult.rawResponsePayload)
             const latestTask = useStore.getState().tasks.find((task) => task.id === completedTaskId)
-            const refIndex = round.outputTaskIds.indexOf(completedTaskId)
-            const refId = getAgentGeneratedImageReferenceId(round, refIndex >= 0 ? refIndex : Math.max(0, round.outputTaskIds.length - 1))
+            const latestRound = useStore.getState().agentConversations.find(item => item.id === conversationId)?.rounds.find(item => item.id === roundId) ?? round
+            const currentTasks = useStore.getState().tasks
+            const slots = collectAgentRoundOutputImageSlots(latestRound, currentTasks)
+            const refIndex = latestTask?.outputImages[0] ? slots.indexOf(latestTask.outputImages[0]) : -1
+            const refId = getAgentGeneratedImageReferenceId(latestRound, Math.max(0, refIndex))
+            const refIds = latestTask?.outputImages.map((_, index) => getAgentGeneratedImageReferenceId(latestRound, Math.max(0, refIndex) + index)) ?? []
             if (promptRefs.imageIds.length > 0 && latestTask) {
               const mergedInputIds = uniqueIds([...latestTask.inputImageIds, ...promptRefs.imageIds])
               if (mergedInputIds.length !== latestTask.inputImageIds.length) {
@@ -3971,6 +4039,7 @@ async function executeAgentRound(
                 image: {
                   status: 'done',
                   ref_id: refId,
+                  ...(refIds.length > 1 ? { ref_ids: refIds } : {}),
                 },
               }),
             })
@@ -4177,6 +4246,9 @@ async function executeTask(taskId: string) {
   const { settings } = useStore.getState()
   const task = useStore.getState().tasks.find((t) => t.id === taskId)
   if (!task) return
+  const isMidjourney = Boolean(task.apiModel && isMidjourneyModel(task.apiModel))
+  if (isMidjourney && midjourneyInFlight.has(taskId)) return
+  if (isMidjourney) midjourneyInFlight.add(taskId)
   if (task.upscale) {
     await executeUpscaleTask(taskId)
     return
@@ -4191,6 +4263,7 @@ async function executeTask(taskId: string) {
       finishedAt: Date.now(),
       elapsed: Date.now() - task.createdAt,
     })
+    midjourneyInFlight.delete(taskId)
     return
   }
   let activeProfile = taskProfile ?? getActiveApiProfile(settings)
@@ -4209,7 +4282,7 @@ async function executeTask(taskId: string) {
     ? { taskId: task.customTaskId }
     : null
 
-  if (taskProvider !== 'fal' && !isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0)) {
+  if (!isMidjourney && taskProvider !== 'fal' && !isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0)) {
     scheduleOpenAIWatchdog(taskId, activeProfile.timeout, activeProfile)
   }
 
@@ -4239,6 +4312,11 @@ async function executeTask(taskId: string) {
       nativeTransparentBackground: task.params.transparent_output && isVectorOrAnimatedFormat(task.params.output_format),
       inputImageDataUrls: inputDataUrls,
       maskDataUrl,
+      ...(isMidjourney ? {
+        resumeMidjourneyTaskId: task.midjourney?.taskId,
+        onMidjourneySubmitting: () => persistMidjourneyState(taskId, { phase: 'submitting' }),
+        onMidjourneyTaskEnqueued: ({ taskId: remoteId }: { taskId: string }) => persistMidjourneyState(taskId, { taskId: remoteId, phase: 'polling', recoverable: true }),
+      } : {}),
       onFalRequestEnqueued: (request) => {
         falRequestInfo = request
         updateTaskInStore(taskId, {
@@ -4277,7 +4355,7 @@ async function executeTask(taskId: string) {
     let actualParams = (() => {
       if (taskProvider === 'fal') return firstActualParams(actualParamsList)
       if (isAsyncCustomTask) return firstActualParams(actualParamsList)
-      return { ...result.actualParams, n: outputIds.length }
+      return { ...result.actualParams, n: isMidjourney ? 1 : outputIds.length }
     })()
     let outputError: string | undefined
     if (task.params.output_format === 'svg') {
@@ -4355,6 +4433,7 @@ async function executeTask(taskId: string) {
       elapsed: Date.now() - task.createdAt,
       falRecoverable: false,
       customRecoverable: false,
+      ...(isMidjourney ? { midjourney: { ...latestBeforeUpdate.midjourney, phase: 'success' as const, recoverable: false } } : {}),
     })
     void deleteUnreferencedImageIds(partialImageIdsToClean)
 
@@ -4382,7 +4461,15 @@ async function executeTask(taskId: string) {
       ? { requestId: latestTask.falRequestId, endpoint: latestTask.falEndpoint }
       : null)
     const latestCustomTaskInfo = customTaskInfo ?? (latestTask.customTaskId ? { taskId: latestTask.customTaskId } : null)
-    if (latestTask.apiProvider === 'fal' && latestFalRequestInfo && isFalConnectionRecoverableError(err)) {
+    if (isMidjourney && err instanceof MidjourneyTaskError) {
+      const remoteId = err.taskId ?? latestTask.midjourney?.taskId
+      updateTaskInStore(taskId, {
+        status: 'error', error: err.message,
+        midjourney: { taskId: remoteId, phase: remoteId ? err.phase : 'unknown', recoverable: err.recoverable },
+        finishedAt: Date.now(), elapsed: Date.now() - task.createdAt,
+      })
+      if (remoteId && err.recoverable) scheduleMidjourneyRecovery(taskId)
+    } else if (latestTask.apiProvider === 'fal' && latestFalRequestInfo && isFalConnectionRecoverableError(err)) {
       updateTaskInStore(taskId, {
         status: 'error',
         error: '与 fal.ai 的连接已断开，之后会继续查询任务结果。',
@@ -4431,6 +4518,7 @@ async function executeTask(taskId: string) {
       useStore.getState().setDetailTaskId(taskId)
     }
   } finally {
+    midjourneyInFlight.delete(taskId)
     // 释放输入图片的内存缓存（已持久化到 IndexedDB，后续按需从 DB 加载）
     for (const imgId of task.inputImageIds) {
       imageCache.delete(imgId)
@@ -4575,6 +4663,18 @@ async function executeUpscaleTask(taskId: string) {
 
 /** 重试失败的任务：创建新任务并执行 */
 export async function retryTask(task: TaskRecord) {
+  if (task.midjourney && ['submitting', 'unknown'].includes(task.midjourney.phase) && !task.midjourney.taskId) {
+    useStore.getState().showToast('未取得任务编号，请先检查本站任务记录，避免重复提交。', 'error')
+    return
+  }
+  if (task.midjourney?.taskId && (task.midjourney.phase === 'polling' || task.midjourney.phase === 'unknown')) {
+    const timer = midjourneyRecoveryTimers.get(task.id)
+    if (timer) clearTimeout(timer)
+    midjourneyRecoveryTimers.delete(task.id)
+    updateTaskInStore(task.id, { status: 'running', error: null, finishedAt: null })
+    void executeTask(task.id)
+    return
+  }
   if (task.upscale) {
     // 重新提交会再次扣费；已有中转站任务编号且还没出结果的，直接继续查询而不是新建
     if (task.upscale.remoteTaskId && task.status === 'running') {
@@ -4585,8 +4685,11 @@ export async function retryTask(task: TaskRecord) {
     return
   }
   const { settings } = useStore.getState()
-  const activeProfile = getActiveApiProfile(settings)
-  const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0, agent: task.sourceMode === 'agent' })
+  const selectedProfile = getActiveApiProfile(settings)
+  const savedProfile = task.apiModel && isMidjourneyModel(task.apiModel) ? getTaskApiProfile(settings, task) : null
+  const activeProfile = savedProfile && task.apiModel ? { ...savedProfile, model: task.apiModel, apiMode: 'images' as const } : selectedProfile
+  const retrySettings = createSettingsForApiProfile(settings, activeProfile)
+  const normalizedParams = normalizeParamsForSettings(task.params, retrySettings, { hasInputImages: task.inputImageIds.length > 0, agent: task.sourceMode === 'agent' })
   const shouldUseTransparentOutput =
     normalizedParams.output_format === 'png' &&
     normalizedParams.transparent_output &&

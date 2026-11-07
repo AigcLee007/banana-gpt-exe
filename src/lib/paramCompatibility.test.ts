@@ -68,7 +68,7 @@ describe('parameter compatibility', () => {
     ).toMatchObject({ output_format: 'png', transparent_output: true })
   })
 
-  it.each(BANANA_GALLERY_MODELS.filter(item => !usesGeminiImageParams(item.model)).map(item => [item.model]))(
+  it.each(BANANA_GALLERY_MODELS.filter(item => !usesGeminiImageParams(item.model) && item.providerRoute !== 'midjourney').map(item => [item.model]))(
     'normalizes hidden output options by line for %s, including reused or persisted values', (model) => {
       const profile = createDefaultOpenAIProfile({ apiKey: 'test-key', model })
       const settings = normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [profile], activeProfileId: profile.id })

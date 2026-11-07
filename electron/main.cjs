@@ -2,6 +2,7 @@ const { app, BrowserWindow, shell, protocol, net } = require('electron')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { handleUguuUpload } = require('./uguu-upload.cjs')
+const { handleMidjourneyProxy, handleImageDownload } = require('./midjourney-proxy.cjs')
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL)
 
@@ -55,6 +56,8 @@ app.whenReady().then(() => {
       const url = new URL(request.url)
       if (url.hostname !== 'local') return new Response('Not found', { status: 404 })
       if (url.pathname === '/media-upload/uguu') return handleUguuUpload(request, (...args) => net.fetch(...args))
+      if (url.pathname.startsWith('/api-proxy/')) return handleMidjourneyProxy(request, (...args) => net.fetch(...args), process.env.API_PROXY_URL || 'https://vip.aittco.com')
+      if (url.pathname === '/download-proxy') return handleImageDownload(request, (...args) => net.fetch(...args))
       let pathname = decodeURIComponent(url.pathname)
 
       if (pathname === '/' || pathname === '') {

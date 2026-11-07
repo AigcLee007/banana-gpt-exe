@@ -4,6 +4,7 @@ import { getActiveApiProfile } from './apiProfiles'
 import { getBananaMaxSizeTier, getBananaQualityOptions, usesGeminiImageParams } from './bananaModels'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import { normalizeImageSize } from './size'
+import { getMidjourneyRatios, isMidjourneyModel, MIDJOURNEY_QUALITIES } from './midjourneyModels'
 
 export const DEFAULT_FAL_IMAGE_SIZE = '1360x1024'
 export const MAX_FAL_OUTPUT_IMAGES = 4
@@ -20,11 +21,25 @@ export function normalizeParamsForSettings(
 ): TaskParams {
   const activeProfile = getActiveApiProfile(settings)
   const imageModel = getImageGenerationModel(activeProfile)
+  if (isMidjourneyModel(imageModel)) {
+    return {
+      ...DEFAULT_PARAMS,
+      n: Math.min(MAX_OPENAI_OUTPUT_IMAGES, Math.max(1, Math.trunc(params.n || 1))),
+      size: getMidjourneyRatios(imageModel).includes(params.size) ? params.size : '1:1',
+      midjourneyQuality: MIDJOURNEY_QUALITIES.includes(params.midjourneyQuality!) ? params.midjourneyQuality : '1',
+      midjourneyHd: params.midjourneyHd === true,
+      geminiAspectRatio: undefined,
+      geminiImageSize: undefined,
+      geminiOutputPixels: undefined,
+    }
+  }
   const maxSizeTier = getBananaMaxSizeTier(imageModel)
   const outputImageLimit = getOutputImageLimitForSettings(settings)
   const nextParams: TaskParams = {
     ...params,
-    size: normalizeImageSize(params.size, {
+    midjourneyQuality: undefined,
+    midjourneyHd: undefined,
+    size: normalizeImageSize(params.midjourneyQuality !== undefined && params.size.includes(':') ? DEFAULT_PARAMS.size : params.size, {
       maxTier: maxSizeTier,
     }) || DEFAULT_PARAMS.size,
     n: Math.min(outputImageLimit, Math.max(1, params.n || DEFAULT_PARAMS.n)),

@@ -120,6 +120,8 @@ export const GIF_FRAME_DURATION_RANGE = { min: 20, max: 2000 }
 
 export interface TaskParams {
   size: string
+  midjourneyQuality?: '0.25' | '0.5' | '1' | '2'
+  midjourneyHd?: boolean
   geminiAspectRatio?: GeminiAspectRatio
   geminiImageSize?: GeminiImageSize
   geminiOutputPixels?: string
@@ -189,6 +191,12 @@ export interface TaskRecord {
   apiMode?: ApiMode
   /** 生成时使用的模型 ID */
   apiModel?: string
+  /** Public first-party task ID; never an upstream vendor ID. Persisted before polling. */
+  midjourney?: {
+    taskId?: string
+    phase: 'submitting' | 'polling' | 'success' | 'failure' | 'unknown'
+    recoverable?: boolean
+  }
   /** fal.ai 队列请求 ID，用于连接断开后的结果恢复 */
   falRequestId?: string
   /** fal.ai 队列 endpoint，用于连接断开后的状态和结果查询 */

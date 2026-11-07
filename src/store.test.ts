@@ -118,6 +118,107 @@ import { cleanStaleAgentInputDrafts, clearFailedTasks, deleteAgentRoundFromConve
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
 
+describe('Midjourney durable image tasks', () => {
+  beforeEach(async () => {
+    const profile = createDefaultOpenAIProfile({ id: 'mj-profile', apiKey: 'key', model: 'Midjourney v8.2-Low' })
+    useStore.setState({ settings: normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [profile], activeProfileId: profile.id, agentImageModel: 'Midjourney v8.2-High' }), appMode: 'gallery', tasks: [], agentConversations: [], activeAgentConversationId: null, agentEditingRoundId: null, prompt: 'a cup', inputImages: [], maskDraft: null, params: { ...DEFAULT_PARAMS, size: '16:9', midjourneyHd: true, midjourneyQuality: '2' }, reusedTaskApiProfileId: null, reusedTaskApiProfileMissing: false, showToast: vi.fn(), setConfirmDialog: vi.fn() })
+    vi.mocked(callImageApi).mockReset()
+    vi.mocked(callAgentResponsesApi).mockReset()
+  })
+  afterEach(() => { vi.useRealTimers(); vi.mocked(callImageApi).mockResolvedValue({ images: [] }) })
+
+  it('persists task ID before polling, submits once and stores all five outputs', async () => {
+    vi.mocked(callImageApi).mockImplementationOnce(async (opts) => {
+      await opts.onMidjourneySubmitting?.()
+      await opts.onMidjourneyTaskEnqueued?.({ taskId: 'task-five' })
+      const persisted = (await getAllTasks()).find(task => task.midjourney?.taskId === 'task-five')
+      expect(persisted).toMatchObject({ apiModel: 'Midjourney v8.2-Low', params: { n: 1, size: '16:9', midjourneyHd: true, midjourneyQuality: '2' } })
+      return { images: Array.from({ length: 5 }, (_, i) => `data:image/png;base64,image${i}`) }
+    })
+    await submitTask()
+    await vi.waitFor(() => expect(useStore.getState().tasks[0].status).toBe('done'))
+    expect(callImageApi).toHaveBeenCalledTimes(1)
+    expect(useStore.getState().tasks[0].outputImages).toHaveLength(5)
+    expect(useStore.getState().tasks[0].actualParams?.n).toBe(1)
+  })
+
+  it('treats the gallery count as explicit task groups, never four implicit requests', async () => {
+    useStore.setState(state => ({ params: { ...state.params, n: 2 } }))
+    vi.mocked(callImageApi).mockResolvedValue({ images: ['data:image/png;base64,a', 'data:image/png;base64,b'] })
+    await submitTask()
+    await vi.waitFor(() => expect(useStore.getState().tasks.every(task => task.status === 'done')).toBe(true))
+    expect(callImageApi).toHaveBeenCalledTimes(2)
+    expect(useStore.getState().tasks).toHaveLength(2)
+    expect(vi.mocked(callImageApi).mock.calls.every(([opts]) => opts.params.n === 1)).toBe(true)
+  })
+
+  it('keeps submitted tasks running after restart and resumes GET through the existing ID', async () => {
+    const task: TaskRecord = { id: 'mj-resume', prompt: 'a cup', params: { ...DEFAULT_PARAMS, size: '16:9' }, apiProvider: 'openai', apiProfileId: 'mj-profile', apiModel: 'Midjourney v8.2-High', midjourney: { taskId: 'task-resume', phase: 'polling', recoverable: true }, inputImageIds: [], outputImages: [], status: 'running', error: null, createdAt: Date.now(), finishedAt: null, elapsed: null }
+    expect(markInterruptedOpenAIRunningTasks([task]).interruptedTasks).toHaveLength(0)
+    useStore.setState({ tasks: [task] })
+    vi.mocked(callImageApi).mockResolvedValueOnce({ images: ['data:image/png;base64,resumed'] })
+    await retryTask(task)
+    await vi.waitFor(() => expect(useStore.getState().tasks.find(item => item.id === task.id)?.status).toBe('done'))
+    expect(useStore.getState().tasks).toHaveLength(1)
+    expect(vi.mocked(callImageApi).mock.calls[0][0]).toMatchObject({ resumeMidjourneyTaskId: 'task-resume', settings: { model: 'Midjourney v8.2-High' } })
+  })
+
+  it('does not blindly resubmit when the original submission has an unknown outcome', async () => {
+    const task: TaskRecord = { id: 'mj-unknown', prompt: 'a cup', params: { ...DEFAULT_PARAMS, size: '1:1' }, apiProvider: 'openai', apiProfileId: 'mj-profile', apiModel: 'Midjourney v8.2-Low', midjourney: { phase: 'unknown' }, inputImageIds: [], outputImages: [], status: 'error', error: '中断', createdAt: Date.now(), finishedAt: Date.now(), elapsed: 1 }
+    useStore.setState({ tasks: [task] })
+    await retryTask(task)
+    expect(callImageApi).not.toHaveBeenCalled()
+    expect(useStore.getState().tasks).toHaveLength(1)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(expect.stringContaining('本站任务记录'), 'error')
+  })
+
+  it('regenerates completed Midjourney history with its original line and params', async () => {
+    const task: TaskRecord = { id: 'mj-old', prompt: 'a cup', params: { ...DEFAULT_PARAMS, size: '9:21', midjourneyHd: true, midjourneyQuality: '0.5' }, apiProvider: 'openai', apiProfileId: 'mj-profile', apiModel: 'Midjourney v8.2-High', midjourney: { taskId: 'old-id', phase: 'success' }, inputImageIds: [], outputImages: [], status: 'done', error: null, createdAt: Date.now(), finishedAt: Date.now(), elapsed: 1 }
+    useStore.setState({ tasks: [task] })
+    vi.mocked(callImageApi).mockResolvedValueOnce({ images: ['data:image/png;base64,new'] })
+    await retryTask(task)
+    await vi.waitFor(() => expect(useStore.getState().tasks[0].status).toBe('done'))
+    expect(vi.mocked(callImageApi).mock.calls[0][0]).toMatchObject({ settings: { model: 'Midjourney v8.2-High' }, params: { size: '9:21', midjourneyHd: true, midjourneyQuality: '0.5' } })
+    expect(useStore.getState().tasks[0].midjourney?.taskId).not.toBe('old-id')
+  })
+
+  it.each(['generate_image', 'generate_image_batch'])('persists the public task and all images in Agent %s', async (name) => {
+    useStore.setState({ appMode: 'agent' })
+    vi.mocked(callAgentResponsesApi).mockResolvedValueOnce({ text: '', images: [], outputItems: [{ type: 'function_call', name, call_id: 'mj-tool', arguments: JSON.stringify(name === 'generate_image' ? { id: 'cup', prompt: 'cup' } : { images: [{ id: 'cup', prompt: 'cup' }] }) }] })
+      .mockResolvedValueOnce({ text: 'done', images: [], outputItems: [] })
+    vi.mocked(callImageApi).mockImplementationOnce(async (opts) => {
+      await opts.onMidjourneySubmitting?.()
+      await opts.onMidjourneyTaskEnqueued?.({ taskId: 'agent-public' })
+      expect((await getAllTasks()).some(task => task.midjourney?.taskId === 'agent-public')).toBe(true)
+      return { images: Array.from({ length: 5 }, (_, i) => `data:image/png;base64,agent${i}`) }
+    })
+    await submitAgentMessage()
+    await vi.waitFor(() => expect(useStore.getState().tasks[0]?.status).toBe('done'))
+    expect(useStore.getState().tasks[0]).toMatchObject({ apiModel: 'Midjourney v8.2-High', midjourney: { taskId: 'agent-public', phase: 'success' } })
+    expect(useStore.getState().tasks[0].outputImages).toHaveLength(5)
+    expect(callImageApi).toHaveBeenCalledTimes(1)
+  })
+
+  it('prevents another paid Agent submission after losing the creation response', async () => {
+    const { MidjourneyTaskError } = await import('./lib/midjourneyImageApi')
+    useStore.setState({ appMode: 'agent' })
+    vi.mocked(callAgentResponsesApi).mockResolvedValueOnce({ text: '', images: [], outputItems: [{ type: 'function_call', name: 'generate_image', call_id: 'mj-lost-response', arguments: JSON.stringify({ id: 'cup', prompt: 'cup' }) }] })
+      .mockResolvedValueOnce({ text: 'connection lost', images: [], outputItems: [] })
+    vi.mocked(callImageApi).mockImplementationOnce(async (opts) => {
+      await opts.onMidjourneySubmitting?.()
+      throw new MidjourneyTaskError('Failed to fetch')
+    })
+    await submitAgentMessage()
+    await vi.waitFor(() => expect(useStore.getState().tasks[0]?.status).toBe('error'))
+    const task = useStore.getState().tasks[0]
+    expect(task.midjourney?.phase).toBe('unknown')
+    await retryTask(task)
+    expect(callImageApi).toHaveBeenCalledTimes(1)
+    expect(useStore.getState().tasks).toHaveLength(1)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(expect.stringContaining('本站任务记录'), 'error')
+  })
+})
+
 describe('image 2.6 formats in stored tasks', () => {
   beforeEach(async () => {
     const profile = createDefaultOpenAIProfile({ id: 'formats', apiKey: 'key', model: 'gpt-image-2.6-sunburst-1k' })

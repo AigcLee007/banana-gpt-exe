@@ -9,12 +9,17 @@ import { toApiInputImageDataUrl } from './canvasImage'
 import { normalizeParamsForSettings } from './paramCompatibility'
 import { isVectorOrAnimatedFormat, supportsGptImage26Params } from './imageModels'
 import { usesGeminiImageParams } from './bananaModels'
+import { callMidjourneyImageApi } from './midjourneyImageApi'
+import { isMidjourneyModel } from './midjourneyModels'
 
 export type { CallApiOptions, CallApiResult } from './imageApiShared'
 export { normalizeBaseUrl } from './devProxy'
 
 export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult> {
   const profile = getActiveApiProfile(opts.settings)
+  if (profile.provider === 'openai' && isMidjourneyModel(profile.model)) {
+    return callMidjourneyImageApi(opts, profile)
+  }
   let params = supportsGptImage26Params(profile) || isVectorOrAnimatedFormat(opts.params.output_format)
     ? normalizeParamsForSettings(opts.params, opts.settings, { hasInputImages: opts.inputImageDataUrls.length > 0, agent: opts.sourceMode === 'agent' })
     : opts.params

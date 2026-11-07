@@ -12,7 +12,19 @@ describe('image model families and lines', () => {
     expect(ids.sort()).toEqual(BANANA_GALLERY_MODELS.map(line => line.model).sort())
     expect(new Set(ids).size).toBe(ids.length)
     expect(ids).not.toContain('gpt-5.5')
-    expect(IMAGE_MODEL_FAMILIES).toHaveLength(9)
+    expect(IMAGE_MODEL_FAMILIES).toHaveLength(10)
+    expect(IMAGE_MODEL_FAMILIES.map(family => family.id)).toEqual([
+      'nano-banana-pro',
+      'gpt-image-2.6-sunburst',
+      'midjourney-v82',
+      'gpt-image-2.6-flare',
+      'gpt-image-2.5-sunburst',
+      'gpt-image-2.5-flare',
+      'gpt-image-2',
+      'seedream-5-pro',
+      'nano-banana-2',
+      'nano-banana-2-lite',
+    ])
   })
 
   it('groups Nano Banana Pro routes and preserves distinct Nano Banana 2 and Lite models', () => {

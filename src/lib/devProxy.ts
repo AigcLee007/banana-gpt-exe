@@ -10,6 +10,17 @@ export interface DevProxyConfig {
 
 const DEFAULT_PROXY_PREFIX = '/api-proxy'
 
+/** Root-scoped plugin endpoints must not inherit the OpenAI /v1 suffix. */
+export function buildRootApiUrl(baseUrl: string, path: string, proxyConfig?: DevProxyConfig | null, useApiProxy = false): string {
+  const endpoint = path.replace(/^\/+/, '')
+  if (useApiProxy) return `${proxyConfig?.prefix ?? DEFAULT_PROXY_PREFIX}/${endpoint}`
+  const raw = baseUrl.trim().replace(/\/+$/, '')
+  if (raw.startsWith('/') && !raw.startsWith('//')) return `${raw.replace(/\/v1(?:beta)?$/i, '')}/${endpoint}`
+  const input = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(raw) ? raw : `https://${raw}`
+  const url = new URL(input)
+  return `${url.origin}${url.pathname.replace(/\/+$/, '').replace(/\/v1(?:beta)?$/i, '')}/${endpoint}`
+}
+
 export function normalizeBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.trim()
   if (!trimmed) return ''

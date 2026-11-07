@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { getBananaModelCreditLabel, normalizeBananaModelId } from '../lib/bananaModels'
+import { getBananaModelById, getBananaModelCreditLabel, normalizeBananaModelId } from '../lib/bananaModels'
 import {
   IMAGE_MODEL_FAMILIES, getImageModelFamily, getImageModelSelectionLabel, getPreferredImageModel,
   parseImageModelLineMemory, positionImageModelPicker, rememberImageModelLine,
@@ -8,6 +8,7 @@ import {
 } from '../lib/imageModelSelection'
 import type { SizeTier } from '../lib/size'
 import { ChevronDownIcon } from './icons'
+import { isMidjourneyModel } from '../lib/midjourneyModels'
 
 interface PickerContentProps {
   value: string
@@ -61,13 +62,14 @@ export function ImageModelPickerContent({
         </div>
         <div className="flex min-h-0 min-w-0 flex-col">
           <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3 text-[10px] font-medium text-[color:var(--app-text-subtle)]">
-            <span>选择线路</span><span className="whitespace-nowrap">积分 / 张</span>
+            <span>选择线路</span><span className="whitespace-nowrap">{family.id === 'midjourney-v82' ? '价格 / 组' : '积分 / 张'}</span>
           </div>
           <div role="radiogroup" aria-label={family.label + ' 线路'} onKeyDown={navigateColumn} className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2">
             <div className="mb-2 px-1 text-xs font-semibold leading-5 text-[color:var(--app-text)]">{family.label}</div>
             {family.lines.map(line => {
               const selected = line.model === normalizeBananaModelId(value)
               const remembered = !selected && line.model === rememberedModel
+              const group = getBananaModelById(line.model)?.groupPrice
               return (
                 <button key={line.model} type="button" role="radio" aria-checked={selected}
                   data-picker-item data-line-model={line.model} onClick={() => onChange(line.model)}
@@ -82,6 +84,9 @@ export function ImageModelPickerContent({
                     </span>
                     <span className="ml-auto whitespace-nowrap text-right font-medium tabular-nums text-[color:var(--app-text)]">{getBananaModelCreditLabel(line.model, imageSize)}</span>
                   </span>
+                  {group && <span className="text-right text-[11px] tabular-nums text-[color:var(--app-text-subtle)]">
+                    {`${group.imageCount} 张 · 折合 ${group.credits / group.imageCount} 💎 / 张`}
+                  </span>}
                   {(line.capabilities.length > 0 || remembered) && <span className="flex flex-wrap gap-1">
                     {line.capabilities.map(tag => <span key={tag} className="rounded-md bg-[var(--app-bg-soft)] px-1.5 py-0.5 text-[10px] text-[color:var(--app-text-subtle)]">{tag}</span>)}
                     {remembered && <span className="rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-600 dark:text-blue-400">上次使用</span>}
@@ -93,7 +98,7 @@ export function ImageModelPickerContent({
         </div>
       </div>
       <div className="shrink-0 border-t border-[color:var(--app-border)] px-3 py-2.5 text-[10px] text-[color:var(--app-text-subtle)]">
-        选择线路后生效 · 价格随图片尺寸更新
+        {family.id === 'midjourney-v82' ? '一组一次生成，通常 4 张 · 按组计费，全部图片均保留' : '选择线路后生效 · 价格随图片尺寸更新'}
       </div>
     </>
   )
@@ -125,7 +130,7 @@ export default function ImageModelPicker({ value, imageSize, onChange, className
   const activeLine = activeFamily?.lines.find(line => line.model === normalizedValue)
   const family = IMAGE_MODEL_FAMILIES.find(item => item.id === familyId) ?? IMAGE_MODEL_FAMILIES[0]
   const label = getImageModelSelectionLabel(value)
-  const title = label + ' · ' + getBananaModelCreditLabel(value, imageSize) + ' / 张'
+  const title = label + ' · ' + getBananaModelCreditLabel(value, imageSize) + (isMidjourneyModel(value) ? '' : ' / 张')
 
   useEffect(() => {
     let stored: ImageModelLineMemory = memoryRef.current

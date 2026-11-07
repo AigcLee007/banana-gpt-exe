@@ -10,6 +10,14 @@ function renderPanel(model = 'gemini-3-pro-image-preview', imageSize: '1K' | '2K
 }
 
 describe('image model picker', () => {
+  it('shows Midjourney group totals prominently with per-image equivalents', () => {
+    const html = renderToStaticMarkup(<ImageModelPickerContent value="Midjourney v8.2-Low" familyId="midjourney-v82" imageSize="2K" onFamilyChange={vi.fn()} onChange={vi.fn()} />)
+    for (const text of ['8 💎 / 组', '12 💎 / 组', '4 张 · 折合 2 💎 / 张', '4 张 · 折合 3 💎 / 张', '按组计费']) expect(html).toContain(text)
+    expect(html).not.toContain('价格待配置')
+    const trigger = renderToStaticMarkup(<ImageModelPicker value="Midjourney v8.2-High" imageSize="2K" onChange={vi.fn()} />)
+    expect(trigger).toContain('12 💎 / 组')
+    expect(trigger).not.toContain('/ 组 / 次')
+  })
   it('renders one accessible compact trigger with the model, line and price in its title', () => {
     const html = renderToStaticMarkup(<ImageModelPicker value="nano-banana-pro-official-t3" imageSize="2K" onChange={vi.fn()} />)
     expect(html).toContain('Nano Banana Pro · 官方 T3')
@@ -22,7 +30,7 @@ describe('image model picker', () => {
 
   it('renders each model once and only the browsed family routes with right-aligned prices', () => {
     const html = renderPanel()
-    expect(html.match(/data-family-id=/g)).toHaveLength(9)
+    expect(html.match(/data-family-id=/g)).toHaveLength(10)
     expect(html.match(/data-line-model=/g)).toHaveLength(3)
     expect(html).toContain('优惠线路')
     expect(html).toContain('官方 T3')

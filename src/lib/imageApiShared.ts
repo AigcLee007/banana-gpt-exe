@@ -51,6 +51,9 @@ export interface CallApiOptions {
   nativeTransparentBackground?: boolean
   onFalRequestEnqueued?: (request: { requestId: string; endpoint: string }) => void
   onCustomTaskEnqueued?: (task: { taskId: string }) => void
+  resumeMidjourneyTaskId?: string
+  onMidjourneySubmitting?: () => Promise<void>
+  onMidjourneyTaskEnqueued?: (task: { taskId: string }) => Promise<void>
   onPartialImage?: (partial: { image: string; partialImageIndex?: number; requestIndex?: number }) => void
 }
 

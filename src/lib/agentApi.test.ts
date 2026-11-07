@@ -11,6 +11,16 @@ describe('callAgentResponsesApi', () => {
     vi.restoreAllMocks()
   })
 
+  it('instructs Midjourney Agent to request one group for four alternatives', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ output: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const profile = createDefaultOpenAIProfile({ apiKey: 'test-key', apiMode: 'responses' })
+    await callAgentResponsesApi({ settings: { ...DEFAULT_SETTINGS, agentImageModel: 'Midjourney v8.2-High' }, profile, params: DEFAULT_PARAMS, input: [] })
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body.instructions).toContain('one Midjourney task')
+    expect(body.instructions).toContain('do not submit four tasks')
+    expect(body.tools.find((item: { name: string }) => item.name === 'generate_image').description).toContain('one group')
+  })
+
   it('streams Agent text with the strict single-image function schema', async () => {
     const streamBody = [
       'data: {"type":"response.output_text.delta","delta":"Hel"}',

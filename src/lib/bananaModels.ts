@@ -1,6 +1,6 @@
 import { SIZE_TIERS, type SizeTier } from './size'
 
-export type BananaModelRoute = 'gemini-native' | 'banana-t3-images' | 'openai-images' | 'openai-responses'
+export type BananaModelRoute = 'gemini-native' | 'banana-t3-images' | 'openai-images' | 'openai-responses' | 'midjourney'
 export type BananaQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export const CREDITS_PER_YUAN = 12.5
@@ -27,6 +27,8 @@ export interface BananaGalleryModel {
   supportsOutputOptions?: boolean
   qualityOptions?: readonly BananaQuality[]
   pricePerImageYuan?: number
+  pricePerImageCredits?: number
+  groupPrice?: { credits: number; imageCount: number }
 }
 
 export const AGENT_TEXT_MODELS = [
@@ -39,8 +41,20 @@ export const AGENT_FIXED_MODEL: AgentTextModel = AGENT_TEXT_MODELS[0].model
 
 export const BANANA_MODEL_REGISTRY = [
   {
+    displayName: 'Nano Banana Pro（优惠线路）',
+    model: 'gemini-3-pro-image-preview',
+    familyId: 'nano-banana-pro',
+    familyLabel: 'Nano Banana Pro',
+    lineLabel: '优惠线路',
+    lineShortLabel: '优惠',
+    providerRoute: 'gemini-native',
+    supportsReferenceImages: true,
+    pricePerImageYuan: 0.4,
+  },
+  {
     displayName: 'GPT-Image-2.6 Sunburst',
     model: 'gpt-image-2.6-sunburst',
+    pricePerImageCredits: 3.7,
     familyId: 'gpt-image-2.6-sunburst',
     familyLabel: 'GPT-Image-2.6 Sunburst',
     lineLabel: '优质特价线路',
@@ -54,6 +68,7 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'GPT-Image-2.6 Sunburst（1K动图线路）',
     model: 'gpt-image-2.6-sunburst-1k',
+    pricePerImageCredits: 1.5,
     familyId: 'gpt-image-2.6-sunburst',
     familyLabel: 'GPT-Image-2.6 Sunburst',
     lineLabel: '1K动图线路',
@@ -66,8 +81,33 @@ export const BANANA_MODEL_REGISTRY = [
     qualityOptions: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
   },
   {
+    displayName: 'Midjourney v8.2（特惠版）',
+    model: 'Midjourney v8.2-Low',
+    groupPrice: { credits: 8, imageCount: 4 },
+    familyId: 'midjourney-v82',
+    familyLabel: 'Midjourney v8.2',
+    lineLabel: '特惠版',
+    lineShortLabel: '特惠版',
+    capabilities: ['1 张参考图', '高清生成', '按次生成多图'],
+    providerRoute: 'midjourney',
+    supportsReferenceImages: true,
+  },
+  {
+    displayName: 'Midjourney v8.2（稳定版）',
+    model: 'Midjourney v8.2-High',
+    groupPrice: { credits: 12, imageCount: 4 },
+    familyId: 'midjourney-v82',
+    familyLabel: 'Midjourney v8.2',
+    lineLabel: '稳定版',
+    lineShortLabel: '稳定版',
+    capabilities: ['5 张参考图', '高清生成', '按次生成多图'],
+    providerRoute: 'midjourney',
+    supportsReferenceImages: true,
+  },
+  {
     displayName: 'GPT-Image-2.6 Flare',
     model: 'gpt-image-2.6-flare',
+    pricePerImageCredits: 3.7,
     familyId: 'gpt-image-2.6-flare',
     familyLabel: 'GPT-Image-2.6 Flare',
     lineLabel: '优质特价线路',
@@ -81,6 +121,7 @@ export const BANANA_MODEL_REGISTRY = [
   {
     displayName: 'GPT-Image-2.6 Flare（1K动图线路）',
     model: 'gpt-image-2.6-flare-1k',
+    pricePerImageCredits: 1.5,
     familyId: 'gpt-image-2.6-flare',
     familyLabel: 'GPT-Image-2.6 Flare',
     lineLabel: '1K动图线路',
@@ -91,17 +132,6 @@ export const BANANA_MODEL_REGISTRY = [
     supportedSizeTiers: ['1K'],
     supportsOutputOptions: true,
     qualityOptions: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
-  },
-  {
-    displayName: 'Nano Banana Pro（优惠线路）',
-    model: 'gemini-3-pro-image-preview',
-    familyId: 'nano-banana-pro',
-    familyLabel: 'Nano Banana Pro',
-    lineLabel: '优惠线路',
-    lineShortLabel: '优惠',
-    providerRoute: 'gemini-native',
-    supportsReferenceImages: true,
-    pricePerImageYuan: 0.4,
   },
   {
     displayName: 'GPT-Image-2.5 Sunburst',
@@ -286,6 +316,9 @@ export function getBananaT3RequestModelForSize(imageSize: SizeTier): string {
 
 export function getBananaModelCreditsPerImage(model: string, imageSize: SizeTier = '2K'): number | undefined {
   const normalizedModel = normalizeBananaModelId(model)
+  const entry = getBananaModelById(normalizedModel)
+  if (entry?.groupPrice) return entry.groupPrice.credits / entry.groupPrice.imageCount
+  if (entry?.pricePerImageCredits !== undefined) return entry.pricePerImageCredits
   const yuan = normalizedModel === OFFICIAL_T3_MODEL
     ? BANANA_T3_BY_SIZE[imageSize].yuan
     : getBananaModelById(normalizedModel)?.pricePerImageYuan
@@ -297,6 +330,8 @@ export function formatBananaModelCredits(credits: number): string {
 }
 
 export function getBananaModelCreditLabel(model: string, imageSize: SizeTier = '2K'): string {
+  const group = getBananaModelById(model)?.groupPrice
+  if (group) return `${group.credits} 💎 / 组`
   const credits = getBananaModelCreditsPerImage(model, imageSize)
   return credits === undefined ? '价格待配置' : `${formatBananaModelCredits(credits)} 💎`
 }
@@ -348,6 +383,7 @@ export function getBananaDesktopParamGridColumnsForMode(
   agentImageModel: string,
 ): string {
   const activeRoute = getActiveBananaModelRouteForMode(appMode, galleryModel, agentImageModel)
+  if (activeRoute === 'midjourney') return 'grid-cols-[minmax(0,1fr)_6rem_5rem_5rem_7rem]'
   if (activeRoute === 'gemini-native' || activeRoute === 'banana-t3-images') {
     return 'grid-cols-[minmax(0,1fr)_6.5rem_10rem_4rem]'
   }

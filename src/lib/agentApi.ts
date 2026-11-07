@@ -1,5 +1,6 @@
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { AGENT_FIXED_MODEL } from './bananaModels'
+import { isMidjourneyModel } from './midjourneyModels'
 import { normalizeSettings } from './apiProfiles'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { appendStreamingFormatHint, getApiErrorMessage, maybeAppendStreamingHint, MIME_MAP, normalizeBase64Image, pickActualParams } from './imageApiShared'
@@ -78,8 +79,15 @@ function createAgentInstructions(settings: AppSettings) {
   const maxToolRounds = Number.isFinite(settings.agentMaxToolRounds)
     ? Math.max(1, Math.trunc(settings.agentMaxToolRounds))
     : DEFAULT_AGENT_MAX_TOOL_ROUNDS
+  const midjourney = isMidjourneyModel(settings.agentImageModel)
+  const imageInstructions = midjourney
+    ? AGENT_IMAGE_INSTRUCTIONS
+      .replace('For multi-image requests, use a progressive batching strategy to ensure consistency:', 'For requests with distinct subjects or dependent scenes, use a progressive batching strategy:')
+      .replace('If the requested images are completely independent (e.g. "3 different cats"), generate them together in ONE `generate_image_batch` call.', 'If the requested subjects are completely independent, generate them together in ONE `generate_image_batch` call.')
+      .replace('Use the `generate_image` tool for exactly one image at a time. Never collage.', 'Use `generate_image` to submit one Midjourney task, which normally produces a group of four alternatives. For four alternatives of the same subject, submit one task; do not submit four tasks. Never collage.')
+    : AGENT_IMAGE_INSTRUCTIONS
   return [
-    AGENT_IMAGE_INSTRUCTIONS,
+    imageInstructions,
     ...(settings.agentMathFormattingPrompt ? ['', AGENT_MATH_FORMATTING_INSTRUCTIONS] : []),
     '',
     '## Tool policy',
@@ -108,7 +116,7 @@ function createHeaders(profile: ApiProfile): Record<string, string> {
   }
 }
 
-function createGenerateImageTool(): Record<string, unknown> {
+function createGenerateImageTool(midjourney = false): Record<string, unknown> {
   const properties: Record<string, unknown> = {
     id: {
       type: 'string',
@@ -123,7 +131,7 @@ function createGenerateImageTool(): Record<string, unknown> {
   return {
     type: 'function',
     name: 'generate_image',
-    description: [
+    description: midjourney ? 'Generate one group from one Midjourney task; it normally returns four images. Use one call for alternatives of the same subject.' : [
       'Generate exactly one image.',
       'Use this for single-image requests and for prerequisite/base images that later images will reference.',
       'Do not batch multiple final images into one call.',
@@ -139,13 +147,14 @@ function createGenerateImageTool(): Record<string, unknown> {
 }
 
 function createAgentTools(params: TaskParams, profile: ApiProfile, settings: AppSettings, maskDataUrl?: string): Array<Record<string, unknown>> {
-  const tools: Array<Record<string, unknown>> = [createGenerateImageTool()]
+  const tools: Array<Record<string, unknown>> = [createGenerateImageTool(isMidjourneyModel(settings.agentImageModel))]
 
   // generate_image_batch: custom function tool for concurrent multi-image generation
   tools.push({
     type: 'function',
     name: 'generate_image_batch',
     description: [
+      ...(isMidjourneyModel(settings.agentImageModel) ? ['Each batch item is one Midjourney task producing one group. Do not use a batch to request four alternatives of the same subject.'] : []),
       'Generate multiple images concurrently. Use this ONLY when:',
       '1. There are 2+ remaining images whose prerequisites (base references) are ALL already generated.',
       '2. These images are independent of each other (none references another image in this same batch).',

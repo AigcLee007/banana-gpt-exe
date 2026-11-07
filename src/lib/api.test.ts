@@ -1737,6 +1737,12 @@ describe('callImageApi', () => {
 
 describe('bananaModels', () => {
   it.each([
+    ['gpt-image-2.6-sunburst', 3.7, '3.7 💎'],
+    ['gpt-image-2.6-flare', 3.7, '3.7 💎'],
+    ['gpt-image-2.6-sunburst-1k', 1.5, '1.5 💎'],
+    ['gpt-image-2.6-flare-1k', 1.5, '1.5 💎'],
+    ['Midjourney v8.2-Low', 2, '8 💎 / 组'],
+    ['Midjourney v8.2-High', 3, '12 💎 / 组'],
     ['gemini-3-pro-image-preview', 5, '5.0 💎'],
     ['gpt-image-2.5-sunburst', 3.75, '3.7 💎'],
     ['gpt-image-2.5-sunburst-官渠（支持max）', 8.75, '8.7 💎'],
@@ -1900,11 +1906,13 @@ describe('bananaModels', () => {
   it('shows the configured gallery models and hides the legacy GPT Agent line', () => {
     const visibleModels = BANANA_GALLERY_MODELS.map((item) => item.model)
     expect(visibleModels).toEqual([
+      'gemini-3-pro-image-preview',
       'gpt-image-2.6-sunburst',
       'gpt-image-2.6-sunburst-1k',
+      'Midjourney v8.2-Low',
+      'Midjourney v8.2-High',
       'gpt-image-2.6-flare',
       'gpt-image-2.6-flare-1k',
-      'gemini-3-pro-image-preview',
       'gpt-image-2.5-sunburst',
       'gpt-image-2.5-sunburst-官渠（支持max）',
       'gpt-image-2.5-flare',

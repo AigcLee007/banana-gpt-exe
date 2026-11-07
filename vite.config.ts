@@ -6,6 +6,8 @@ import { execSync } from 'node:child_process'
 import { request } from 'node:https'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
+import { createRequire } from 'node:module'
+const { handleMidjourneyProxy } = createRequire(import.meta.url)('./electron/midjourney-proxy.cjs')
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 const buildTime = new Date().toISOString()
@@ -166,6 +168,20 @@ export default defineConfig(({ command }) => {
       {
         name: 'app-version-manifest',
         configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            const prefix = devProxyConfig?.prefix ?? '/api-proxy'
+            if (!req.url?.startsWith(`${prefix}/midjourney-v82/`) && !req.url?.startsWith(`${prefix}/v1/tasks/`)) { next(); return }
+            if (!devProxyConfig?.enabled) { res.statusCode = 403; res.end('API proxy disabled'); return }
+            void (async () => {
+              const body = req.method === 'POST' ? await readIncomingBody(req) : undefined
+              const headers = new Headers()
+              for (const name of ['authorization', 'content-type', 'range']) { const value = req.headers[name]; if (typeof value === 'string') headers.set(name, value) }
+              const response = await handleMidjourneyProxy(new Request(`http://localhost${req.url}`, { method: req.method, headers, ...(body ? { body } : {}) }), fetch, devProxyConfig.target, prefix)
+              res.statusCode = response.status
+              response.headers.forEach((value: string, name: string) => res.setHeader(name, value))
+              res.end(Buffer.from(await response.arrayBuffer()))
+            })().catch(() => { res.statusCode = 502; res.end('Midjourney proxy failed') })
+          })
           server.middlewares.use('/version.json', (_req, res) => {
             res.setHeader('Content-Type', 'application/json; charset=utf-8')
             res.setHeader('Cache-Control', 'no-store')

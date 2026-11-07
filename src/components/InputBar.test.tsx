@@ -31,7 +31,17 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('image composer parameter controls', () => {
-  it.each(BANANA_GALLERY_MODELS.filter(item => !usesGeminiImageParams(item.model)).flatMap(item =>
+  it.each(['gallery', 'agent'])('shows dedicated Midjourney controls in %s mode', (mode) => {
+    const profile = createDefaultOpenAIProfile({ model: 'Midjourney v8.2-Low' })
+    draft.state.appMode = mode
+    draft.state.params = { ...DEFAULT_PARAMS, size: '1:1', midjourneyQuality: '0.25' }
+    draft.state.settings = normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [profile], activeProfileId: profile.id, agentImageModel: 'Midjourney v8.2-High' })
+    const html = renderToStaticMarkup(<InputBar />)
+    for (const label of ['比例', '质量', '高清', '生成组数/次数']) expect(html).toContain('>' + label + '</span>')
+    expect(html).toContain('0.25')
+    for (const label of ['尺寸', '透明背景', '格式', '复杂度']) expect(html).not.toContain('>' + label + '</span>')
+  })
+  it.each(BANANA_GALLERY_MODELS.filter(item => !usesGeminiImageParams(item.model) && item.providerRoute !== 'midjourney').flatMap(item =>
     ['gallery', 'agent'].map(mode => [mode, item.model]),
   ))('exposes output options only on 1K animation lines for %s using %s', (mode, model) => {
     const profile = createDefaultOpenAIProfile({ model: mode === 'gallery' ? model : 'gemini-3-pro-image-preview' })
