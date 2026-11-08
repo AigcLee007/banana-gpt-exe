@@ -87,7 +87,7 @@ class AtomicPublication(unittest.TestCase):
         self.assertEqual((root / 'current').readlink(), Path('releases') / self.version)
         self.assertEqual(json.loads((root / 'current' / 'version.json').read_text())['version'], self.version)
         self.assertTrue((root / 'current' / 'win-x64' / 'latest.yml').is_file())
-        self.assertTrue((root / 'current' / 'mac-arm64' / f'fixture-{self.version}-mac-arm64.dmg').is_file())
+        self.assertTrue((root / 'artifacts' / 'mac-arm64' / f'fixture-{self.version}-mac-arm64.dmg').is_file())
         manifest = json.loads((root / 'current' / 'version.json').read_text())
         self.assertTrue(manifest['downloads']['macosArm64Url'].endswith(f'fixture-{self.version}-mac-arm64.dmg'))
         self.assertEqual((root / 'current' / 'mac-arm64' / 'latest-mac.yml').read_text(), 'previous feed mac-arm64\n')
@@ -131,7 +131,7 @@ class AtomicPublication(unittest.TestCase):
         self.assertFalse((root / 'releases' / self.version).exists())
 
     def assert_failed_release_preserves_current(self, failure):
-        root, archive = self.fixture(failure)
+        root, archive = self.fixture(failure=failure)
         with self.assertRaises(ValueError):
             publisher.publish_archive(archive, root, self.version, self.token)
         self.assertEqual((root / 'current').readlink(), Path('releases/previous'))
