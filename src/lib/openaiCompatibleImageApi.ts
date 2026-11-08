@@ -2,6 +2,7 @@ import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefi
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
 import { getBananaModelRoute, getBananaT3RequestModelForSize, isBananaT3ImagesModel, isGeminiNativeModel, normalizeBananaModelId } from './bananaModels'
 import { buildApiUrl, isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { desktopApiFetch } from './desktopApiFetch'
 import { getGeminiOutputPixels, normalizeGeminiAspectRatio, normalizeGeminiImageSize } from './geminiImageSizing'
 import { isVectorOrAnimatedFormat } from './imageModels'
 import {
@@ -230,7 +231,7 @@ async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: Ap
         (opts.maskDataUrl ? getDataUrlEncodedByteSize(opts.maskDataUrl) : 0),
     )
 
-    const response = await fetch(urlWithKey, {
+    const response = await desktopApiFetch(urlWithKey, {
       method: 'POST',
       headers: {
         ...createRequestHeaders(profile),
@@ -239,7 +240,7 @@ async function callGeminiNativeGenerateContent(opts: CallApiOptions, profile: Ap
       cache: 'no-store',
       body: JSON.stringify(buildGeminiGenerateContentPayload(opts, profile)),
       signal: controller.signal,
-    })
+    }, profile.baseUrl)
 
     if (!response.ok) {
       throw new Error(await getApiErrorMessage(response))
@@ -358,7 +359,7 @@ async function callBananaT3ImagesGenerateContent(opts: CallApiOptions, profile: 
         (opts.maskDataUrl ? getDataUrlEncodedByteSize(opts.maskDataUrl) : 0),
     )
 
-    const response = await fetch(requestUrl, {
+    const response = await desktopApiFetch(requestUrl, {
       method: 'POST',
       headers: {
         ...createRequestHeaders(profile),
@@ -367,7 +368,7 @@ async function callBananaT3ImagesGenerateContent(opts: CallApiOptions, profile: 
       cache: 'no-store',
       body: JSON.stringify(buildBananaT3ImagesPayload(opts, inputImageDataUrls)),
       signal: controller.signal,
-    })
+    }, profile.baseUrl)
 
     if (!response.ok) {
       throw new Error(await getApiErrorMessage(response))
@@ -1096,13 +1097,13 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
 
       const requestUrl = buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy)
       try {
-        response = await fetch(requestUrl, {
+        response = await desktopApiFetch(requestUrl, {
           method: 'POST',
           headers: requestHeaders,
           cache: 'no-store',
           body: formData,
           signal: controller.signal,
-        })
+        }, profile.baseUrl)
       } catch (err) {
         attachImageRequestDiagnostics(err, {
           mode: opts.sourceMode ?? 'gallery',
@@ -1174,7 +1175,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
 
       const requestUrl = buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy)
       try {
-        response = await fetch(requestUrl, {
+        response = await desktopApiFetch(requestUrl, {
           method: 'POST',
           headers: {
             ...requestHeaders,
@@ -1183,7 +1184,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
           cache: 'no-store',
           body: JSON.stringify(body),
           signal: controller.signal,
-        })
+        }, profile.baseUrl)
       } catch (err) {
         attachImageRequestDiagnostics(err, {
           mode: opts.sourceMode ?? 'gallery',
@@ -1420,13 +1421,13 @@ async function submitCustomRequest(mapping: CustomProviderSubmitMapping, opts: C
     }
   }
 
-  const response = await fetch(buildApiUrl(profile.baseUrl, path, proxyConfig, false), {
+  const response = await desktopApiFetch(buildApiUrl(profile.baseUrl, path, proxyConfig, false), {
     method,
     headers,
     cache: 'no-store',
     body,
     signal: controller.signal,
-  })
+  }, profile.baseUrl)
 
   if (!response.ok) throw new Error(await getApiErrorMessage(response))
   return response.json()
@@ -1455,12 +1456,12 @@ async function pollCustomTaskResult(
     const taskPath = appendQuery(buildTaskPath(poll.path, taskId), poll.query)
     let taskPayload: unknown
     try {
-      const taskResponse = await fetch(buildApiUrl(profile.baseUrl, taskPath, proxyConfig, false), {
+      const taskResponse = await desktopApiFetch(buildApiUrl(profile.baseUrl, taskPath, proxyConfig, false), {
         method: poll.method ?? 'GET',
         headers: requestHeaders,
         cache: 'no-store',
         signal,
-      })
+      }, profile.baseUrl)
 
       if (!taskResponse.ok) {
         if (isRetryablePollingStatus(taskResponse.status)) continue
@@ -1621,7 +1622,7 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       })
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+    const response = await desktopApiFetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
       method: 'POST',
       headers: {
         ...requestHeaders,
@@ -1630,7 +1631,7 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       cache: 'no-store',
       body: JSON.stringify(body),
       signal: controller.signal,
-    })
+    }, profile.baseUrl)
 
     if (!response.ok) {
       const debugResponseText = await response.clone().text().catch(() => '')

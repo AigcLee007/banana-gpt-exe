@@ -5,6 +5,7 @@
 // 结果地址只保留 5 小时，调用方必须马上转存到本地。
 
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { desktopApiFetch } from './desktopApiFetch'
 import { buildVideoApiUrl } from './videoTransport'
 import { fetchImageUrlAsDataUrl, isDataUrl } from './imageApiShared'
 import { dataUrlToBlob } from './canvasImage'
@@ -243,12 +244,12 @@ async function parseImageResult(payload: Record<string, unknown>, signal?: Abort
 /** 同步方式：一次调用，等到出图（最长约 600 秒）。 */
 async function upscaleSync(request: UpscaleRequest): Promise<UpscaleResult> {
   const form = await buildForm(request, 'image')
-  const response = await fetch(requestUrl(request.profile, 'images/edits'), {
+  const response = await desktopApiFetch(requestUrl(request.profile, 'images/edits'), {
     method: 'POST',
     headers: authHeaders(request.profile),
     body: form,
     signal: request.signal,
-  })
+  }, request.profile.baseUrl)
   const payload = await readJson(response)
   if (!response.ok) throw new Error(formatUpscaleError(response.status, payload))
   return parseImageResult(payload, request.signal)
@@ -268,12 +269,12 @@ async function upscaleTask(request: UpscaleRequest): Promise<UpscaleResult> {
   let taskId = request.resumeTaskId?.trim() ?? ''
   if (!taskId) {
     const form = await buildForm(request, 'input_reference')
-    const submit = await fetch(taskUrl(request.profile, 'videos'), {
+    const submit = await desktopApiFetch(taskUrl(request.profile, 'videos'), {
       method: 'POST',
       headers: authHeaders(request.profile),
       body: form,
       signal: request.signal,
-    })
+    }, request.profile.baseUrl)
     const submitted = await readJson(submit)
     if (!submit.ok) throw new Error(formatUpscaleError(submit.status, submitted))
     taskId = typeof submitted.id === 'string' ? submitted.id : ''
@@ -283,10 +284,10 @@ async function upscaleTask(request: UpscaleRequest): Promise<UpscaleResult> {
 
   const deadline = Date.now() + POLL_MAX_MS
   while (Date.now() < deadline) {
-    const poll = await fetch(taskUrl(request.profile, `videos/${encodeURIComponent(taskId)}`), {
+    const poll = await desktopApiFetch(taskUrl(request.profile, `videos/${encodeURIComponent(taskId)}`), {
       headers: authHeaders(request.profile),
       signal: request.signal,
-    })
+    }, request.profile.baseUrl)
     const payload = await readJson(poll)
     // 查询接口临时出错不等于任务失败，继续等；明确的 4xx（如任务不存在）才终止
     if (!poll.ok && (poll.status === 401 || poll.status === 403 || poll.status === 404)) {

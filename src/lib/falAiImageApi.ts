@@ -1,6 +1,7 @@
 import { fal } from '@fal-ai/client'
 import type { ApiProfile, FalApiResponse, TaskParams } from '../types'
 import { DEFAULT_FAL_BASE_URL } from './apiProfiles'
+import { desktopApiFetch } from './desktopApiFetch'
 import { supportsGptImage26Params } from './imageModels'
 import {
   assertImageInputPayloadSize,
@@ -48,6 +49,20 @@ function configureFal(profile: ApiProfile) {
     suppressLocalCredentialsWarning: true,
   }
   if (baseUrl !== DEFAULT_FAL_BASE_URL) config.proxyUrl = baseUrl
+  if (typeof window !== 'undefined' && window.location.protocol === 'app:') {
+    config.fetch = (input, init) => {
+      const rawUrl = input instanceof Request ? input.url : String(input)
+      try {
+        const target = new URL(rawUrl)
+        const base = new URL(baseUrl)
+        if (target.origin === base.origin) return desktopApiFetch(input, init, baseUrl)
+        if (target.hostname === 'fal.run' || target.hostname.endsWith('.fal.run') || target.hostname === 'rest.fal.ai') {
+          return desktopApiFetch(input, init, `${target.origin}/`)
+        }
+      } catch { /* Non-URL fetches are passed through unchanged. */ }
+      return init === undefined ? fetch(input) : fetch(input, init)
+    }
+  }
   fal.config(config)
 }
 

@@ -41,6 +41,7 @@ describe('callFalAiImageApi', () => {
   })
   afterEach(() => {
     vi.clearAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('uses the default fal endpoint without proxyUrl', async () => {
@@ -83,5 +84,32 @@ describe('callFalAiImageApi', () => {
       suppressLocalCredentialsWarning: true,
       proxyUrl: 'https://fal-proxy.example.com/api/fal',
     })
+  })
+
+  it('routes packaged FAL SDK requests through the desktop API proxy and keeps its routing header', async () => {
+    vi.stubGlobal('window', { location: { protocol: 'app:', origin: 'app://local' } })
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('ok'))
+    vi.stubGlobal('fetch', fetchMock)
+    falMock.subscribe.mockResolvedValue({ requestId: 'req-1', data: { images: [{ b64_json: 'aW1hZ2U=' }] } })
+
+    await callFalAiImageApi({
+      settings: DEFAULT_SETTINGS,
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    }, createDefaultFalProfile({ apiKey: 'fal-key', baseUrl: 'https://fal-proxy.example.com/api/fal' }))
+
+    const config = falMock.config.mock.calls[0][0]
+    expect(config.fetch).toEqual(expect.any(Function))
+    await config.fetch('https://fal-proxy.example.com/api/fal', {
+      method: 'POST',
+      headers: { Authorization: 'Key fal-key', 'X-Fal-Target-Url': 'https://queue.fal.run/model/requests/task-1' },
+      body: '{}',
+    })
+    expect(fetchMock).toHaveBeenCalledWith('/desktop-api-proxy', expect.objectContaining({ method: 'POST' }))
+    const headers = new Headers(fetchMock.mock.calls[0][1]?.headers)
+    expect(headers.get('X-Desktop-Api-Target')).toBe('https://fal-proxy.example.com/api/fal')
+    expect(headers.get('X-Desktop-Api-Base')).toBe('https://fal-proxy.example.com/api/fal')
+    expect(headers.get('X-Fal-Target-Url')).toBe('https://queue.fal.run/model/requests/task-1')
   })
 })

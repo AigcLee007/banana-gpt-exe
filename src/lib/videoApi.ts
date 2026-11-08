@@ -9,6 +9,7 @@ import { sdAdapter } from './videoAdapters/sd'
 import { wanAdapter } from './videoAdapters/wan'
 import { sdMediaAdapter } from './videoAdapters/sdMedia'
 import { buildVideoApiUrl } from './videoTransport'
+import { desktopApiFetch } from './desktopApiFetch'
 
 export interface VideoRequest {
   task: VideoTaskRecord
@@ -131,7 +132,7 @@ export async function submitVideoTask(
   signal?.throwIfAborted()
   const { url, init } = await adapter.buildSubmit({ task, profile, signal })
   signal?.throwIfAborted()
-  const response = await fetch(url, { ...init, ...(signal ? { signal } : {}) })
+  const response = await desktopApiFetch(url, { ...init, ...(signal ? { signal } : {}) }, profile.baseUrl)
 
   if (!response.ok) {
     const text = await response.text()
@@ -151,7 +152,7 @@ export async function pollVideoTask(
   if (!adapter || !profile) throw new Error('视频任务缺少有效的 API 配置')
 
   const { url, init } = adapter.buildPoll(remoteTaskId, profile)
-  const response = await fetch(url, init)
+  const response = await desktopApiFetch(url, init, profile.baseUrl)
   if (!response.ok) {
     const text = await response.text()
     throw new Error(formatVideoApiError(response.status, adapter.redactServiceErrors ? '' : text, '查询', task.model))
@@ -203,13 +204,15 @@ export async function downloadVideoContent(
       }
     }
 
-    const response = Object.keys(init).length ? await fetch(url, init) : await fetch(url)
+    const response = Object.keys(init).length
+      ? await desktopApiFetch(url, init, profile.baseUrl)
+      : await desktopApiFetch(url, undefined, profile.baseUrl)
     if (!response.ok) throw new Error(formatVideoApiError(response.status, '', '下载', task.model))
     return readVideoBlob(response)
   }
 
   const { url, init } = adapter.buildContent(remoteTaskId, profile)
-  const response = await fetch(url, init)
+  const response = await desktopApiFetch(url, init, profile.baseUrl)
   if (!response.ok) {
     const text = await response.text()
     throw new Error(formatVideoApiError(response.status, adapter.redactServiceErrors ? '' : text, '下载', task.model))

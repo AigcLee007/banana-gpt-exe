@@ -3,6 +3,7 @@ import { AGENT_FIXED_MODEL } from './bananaModels'
 import { isMidjourneyModel } from './midjourneyModels'
 import { normalizeSettings } from './apiProfiles'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { desktopApiFetch } from './desktopApiFetch'
 import { appendStreamingFormatHint, getApiErrorMessage, maybeAppendStreamingHint, MIME_MAP, normalizeBase64Image, pickActualParams } from './imageApiShared'
 import type { ColorAdjustments } from './colorGrading'
 import { applyColorAssistantProposal, COLOR_ASSISTANT_ALLOWED_PATHS } from './colorAssistant'
@@ -724,13 +725,13 @@ export async function callAgentResponsesApi(opts: {
       body.stream = true
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+    const response = await desktopApiFetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
       method: 'POST',
       headers: createHeaders(profile),
       cache: 'no-store',
       body: JSON.stringify(body),
       signal: controller.signal,
-    })
+    }, profile.baseUrl)
 
     if (!response.ok) {
       const errorMessage = await getApiErrorMessage(response)
@@ -780,7 +781,7 @@ export async function callAgentConversationTitleApi(opts: {
       content.push({ type: 'input_image', image_url: dataUrl })
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+    const response = await desktopApiFetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
       method: 'POST',
       headers: createHeaders(profile),
       cache: 'no-store',
@@ -792,7 +793,7 @@ export async function callAgentConversationTitleApi(opts: {
         max_output_tokens: 32,
       }),
       signal: controller.signal,
-    })
+    }, profile.baseUrl)
 
     if (!response.ok) {
       throw new Error(await getApiErrorMessage(response))
@@ -912,7 +913,7 @@ export async function callAgentColorAssistantApi(opts: {
     }]
     if (previewImageDataUrl !== undefined) content.push({ type: 'input_image', image_url: previewImageDataUrl })
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+    const response = await desktopApiFetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
       method: 'POST',
       headers: createHeaders(profile),
       cache: 'no-store',
@@ -940,7 +941,7 @@ export async function callAgentColorAssistantApi(opts: {
         tool_choice: { type: 'function', name: 'propose_color_adjustments' },
       }),
       signal: controller.signal,
-    })
+    }, profile.baseUrl)
 
     if (!response.ok) throw new Error(await getApiErrorMessage(response))
 
@@ -1075,13 +1076,13 @@ export async function callBatchImageSingle(opts: {
       body.stream = true
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+    const response = await desktopApiFetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
       method: 'POST',
       headers: createHeaders(profile),
       cache: 'no-store',
       body: JSON.stringify(body),
       signal: controller.signal,
-    })
+    }, profile.baseUrl)
 
     if (!response.ok) {
       const errorMsg = await getApiErrorMessage(response)

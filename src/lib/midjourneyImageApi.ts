@@ -1,5 +1,6 @@
 import type { ApiProfile } from '../types'
 import { buildRootApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { desktopApiFetch } from './desktopApiFetch'
 import { assertImageInputPayloadSize, fetchImageUrlAsDataUrl, getApiErrorMessage, normalizeBase64Image, type CallApiOptions, type CallApiResult } from './imageApiShared'
 import { getImageReferenceLimit, getMidjourneyRatios, isMidjourneyModel, MIDJOURNEY_QUALITIES } from './midjourneyModels'
 export { MIDJOURNEY_HIGH, MIDJOURNEY_LOW } from './midjourneyModels'
@@ -45,13 +46,13 @@ function requestUrl(profile: ApiProfile, path: string) {
 }
 
 async function requestJson(profile: ApiProfile, path: string, body?: unknown) {
-  const response = await fetch(requestUrl(profile, path), {
+  const response = await desktopApiFetch(requestUrl(profile, path), {
     method: body === undefined ? 'GET' : 'POST',
     headers: { Authorization: `Bearer ${profile.apiKey.trim()}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(Math.max(1, profile.timeout) * 1000),
     cache: 'no-store', redirect: 'error',
-  })
+  }, profile.baseUrl)
   if (!response.ok) {
     const error = new Error(await getApiErrorMessage(response)) as Error & { retryable?: boolean }
     error.retryable = response.status === 408 || response.status === 429 || response.status >= 500
@@ -89,7 +90,7 @@ async function readImages(profile: ApiProfile, taskId: string, data: Array<{ url
         const expected = `${pathPrefix}/v1/tasks/${encodeURIComponent(taskId)}/artifacts/`
         if (!content || content.origin !== base.origin || !content.pathname.startsWith(expected) || !/^\/[^?#]*$/.test(content.pathname)) throw new Error('无效的本站产物地址')
         const path = content.pathname.slice(pathPrefix.length).replace(/^\//, '') + content.search
-        const response = await fetch(requestUrl(profile, path), { headers: { Authorization: `Bearer ${profile.apiKey.trim()}` }, redirect: 'error', cache: 'no-store' })
+        const response = await desktopApiFetch(requestUrl(profile, path), { headers: { Authorization: `Bearer ${profile.apiKey.trim()}` }, redirect: 'error', cache: 'no-store' }, profile.baseUrl)
         if (!response.ok) throw new Error('本站产物下载失败')
         const bytes = new Uint8Array(await response.arrayBuffer())
         let binary = ''
