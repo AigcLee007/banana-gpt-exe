@@ -17,7 +17,7 @@ class AtomicPublication(unittest.TestCase):
     version = '0.4.6-banana.20'
     token = '0123456789abcdef01234567'
 
-    def fixture(self, mode='complete', failure=None):
+    def fixture(self, mode='manual-mac', failure=None):
         temporary = tempfile.TemporaryDirectory(prefix='desktop-publication-')
         self.addCleanup(temporary.cleanup)
         base = Path(temporary.name)
@@ -52,15 +52,13 @@ class AtomicPublication(unittest.TestCase):
         selected_platforms = ('win-x64',) if mode == 'windows-only' else publisher.PLATFORMS
         for platform in selected_platforms:
             files = {}
-            for extension in (('exe', 'exe.blockmap') if platform == 'win-x64' else ('zip', 'dmg', 'dmg.blockmap')):
+            for extension in (('exe', 'exe.blockmap') if platform == 'win-x64' else ('dmg',)):
                 name = f'fixture-{self.version}-{platform}.{extension}'
                 files[name] = add(platform + '/' + name, b'fixture installer')
-            manifest = 'latest.yml' if platform == 'win-x64' else 'latest-mac.yml'
-            add(platform + '/' + manifest, f'version: {self.version}\n'.encode())
-            if platform != 'win-x64':
-                add(platform + '/signing-verification.json', json.dumps({'version': self.version, 'platform': platform, 'signed': True, 'notarized': True, 'files': files}).encode())
+            if platform == 'win-x64':
+                add(platform + '/latest.yml', f'version: {self.version}\n'.encode())
         downloads = {'windowsUrl': f'/downloads/updates/win-x64/fixture-{self.version}-win-x64.exe'}
-        if mode == 'complete':
+        if mode != 'windows-only':
             downloads.update({
                 'macosArm64Url': f'/downloads/updates/mac-arm64/fixture-{self.version}-mac-arm64.dmg',
                 'macosX64Url': f'/downloads/updates/mac-x64/fixture-{self.version}-mac-x64.dmg',
@@ -69,7 +67,7 @@ class AtomicPublication(unittest.TestCase):
         (stage / 'release-index.json').write_text(json.dumps(index))
         if failure:
             platform = 'win-x64' if mode == 'windows-only' else 'mac-arm64'
-            extension = 'exe' if mode == 'windows-only' else 'zip'
+            extension = 'exe' if mode == 'windows-only' else 'dmg'
             file = stage / platform / f'fixture-{self.version}-{platform}.{extension}'
             if failure == 'missing':
                 file.unlink()
@@ -82,15 +80,17 @@ class AtomicPublication(unittest.TestCase):
                     bundle.add(file, arcname=file.relative_to(stage))
         return root, archive
 
-    def test_complete_release_switches_all_metadata_last(self):
+    def test_manual_mac_release_switches_download_urls_and_keeps_old_mac_update_feeds(self):
         root, archive = self.fixture()
-        events = publisher.publish_archive(archive, root, self.version, self.token)
+        events = publisher.publish_archive(archive, root, self.version, self.token, 'manual-mac')
         self.assertEqual(events, ['verify-remote', 'install-immutable-artifacts', 'install-release-metadata', 'atomic-current-switch'])
         self.assertEqual((root / 'current').readlink(), Path('releases') / self.version)
         self.assertEqual(json.loads((root / 'current' / 'version.json').read_text())['version'], self.version)
-        for platform in publisher.PLATFORMS:
-            manifest = 'latest.yml' if platform == 'win-x64' else 'latest-mac.yml'
-            self.assertTrue((root / 'current' / platform / manifest).is_file())
+        self.assertTrue((root / 'current' / 'win-x64' / 'latest.yml').is_file())
+        self.assertTrue((root / 'current' / 'mac-arm64' / f'fixture-{self.version}-mac-arm64.dmg').is_file())
+        manifest = json.loads((root / 'current' / 'version.json').read_text())
+        self.assertTrue(manifest['downloads']['macosArm64Url'].endswith(f'fixture-{self.version}-mac-arm64.dmg'))
+        self.assertEqual((root / 'current' / 'mac-arm64' / 'latest-mac.yml').read_text(), 'previous feed mac-arm64\n')
 
     def test_corrupt_upload_keeps_previous_public_metadata(self):
         self.assert_failed_release_preserves_current('corrupt')

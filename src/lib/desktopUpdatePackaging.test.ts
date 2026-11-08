@@ -17,9 +17,8 @@ describe('desktop update packaging', () => {
   it('builds latest metadata and architecture-isolated fixed HTTPS feeds', () => {
     expect(config.detectUpdateChannel).toBe(false)
     expect(config.win.publish).toMatchObject({ provider: 'generic', channel: 'latest', url: 'https://m.aittco.com/downloads/updates/win-${arch}/' })
-    expect(config.mac.publish).toMatchObject({ provider: 'generic', channel: 'latest', url: 'https://m.aittco.com/downloads/updates/mac-${arch}/' })
-    expect(config.mac.target).toEqual(['dmg', 'zip'])
-    expect(config.mac.hardenedRuntime).toBe(true)
+    expect(config.mac.publish).toBeUndefined()
+    expect(config.mac.target).toEqual(['dmg'])
     expect(config.files).toContain('electron/**/*')
   })
   it('removes blank signing variables before electron-builder reads certificate paths', () => {

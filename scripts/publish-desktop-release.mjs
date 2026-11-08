@@ -7,7 +7,7 @@ import { releasePreflight } from './desktop-release-preflight.mjs'
 import { safeFilename, sha512 } from './desktop-release.mjs'
 
 const result = releasePreflight()
-if (!result.publish) throw new Error('Publication requires DESKTOP_RELEASE=true and all release secrets')
+if (!result.publish) throw new Error('Publication requires DESKTOP_RELEASE=true and configured SSH credentials')
 const [stageArgument] = process.argv.slice(2)
 if (!stageArgument) throw new Error('Usage: node scripts/publish-desktop-release.mjs <validated-stage-directory>')
 const stage = resolve(stageArgument)

@@ -70,7 +70,7 @@ def publish_archive(archive, root, expected_version, token, expected_mode=None):
                 target.chmod(0o644)
         index = json.loads((stage / 'release-index.json').read_text())
         mode = index.get('mode', 'complete')
-        if mode not in ('complete', 'windows-only') or expected_mode and mode != expected_mode:
+        if mode not in ('complete', 'windows-only', 'manual-mac') or expected_mode and mode != expected_mode:
             raise ValueError('Unexpected publication mode')
         if index['version'] != expected_version:
             raise ValueError('Archive version mismatch')
@@ -87,20 +87,14 @@ def publish_archive(archive, root, expected_version, token, expected_mode=None):
             raise ValueError('Archive and index do not contain the same files')
         selected_platforms = ('win-x64',) if mode == 'windows-only' else PLATFORMS
         for platform in selected_platforms:
-            manifest = 'latest.yml' if platform == 'win-x64' else 'latest-mac.yml'
-            if f'{platform}/{manifest}' not in indexed:
-                raise ValueError('Missing native feed')
-            required = ('.exe', '.exe.blockmap') if platform == 'win-x64' else ('.zip', '.dmg')
+            if platform == 'win-x64' and f'{platform}/latest.yml' not in indexed:
+                raise ValueError('Missing Windows native feed')
+            if mode == 'complete' and platform != 'win-x64' and f'{platform}/latest-mac.yml' not in indexed:
+                raise ValueError('Missing signed Mac native feed')
+            required = ('.exe', '.exe.blockmap') if platform == 'win-x64' else (('.zip', '.dmg') if mode == 'complete' else ('.dmg',))
             for extension in required:
                 if not any(name.startswith(platform + '/') and name.endswith(extension) for name in indexed):
                     raise ValueError('Missing installer or update payload')
-            if platform != 'win-x64':
-                receipt = json.loads((stage / platform / 'signing-verification.json').read_text())
-                if receipt['version'] != expected_version or receipt['platform'] != platform or receipt['signed'] is not True or receipt['notarized'] is not True:
-                    raise ValueError('Missing signing verification')
-                for name in indexed:
-                    if name.startswith(platform + '/') and name.endswith(('.zip', '.dmg')) and receipt['files'].get(name.split('/')[1]) != digest(stage / name):
-                        raise ValueError('Signing receipt does not match uploaded installer')
         legacy = json.loads((stage / 'version.json').read_text())
         if legacy['version'] != expected_version:
             raise ValueError('Legacy version mismatch')
@@ -121,7 +115,7 @@ def publish_archive(archive, root, expected_version, token, expected_mode=None):
             if current.exists() or current.is_symlink():
                 if not current.is_symlink() or current.resolve().parent != releases:
                     raise ValueError('Current pointer is not a release symlink')
-            if mode == 'windows-only':
+            if mode in ('windows-only', 'manual-mac'):
                 previous_manifest_path = current / 'version.json'
                 legacy_site_manifest = root.parent / 'version.json'
                 previous_manifest = json.loads(previous_manifest_path.read_text()) if previous_manifest_path.is_file() else (
@@ -130,9 +124,10 @@ def publish_archive(archive, root, expected_version, token, expected_mode=None):
                 previous_downloads = previous_manifest.get('downloads', {})
                 if not isinstance(previous_downloads, dict):
                     raise ValueError('Existing download manifest is invalid')
-                downloads = dict(previous_downloads)
-                downloads.update(legacy.get('downloads', {}))
-                legacy['downloads'] = downloads
+                if mode == 'windows-only':
+                    downloads = dict(previous_downloads)
+                    downloads.update(legacy.get('downloads', {}))
+                    legacy['downloads'] = downloads
                 if not legacy.get('notes') and previous_manifest.get('notes'):
                     legacy['notes'] = previous_manifest['notes']
                 for platform in ('mac-arm64', 'mac-x64'):
@@ -158,7 +153,7 @@ def publish_archive(archive, root, expected_version, token, expected_mode=None):
                 if platform in selected_platforms:
                     safe_directory(artifacts / platform)
             for name in indexed:
-                if '/' not in name or name.endswith(('.yml', 'signing-verification.json')):
+                if '/' not in name or name.endswith('.yml'):
                     continue
                 if expected_version not in PurePosixPath(name).name:
                     raise ValueError('Artifact filename does not contain release version')

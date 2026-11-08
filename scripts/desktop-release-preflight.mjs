@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url'
 export function releasePreflight(env = process.env) {
   if (env.DESKTOP_RELEASE !== 'true') return { publish: false }
   const mode = env.DESKTOP_RELEASE_MODE || 'complete'
-  if (!['complete', 'windows-only'].includes(mode)) throw new Error('Invalid desktop release mode')
+  if (!['complete', 'windows-only', 'manual-mac'].includes(mode)) throw new Error('Invalid desktop release mode')
   const required = [
     ...(mode === 'complete' ? ['MAC_CSC_LINK', 'MAC_CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'] : []),
     'UPDATES_SSH_HOST', 'UPDATES_SSH_USER', 'UPDATES_SSH_PORT', 'UPDATES_SSH_PRIVATE_KEY', 'UPDATES_SSH_KNOWN_HOSTS',

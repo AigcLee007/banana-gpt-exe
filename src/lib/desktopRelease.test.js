@@ -5,12 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
+import { getUpdateFeed } from '../../electron/desktop-updater.cjs'
 import { prepareRelease, validateRelease, publicationPlan } from '../../scripts/desktop-release.mjs'
 import { releasePreflight } from '../../scripts/desktop-release-preflight.mjs'
 
 const yaml = createRequire(import.meta.url)('js-yaml')
 const roots = []
 const version = '0.4.6-banana.20'
+const packageVersion = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')).version
 const hash = (data) => createHash('sha512').update(data).digest('base64')
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'desktop-release-'))
@@ -18,16 +20,15 @@ function fixture() {
   for (const platform of ['win-x64', 'mac-arm64', 'mac-x64']) {
     const dir = join(root, platform)
     mkdirSync(dir)
-    const extensions = platform === 'win-x64' ? ['exe'] : ['dmg', 'zip']
+    const extensions = platform === 'win-x64' ? ['exe'] : ['dmg']
     const files = extensions.map((ext) => {
       const url = `banana-${version}-${platform}.${ext}`
       const data = Buffer.from(`fixture ${platform} ${ext}`)
       writeFileSync(join(dir, url), data)
-      if (ext !== 'zip') writeFileSync(join(dir, `${url}.blockmap`), 'blockmap fixture')
+      if (platform === 'win-x64') writeFileSync(join(dir, `${url}.blockmap`), 'blockmap fixture')
       return { url, sha512: hash(data), size: data.length }
     })
-    writeFileSync(join(dir, platform === 'win-x64' ? 'latest.yml' : 'latest-mac.yml'), yaml.dump({ version, files, path: files[0].url, sha512: files[0].sha512 }))
-    if (platform !== 'win-x64') writeFileSync(join(dir, 'signing-verification.json'), JSON.stringify({ version, platform, signed: true, notarized: true, files: Object.fromEntries(files.map((f) => [f.url, f.sha512])) }))
+    if (platform === 'win-x64') writeFileSync(join(dir, 'latest.yml'), yaml.dump({ version, files, path: files[0].url, sha512: files[0].sha512 }))
   }
   return root
 }
@@ -46,25 +47,28 @@ function windowsFixture() {
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })))
 
 describe('native release publication', () => {
-  it('validates all three feeds and stages usable installers plus all metadata', () => {
+  it('stages Windows automatic updates and the two manual Mac DMGs', () => {
     const root = fixture()
     const staged = join(root, 'stage')
-    prepareRelease({ input: root, output: staged, version, notes: 'Release notes' })
+    prepareRelease({ input: root, output: staged, version, notes: 'Release notes', mode: 'manual-mac' })
     const legacy = JSON.parse(readFileSync(join(staged, 'version.json'), 'utf8'))
     expect(legacy.version).toBe(version)
     expect(legacy.downloads.windowsUrl).toMatch(/\.exe$/)
     expect(legacy.downloads.macosArm64Url).toMatch(/mac-arm64\.dmg$/)
-    expect(JSON.parse(readFileSync(join(staged, 'release-index.json'), 'utf8')).files.length).toBeGreaterThan(10)
+    expect(legacy.downloads.macosX64Url).toMatch(/mac-x64\.dmg$/)
+    const index = JSON.parse(readFileSync(join(staged, 'release-index.json'), 'utf8'))
+    expect(index.mode).toBe('manual-mac')
+    expect(index.files.some(file => file.path === 'mac-arm64/latest-mac.yml')).toBe(false)
+    expect(index.files.some(file => file.path.endsWith('mac-arm64.dmg'))).toBe(true)
+    expect(index.files.length).toBeGreaterThan(5)
   })
   it('rejects a mismatched SHA512 before staging', () => {
     const root = fixture()
     writeFileSync(join(root, 'win-x64', `banana-${version}-win-x64.exe`), 'tampered')
     expect(() => validateRelease({ input: root, version })).toThrow(/SHA512/)
   })
-  it('rejects a missing Mac build and unsigned Mac receipts', () => {
+  it('rejects a missing Mac build', () => {
     const root = fixture()
-    rmSync(join(root, 'mac-arm64', 'signing-verification.json'))
-    expect(() => validateRelease({ input: root, version })).toThrow(/signing/)
     rmSync(join(root, 'mac-x64'), { recursive: true })
     expect(() => validateRelease({ input: root, version })).toThrow()
   })
@@ -80,20 +84,13 @@ describe('native release publication', () => {
     const root = fixture()
     expect(() => validateRelease({ input: root, version: '0.4.6-banana.21' })).toThrow(/version/)
   })
-  it('accepts a separately distributed DMG when the native metadata lists only ZIP', () => {
-    const root = fixture()
-    for (const platform of ['mac-arm64', 'mac-x64']) {
-      const path = join(root, platform, 'latest-mac.yml')
-      const metadata = yaml.load(readFileSync(path, 'utf8'))
-      metadata.files = metadata.files.filter((file) => file.url.endsWith('.zip'))
-      metadata.path = metadata.files[0].url
-      metadata.sha512 = metadata.files[0].sha512
-      writeFileSync(path, yaml.dump(metadata))
-    }
-    expect(validateRelease({ input: root, version })).toHaveLength(3)
-  })
-  it('blocks publication without signing and SSH credentials before any upload', () => {
-    expect(() => releasePreflight({ DESKTOP_RELEASE: 'true' })).toThrow(/MAC_CSC_LINK.*UPDATES_SSH_KNOWN_HOSTS/)
+  it('allows publishing unsigned Mac installers without Apple credentials when SSH is configured', () => {
+    expect(releasePreflight({
+      DESKTOP_RELEASE: 'true', DESKTOP_RELEASE_MODE: 'manual-mac',
+      UPDATES_SSH_HOST: 'updates.example.com', UPDATES_SSH_USER: 'publisher', UPDATES_SSH_PORT: '2222',
+      UPDATES_SSH_PRIVATE_KEY: 'private key is present', UPDATES_SSH_KNOWN_HOSTS: 'known host is present',
+    })).toEqual({ publish: true, mode: 'manual-mac', version: expect.any(String) })
+    expect(() => releasePreflight({ DESKTOP_RELEASE: 'true' })).toThrow(/UPDATES_SSH_HOST.*UPDATES_SSH_KNOWN_HOSTS/)
     expect(releasePreflight({ DESKTOP_RELEASE: 'false' })).toEqual({ publish: false })
   })
   it('allows Windows-only publication without Apple credentials', () => {
@@ -102,7 +99,7 @@ describe('native release publication', () => {
       UPDATES_SSH_HOST: 'updates.example.com', UPDATES_SSH_USER: 'publisher', UPDATES_SSH_PORT: '22',
       UPDATES_SSH_PRIVATE_KEY: 'private-key', UPDATES_SSH_KNOWN_HOSTS: 'updates.example.com ssh-ed25519 test-key',
     }
-    expect(releasePreflight(env)).toMatchObject({ publish: true, mode: 'windows-only', version })
+    expect(releasePreflight(env)).toMatchObject({ publish: true, mode: 'windows-only', version: packageVersion })
     expect(() => releasePreflight({ ...env, WIN_CSC_LINK: 'certificate' })).toThrow(/both/)
   })
   it('stages only validated Windows artifacts for Windows-only publication', () => {
@@ -126,18 +123,26 @@ describe('native release publication', () => {
     expect(() => prepareRelease({ input: root, output: join(root, 'stage'), version, mode: 'windows-only' })).toThrow(/SHA512/)
     expect(existsSync(join(root, 'stage'))).toBe(false)
   })
-  it('allows electron-builder v26 to discover the imported Mac signing identity', () => {
+  it('builds DMG-only Mac artifacts without requiring Apple signing secrets', () => {
     const workflow = yaml.load(readFileSync(join(process.cwd(), '.github', 'workflows', 'desktop-build.yml'), 'utf8'))
-    expect(workflow.jobs['build-macos'].env.CSC_IDENTITY_AUTO_DISCOVERY).toBe('true')
+    expect(workflow.jobs['build-macos'].steps.find(step => step.run?.includes('electron-builder'))?.run).toContain('--mac dmg')
+    expect(workflow.jobs['build-macos'].env.CSC_IDENTITY_AUTO_DISCOVERY).toBe('false')
+    expect(workflow.jobs['build-macos'].env?.APPLE_ID).toBeUndefined()
+    expect(workflow.jobs['build-macos'].steps.some(step => step.run?.includes('verify-mac-release'))).toBe(false)
   })
-  it('publishes Windows independently without Apple secrets or Mac artifacts', () => {
+  it('enables native update feeds on Windows only', () => {
+    expect(getUpdateFeed('win32', 'x64')).toBe('https://m.aittco.com/downloads/updates/win-x64/')
+    expect(getUpdateFeed('darwin', 'arm64')).toBeNull()
+    expect(getUpdateFeed('darwin', 'x64')).toBeNull()
+  })
+  it('publishes both Mac DMGs with Windows, without Apple secrets', () => {
     const workflow = yaml.load(readFileSync(join(process.cwd(), '.github', 'workflows', 'desktop-build.yml'), 'utf8'))
     const publish = workflow.jobs.publish
-    expect(publish.needs).toEqual(['preflight', 'build-windows'])
-    expect(publish.steps.filter((step) => step.uses === 'actions/download-artifact@v4').map((step) => step.with.name)).toEqual(['desktop-windows'])
-    expect(publish.steps.find((step) => step.run?.includes('desktop-release.mjs')).run).toContain('windows-only')
+    expect(publish.needs).toEqual(['preflight', 'build-windows', 'build-macos'])
+    expect(publish.steps.filter((step) => step.uses === 'actions/download-artifact@v4').map((step) => step.with.name)).toEqual(['desktop-windows', 'desktop-macos-arm64', 'desktop-macos-x64'])
+    expect(publish.steps.find((step) => step.run?.includes('desktop-release.mjs')).run).toContain('manual-mac')
     expect(publish.steps.find((step) => step.run?.includes('publish-desktop-release.mjs')).env).not.toHaveProperty('APPLE_ID')
-    expect(workflow.jobs['build-macos'].if).toContain('!inputs.publish')
+    expect(workflow.env.DESKTOP_RELEASE_MODE).toBe('manual-mac')
   })
   it('orders complete artifact transfer and verification before the atomic feed and legacy manifest switch', () => {
     expect(publicationPlan()).toEqual(['validate-local', 'upload-complete-stage', 'verify-remote', 'install-immutable-artifacts', 'install-release-metadata', 'atomic-current-switch'])
@@ -149,32 +154,40 @@ describe.skipIf(process.platform !== 'linux')('remote atomic publication', () =>
   function remoteFixture(change) {
     const root = fixture()
     const stage = join(root, 'stage')
-    prepareRelease({ input: root, output: stage, version })
+    prepareRelease({ input: root, output: stage, version, mode: 'manual-mac' })
     change?.(stage)
     const remote = join(root, 'remote')
     mkdirSync(join(remote, '.incoming'), { recursive: true })
     mkdirSync(join(remote, 'releases', '0.4.5'), { recursive: true })
     writeFileSync(join(remote, 'releases', '0.4.5', 'version.json'), JSON.stringify({ version: '0.4.5' }))
+    for (const platform of ['mac-arm64', 'mac-x64']) {
+      const feed = join(remote, 'releases', '0.4.5', platform, 'latest-mac.yml')
+      mkdirSync(join(remote, 'releases', '0.4.5', platform), { recursive: true })
+      writeFileSync(feed, `previous feed ${platform}\n`)
+    }
     symlinkSync('releases/0.4.5', join(remote, 'current'))
     const token = '0123456789abcdef01234567'
     execFileSync('tar', ['-czf', join(remote, '.incoming', `${token}.tar.gz`), '-C', stage, '.'])
     return { remote, token }
   }
   function publish({ remote, token }) {
-    const code = `import importlib.util,json,sys\nfrom pathlib import Path\nspec=importlib.util.spec_from_file_location('publisher',sys.argv[1])\nm=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(m)\nroot=Path(sys.argv[2])\nprint(json.dumps(m.publish_archive(root/'.incoming'/(sys.argv[3]+'.tar.gz'),root,sys.argv[4],sys.argv[3])))`
-    return JSON.parse(execFileSync('python3', ['-c', code, join(process.cwd(), 'scripts', 'publish-desktop-release.py'), remote, token, version], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }))
+    const code = `import importlib.util,json,sys\nfrom pathlib import Path\nspec=importlib.util.spec_from_file_location('publisher',sys.argv[1])\nm=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(m)\nroot=Path(sys.argv[2])\nprint(json.dumps(m.publish_archive(root/'.incoming'/(sys.argv[3]+'.tar.gz'),root,sys.argv[4],sys.argv[3],sys.argv[5])))`
+    return JSON.parse(execFileSync('python3', ['-c', code, join(process.cwd(), 'scripts', 'publish-desktop-release.py'), remote, token, version, 'manual-mac'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }))
   }
-  it('verifies all payloads and publishes all native feeds and legacy JSON in the last pointer switch', () => {
+  it('publishes both Mac DMGs and preserves old Mac updater feeds during the pointer switch', () => {
     const context = remoteFixture()
     expect(publish(context)).toEqual(['verify-remote', 'install-immutable-artifacts', 'install-release-metadata', 'atomic-current-switch'])
     expect(readlinkSync(join(context.remote, 'current'))).toBe(`releases/${version}`)
     expect(JSON.parse(readFileSync(join(context.remote, 'current', 'version.json'), 'utf8')).version).toBe(version)
     expect(readFileSync(join(context.remote, 'artifacts', 'win-x64', `banana-${version}-win-x64.exe`), 'utf8')).toContain('fixture')
-    expect(readFileSync(join(context.remote, 'current', 'mac-arm64', 'latest-mac.yml'), 'utf8')).toContain(version)
+    expect(readFileSync(join(context.remote, 'current', 'mac-arm64', `banana-${version}-mac-arm64.dmg`), 'utf8')).toContain('fixture')
+    expect(readFileSync(join(context.remote, 'current', 'mac-arm64', 'latest-mac.yml'), 'utf8')).toBe('previous feed mac-arm64\n')
+    const manifest = JSON.parse(readFileSync(join(context.remote, 'current', 'version.json'), 'utf8'))
+    expect(manifest.downloads.macosArm64Url).toMatch(/fixture-0\.4\.6-banana\.20-mac-arm64\.dmg$/)
   })
   it.each(['corrupt', 'missing'])('keeps all previous public metadata on %s upload', (kind) => {
     const context = remoteFixture((stage) => {
-      const file = join(stage, 'mac-arm64', `banana-${version}-mac-arm64.zip`)
+      const file = join(stage, 'mac-arm64', `banana-${version}-mac-arm64.dmg`)
       if (kind === 'corrupt') writeFileSync(file, 'corrupt')
       else rmSync(file)
     })

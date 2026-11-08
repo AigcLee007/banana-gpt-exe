@@ -21,61 +21,72 @@ function regularFile(dir, name) {
 }
 export function validateRelease({ input, version, mode = 'complete' }) {
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error('Invalid release version')
-  if (!['complete', 'windows-only'].includes(mode)) throw new Error('Invalid release mode')
+  if (!['complete', 'windows-only', 'manual-mac'].includes(mode)) throw new Error('Invalid release mode')
   const result = []
   const selectedPlatforms = mode === 'windows-only' ? ['win-x64'] : platforms
   for (const platform of selectedPlatforms) {
     const dir = join(resolve(input), platform)
     if (!lstatSync(dir).isDirectory() || lstatSync(dir).isSymbolicLink()) throw new Error(`Missing platform directory: ${platform}`)
-    const manifest = platform === 'win-x64' ? 'latest.yml' : 'latest-mac.yml'
-    const metadata = yaml.load(readFileSync(regularFile(dir, manifest), 'utf8'), { schema: yaml.JSON_SCHEMA })
-    if (!metadata || metadata.version !== version) throw new Error(`${platform}: metadata version does not match package version`)
-    if (!Array.isArray(metadata.files) || metadata.files.length === 0) throw new Error(`${platform}: no files in manifest`)
     const files = new Set()
-    for (const entry of metadata.files) {
-      const name = safeFilename(entry.url)
-      if (!name.includes(version)) throw new Error(`${platform}: artifact filename must contain version`)
-      if (files.has(name)) throw new Error(`${platform}: duplicate artifact`)
-      const file = regularFile(dir, name)
-      if (typeof entry.sha512 !== 'string' || sha512(file) !== entry.sha512) throw new Error(`${platform}: SHA512 mismatch: ${name}`)
-      if (entry.size !== undefined && entry.size !== lstatSync(file).size) throw new Error(`${platform}: size mismatch: ${name}`)
-      files.add(name)
-    }
-    if (metadata.path !== undefined) {
-      const name = safeFilename(metadata.path)
-      if (!files.has(name) || (metadata.sha512 && sha512(regularFile(dir, name)) !== metadata.sha512)) throw new Error(`${platform}: legacy manifest path or SHA512 mismatch`)
-    }
-    if (platform !== 'win-x64') {
+    let manifest = null
+    if (platform === 'win-x64') {
+      manifest = 'latest.yml'
+      const metadata = yaml.load(readFileSync(regularFile(dir, manifest), 'utf8'), { schema: yaml.JSON_SCHEMA })
+      if (!metadata || metadata.version !== version) throw new Error(`${platform}: metadata version does not match package version`)
+      if (!Array.isArray(metadata.files) || metadata.files.length === 0) throw new Error(`${platform}: no files in manifest`)
+      for (const entry of metadata.files) {
+        const name = safeFilename(entry.url)
+        if (!name.includes(version)) throw new Error(`${platform}: artifact filename must contain version`)
+        if (files.has(name)) throw new Error(`${platform}: duplicate artifact`)
+        const file = regularFile(dir, name)
+        if (typeof entry.sha512 !== 'string' || sha512(file) !== entry.sha512) throw new Error(`${platform}: SHA512 mismatch: ${name}`)
+        if (entry.size !== undefined && entry.size !== lstatSync(file).size) throw new Error(`${platform}: size mismatch: ${name}`)
+        files.add(name)
+      }
+      if (metadata.path !== undefined) {
+        const name = safeFilename(metadata.path)
+        if (!files.has(name) || (metadata.sha512 && sha512(regularFile(dir, name)) !== metadata.sha512)) throw new Error(`${platform}: legacy manifest path or SHA512 mismatch`)
+      }
+      for (const name of [...files]) {
+        if (!name.endsWith('.exe')) throw new Error('Windows feed must contain only NSIS .exe installers')
+        regularFile(dir, `${name}.blockmap`)
+        files.add(`${name}.blockmap`)
+      }
+      for (const name of readdirSync(dir)) if (name.endsWith('.blockmap')) {
+        safeFilename(name)
+        if (!files.has(name.replace(/\.blockmap$/, ''))) throw new Error(`${platform}: orphan blockmap`)
+        regularFile(dir, name)
+        files.add(name)
+      }
+      files.add(manifest)
+    } else if (mode === 'manual-mac') {
       const installers = readdirSync(dir).filter((name) => name.endsWith('.dmg'))
       if (installers.length !== 1 || !installers[0].includes(version)) throw new Error(`${platform}: missing or ambiguous .dmg installer for version`)
       regularFile(dir, installers[0])
       files.add(installers[0])
-    }
-    const extensions = platform === 'win-x64' ? ['.exe'] : ['.zip']
-    for (const ext of extensions) if (![...files].some((name) => name.endsWith(ext))) throw new Error(`${platform}: missing ${ext} payload`)
-    if (platform === 'win-x64' && [...files].some((name) => !name.endsWith('.exe'))) throw new Error('Windows feed must contain only NSIS .exe installers')
-    for (const name of [...files]) {
-      if (platform === 'win-x64' || existsSync(join(dir, `${name}.blockmap`))) {
-        regularFile(dir, `${name}.blockmap`)
-        files.add(`${name}.blockmap`)
+    } else {
+      manifest = 'latest-mac.yml'
+      const metadata = yaml.load(readFileSync(regularFile(dir, manifest), 'utf8'), { schema: yaml.JSON_SCHEMA })
+      if (!metadata || metadata.version !== version || !Array.isArray(metadata.files) || metadata.files.length === 0) throw new Error(`${platform}: invalid Mac update metadata`)
+      for (const entry of metadata.files) {
+        const name = safeFilename(entry.url)
+        if (!name.includes(version)) throw new Error(`${platform}: artifact filename must contain version`)
+        const file = regularFile(dir, name)
+        if (typeof entry.sha512 !== 'string' || sha512(file) !== entry.sha512) throw new Error(`${platform}: SHA512 mismatch: ${name}`)
+        if (entry.size !== undefined && entry.size !== lstatSync(file).size) throw new Error(`${platform}: size mismatch: ${name}`)
+        files.add(name)
       }
-    }
-    // Include additional builder-generated blockmaps, never arbitrary build outputs.
-    for (const name of readdirSync(dir)) if (name.endsWith('.blockmap')) {
-      safeFilename(name)
-      if (!files.has(name.replace(/\.blockmap$/, ''))) throw new Error(`${platform}: orphan blockmap`)
-      regularFile(dir, name)
-      files.add(name)
-    }
-    if (platform !== 'win-x64') {
-      const receiptPath = join(dir, 'signing-verification.json')
-      if (!existsSync(receiptPath)) throw new Error(`${platform}: missing signing verification receipt`)
+      if (![...files].some((name) => name.endsWith('.zip'))) throw new Error(`${platform}: missing .zip update payload`)
+      const installers = readdirSync(dir).filter((name) => name.endsWith('.dmg'))
+      if (installers.length !== 1 || !installers[0].includes(version)) throw new Error(`${platform}: missing or ambiguous .dmg installer for version`)
+      regularFile(dir, installers[0])
+      files.add(installers[0])
       const receipt = JSON.parse(readFileSync(regularFile(dir, 'signing-verification.json'), 'utf8'))
       if (receipt.version !== version || receipt.platform !== platform || receipt.signed !== true || receipt.notarized !== true) throw new Error(`${platform}: invalid signing verification receipt`)
-      for (const name of files) if (!name.endsWith('.blockmap') && receipt.files?.[name] !== sha512(join(dir, name))) throw new Error(`${platform}: signing receipt hash mismatch`)
+      for (const name of files) if (receipt.files?.[name] !== sha512(join(dir, name))) throw new Error(`${platform}: signing receipt hash mismatch`)
       files.add('signing-verification.json')
+      files.add(manifest)
     }
-    files.add(manifest)
     result.push({ platform, dir, manifest, files: [...files], installer: [...files].find((name) => name.endsWith(platform === 'win-x64' ? '.exe' : '.dmg')) })
   }
   return result
@@ -95,7 +106,7 @@ export function prepareRelease({ input, output, version, notes = '', mode = 'com
   }
   const url = (platform) => `/downloads/updates/${platform}/${feeds.find((feed) => feed.platform === platform).installer}`
   const downloads = { windowsUrl: url('win-x64') }
-  if (mode === 'complete') {
+  if (mode !== 'windows-only') {
     downloads.macosArm64Url = url('mac-arm64')
     downloads.macosX64Url = url('mac-x64')
   }
