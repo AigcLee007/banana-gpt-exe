@@ -180,7 +180,7 @@ describe.skipIf(process.platform !== 'linux')('remote atomic publication', () =>
     expect(readlinkSync(join(context.remote, 'current'))).toBe(`releases/${version}`)
     expect(JSON.parse(readFileSync(join(context.remote, 'current', 'version.json'), 'utf8')).version).toBe(version)
     expect(readFileSync(join(context.remote, 'artifacts', 'win-x64', `banana-${version}-win-x64.exe`), 'utf8')).toContain('fixture')
-    expect(readFileSync(join(context.remote, 'current', 'mac-arm64', `banana-${version}-mac-arm64.dmg`), 'utf8')).toContain('fixture')
+    expect(readFileSync(join(context.remote, 'artifacts', 'mac-arm64', `banana-${version}-mac-arm64.dmg`), 'utf8')).toContain('fixture')
     expect(readFileSync(join(context.remote, 'current', 'mac-arm64', 'latest-mac.yml'), 'utf8')).toBe('previous feed mac-arm64\n')
     const manifest = JSON.parse(readFileSync(join(context.remote, 'current', 'version.json'), 'utf8'))
     expect(manifest.downloads.macosArm64Url).toMatch(/fixture-0\.4\.6-banana\.20-mac-arm64\.dmg$/)
