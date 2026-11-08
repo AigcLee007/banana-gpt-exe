@@ -30,6 +30,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: '艾特智绘',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
