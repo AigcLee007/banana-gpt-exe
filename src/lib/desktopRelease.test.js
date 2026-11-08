@@ -183,7 +183,7 @@ describe.skipIf(process.platform !== 'linux')('remote atomic publication', () =>
     expect(readFileSync(join(context.remote, 'artifacts', 'mac-arm64', `banana-${version}-mac-arm64.dmg`), 'utf8')).toContain('fixture')
     expect(readFileSync(join(context.remote, 'current', 'mac-arm64', 'latest-mac.yml'), 'utf8')).toBe('previous feed mac-arm64\n')
     const manifest = JSON.parse(readFileSync(join(context.remote, 'current', 'version.json'), 'utf8'))
-    expect(manifest.downloads.macosArm64Url).toMatch(/fixture-0\.4\.6-banana\.20-mac-arm64\.dmg$/)
+    expect(manifest.downloads.macosArm64Url).toMatch(/banana-0\.4\.6-banana\.20-mac-arm64\.dmg$/)
   })
   it.each(['corrupt', 'missing'])('keeps all previous public metadata on %s upload', (kind) => {
     const context = remoteFixture((stage) => {
