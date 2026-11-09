@@ -129,6 +129,24 @@ export function ExternalLinkIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+export function ShoppingCartIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l2.4 12.2a2 2 0 002 1.6h8.9a2 2 0 002-1.6L22 8H6" />
+      <circle cx="10" cy="20" r="1" fill="currentColor" />
+      <circle cx="18" cy="20" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function HeadsetIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 13v-1a9 9 0 0118 0v1M5 13h2a2 2 0 012 2v3a2 2 0 01-2 2H6a3 3 0 01-3-3v-2a2 2 0 012-2zm14 0h-2a2 2 0 00-2 2v3a2 2 0 002 2h1a3 3 0 003-3v-2a2 2 0 00-2-2z" />
+    </svg>
+  )
+}
+
 
 export function GithubIcon(props: SVGProps<SVGSVGElement>) {
   return (

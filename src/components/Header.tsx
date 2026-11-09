@@ -5,6 +5,8 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
 import HelpModal from './HelpModal'
 import HistoryModal from './HistoryModal'
+import HomeContactActions from './HomeContactActions'
+import { CustomerSupportDialog } from './HomeContactActions'
 import { EditIcon, HelpCircleIcon, HistoryIcon, SettingsIcon } from './icons'
 
 const APP_BRAND_NAME = '艾特智绘'
@@ -37,6 +39,7 @@ export default function Header() {
   const [hintVisible, setHintVisible] = useState(false)
   const [scrollDirection, setScrollDirection] = useState<'up' | 'down'>('up')
   const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [supportOpen, setSupportOpen] = useState(false)
   const historyButtonRef = useRef<HTMLButtonElement>(null)
   const themeMenuRef = useRef<HTMLDivElement>(null)
 
@@ -223,6 +226,7 @@ export default function Header() {
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            <HomeContactActions placement="desktop" onOpenSupport={() => setSupportOpen(true)} />
             <div ref={themeMenuRef} className="relative" {...themeTooltip.handlers}>
               <button
                 type="button"
@@ -299,8 +303,9 @@ export default function Header() {
 
         <div
           data-aap-mode-tabs
-          className={`safe-area-x sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${appMode === 'gallery' && scrollDirection === 'down' ? 'max-h-0 opacity-0 pb-0' : 'max-h-20 opacity-100 pb-2'}`}
+          className={`safe-area-x sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${appMode === 'gallery' && scrollDirection === 'down' ? 'max-h-0 opacity-0 pb-0' : 'max-h-32 opacity-100 pb-2'}`}
         >
+          <HomeContactActions placement="mobile" onOpenSupport={() => setSupportOpen(true)} />
           <div className="grid grid-cols-4 gap-1 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-gray-100/70 dark:bg-white/[0.04] p-1 mx-2">
             <div className="relative" {...galleryTooltip.handlers}>
               <button
@@ -369,6 +374,8 @@ export default function Header() {
         </div>
       </header>
 
+      <CustomerSupportDialog open={supportOpen} onClose={() => setSupportOpen(false)} />
+
       <div
         className={`fixed top-0 left-0 right-0 z-30 flex justify-center pointer-events-none transition-all duration-300 ease-in-out sm:hidden ${appMode === 'agent' && hintVisible && !agentMobileHeaderVisible ? 'translate-y-[env(safe-area-inset-top,0px)] opacity-100' : '-translate-y-full opacity-0'}`}
       >
@@ -384,8 +391,12 @@ export default function Header() {
         <div className="safe-header-inner" />
         <div
           data-aap-mode-tabs
-          className={`safe-area-x sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${appMode === 'gallery' && scrollDirection === 'down' ? 'max-h-0 pb-0' : 'max-h-20 pb-2'}`}
+          className={`safe-area-x sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${appMode === 'gallery' && scrollDirection === 'down' ? 'max-h-0 pb-0' : 'max-h-32 pb-2'}`}
         >
+          <div className="grid grid-cols-2 gap-2 px-2 pb-1">
+            <div className="h-8" />
+            <div className="h-8" />
+          </div>
           <div className="p-1">
             <div className="py-1.5 text-sm">占位</div>
           </div>

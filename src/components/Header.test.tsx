@@ -54,4 +54,14 @@ describe('header upscale entry', () => {
     expect(html).toContain('视频生成，多种视频模型')
     expect(html).toContain('通过对话生成、编辑图片')
   })
+
+  it('offers purchase and customer support actions in the home header', () => {
+    const html = renderToStaticMarkup(<Header />)
+
+    expect(html).toContain('href="https://item.taobao.com/item.htm?id=1058856152173"')
+    expect(html).toContain('aria-label="购买"')
+    expect(html).toContain('aria-label="客服"')
+    expect(html).toContain('data-home-contact-actions="desktop"')
+    expect(html).toContain('data-home-contact-actions="mobile"')
+  })
 })
